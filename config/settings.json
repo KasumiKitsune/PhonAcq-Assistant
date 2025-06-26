@@ -5,8 +5,8 @@
         "recording_gain": 1.0
     },
     "file_settings": {
-        "word_list_file": "\u5355\u8bed\u8a00\u7b80\u6d01\u6a21\u677f.py",
-        "participant_base_name": "participant",
+        "word_list_file": "4_\u6807\u51c6\u8bcd\u8868_\u65b9\u8a00\u9002\u5e94\u6027\u6a21\u677f.py",
+        "participant_base_name": "Participant",
         "results_dir": "Results"
     },
     "gtts_settings": {
@@ -32,5 +32,10 @@
     },
     "dialect_visual_settings": {
         "notes_area_height": 120
+    },
+    "ui_settings": {
+        "sidebar_width": 300,
+        "collector_sidebar_width": 400,
+        "editor_sidebar_width": 300
     }
 }
