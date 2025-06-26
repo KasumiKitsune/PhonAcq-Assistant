@@ -1,18 +1,19 @@
 /*
- * Modern Light 2-Level Tab Theme v1.3 (Normalized)
+ * Modern Light 2-Level Tab Theme v1.4 (Normalized & Enhanced)
  * Author: AI Assistant & Sager
- * Description: A clean, modern light theme for a 2-level tabbed UI with larger fonts.
+ * Description: A clean, modern light theme for a 2-level tabbed UI with larger fonts,
+ *              and improved consistency for new UI elements.
  */
 
 /* ================== 全局样式 ================== */
 QWidget {
     font-family: "Microsoft YaHei", sans-serif;
     color: #2C160D;
-    background-color: transparent; /* 全局透明背景，具体控件再覆盖 */
+    background-color: transparent; 
     font-size: 18px;
 }
 
-QMainWindow { /* 主窗口，也是大部分页面的背景 */
+QMainWindow { 
     background-color: #FFF8F6; 
 }
 
@@ -21,61 +22,52 @@ QMessageBox, QDialog {
 }
 QMessageBox QLabel { 
     font-size: 18px; 
-    /* color 会继承 QWidget 的全局设置 */
 }
 
 /* ================== 一级标签页 (Ribbon-Style) ================== */
 QTabWidget#MainTabWidget::pane { 
     border-top: 1px solid #FFDBCF; 
-    background-color: #FFF8F6; /* 确保内容区背景与主窗口一致 */
+    background-color: #FFF8F6; 
 }
 QTabWidget#MainTabWidget::tab-bar { 
     alignment: left; 
 }
-
-QTabBar::tab:!first { /* 用于处理相邻标签边框重叠 */
+QTabBar::tab:!first { 
     margin-left: -1px; 
 }
-
 QTabWidget#MainTabWidget QTabBar::tab {
     background: #FCEAE4;
     color: #8F4C33;
     border: 1px solid #FFDBCF;
-    border-bottom: none; /* 选中的标签底部边框由 pane 的 top-border 形成融合感 */
+    border-bottom: none; 
     font-size: 20px;
     font-weight: bold;
     margin-right: 4px; 
     min-width: 180px;
     padding: 12px 20px;
 }
-
 QTabWidget#MainTabWidget QTabBar::tab:hover {
     background: #FFDBCF;
 }
-
 QTabWidget#MainTabWidget QTabBar::tab:selected {
     background: #FFF8F6; 
     color: #2C160D;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    /* border-bottom-color: #FFF8F6; 让 pane 的 border-top 生效 */
 }
-
-QTabWidget#MainTabWidget QTabBar::tab:disabled { /* 为禁用的主标签页添加样式 */
+QTabWidget#MainTabWidget QTabBar::tab:disabled { 
     background: #E0E0E0;
     color: #a0a0a0;
 }
 
-
 /* ================== 二级标签页 (Compact-Style) ================== */
 QTabWidget#SubTabWidget::pane { 
     border: none; 
-    background-color: transparent; /* 二级标签页的内容区通常是其父控件的背景 */
+    background-color: transparent; 
 }
 QTabWidget#SubTabWidget::tab-bar { 
     alignment: left; 
 }
-
 QTabWidget#SubTabWidget QTabBar::tab {
     background: transparent;
     color: #8F4C33;
@@ -84,40 +76,40 @@ QTabWidget#SubTabWidget QTabBar::tab {
     padding: 10px 25px; 
     font-size: 18px;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab:hover {
     background-color: #fef5f2;
     border-bottom: 3px solid #FFDBCF;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab:selected {
     color: #2C160D;
     font-weight: bold;
     border-bottom: 3px solid #8F4C33;
 }
-
-QTabWidget#SubTabWidget QTabBar::tab:disabled { /* 为禁用的子标签页添加样式 */
+QTabWidget#SubTabWidget QTabBar::tab:disabled { 
     color: #b0b0b0;
 }
 
 /* ================== 按钮样式 ================== */
 QPushButton {
     border: none; 
-    padding: 12px 24px; 
-    border-radius: 22px; 
+    padding: 10px 20px;  /* 稍微减小默认按钮的填充，使其不那么突出 */
+    border-radius: 20px; /* 配合新的填充调整圆角 */
     font-size: 18px;
     background-color: #FCEAE4; 
     color: #2C160D;
+    min-height: 30px; /* 确保按钮有一个最小高度 */
 }
 QPushButton:hover { background-color: #FFDBCF; }
 QPushButton:pressed { background-color: #e8d2c6; }
 QPushButton:disabled { background-color: #E0E0E0; color: #a0a0a0; }
 
-/* 特殊按钮: AccentButton (强调按钮) */
+/* 特殊按钮: AccentButton (强调按钮，通常用于主要操作) */
 QPushButton#AccentButton { 
     background-color: #8F4C33; 
     color: #FFF8F6; 
     font-weight: bold; 
+    padding: 12px 24px; /* 强调按钮可以大一些 */
+    border-radius: 22px;
 }
 QPushButton#AccentButton:hover { background-color: #a45f43; }
 QPushButton#AccentButton:pressed { background-color: #7a3f23; }
@@ -128,75 +120,116 @@ QPushButton#LinkButton {
     color: #8F4C33;
     border: none;
     text-decoration: underline;
-    padding: 5px;
+    padding: 5px; /* 链接按钮通常不需要很多内边距 */
     border-radius: 0px;
-    font-size: 16px; /* 链接按钮可以小一点 */
+    font-size: 16px; 
+    min-height: 0px; /* 链接按钮不需要最小高度 */
 }
 QPushButton#LinkButton:hover { color: #a45f43; }
 QPushButton#LinkButton:pressed { color: #2C160D; }
 
+
+/* ===== 新增/MODIFIED: 为次要操作按钮（如“打开文件夹”）定义一个通用样式 ===== */
+/* 如果不设置 objectName, 它会继承基础 QPushButton 样式 */
+/* 但如果希望它更紧凑，可以加一个 objectName, 例如 "ToolButton" */
+/* QPushButton#ToolButton { */
+/*     padding: 6px 12px; */
+/*     font-size: 16px; */
+/*     border-radius: 15px; */
+/*     background-color: #f0f0f0; /* 一个更中性的颜色 */
+/*     color: #333333; */
+/* } */
+/* QPushButton#ToolButton:hover { background-color: #e0e0e0; } */
+/* QPushButton#ToolButton:pressed { background-color: #d0d0d0; } */
+
 /* 特殊按钮: ActionButton_Delete (如果需要，为结束会话等按钮定义特殊红色系样式) */
-/*
 QPushButton#ActionButton_Delete {
-    background-color: #d9534f; 
+    background-color: #D98880; /* 一个柔和的红色 */
     color: white;
     font-weight: bold;
+    padding: 12px 24px;
+    border-radius: 22px;
 }
-QPushButton#ActionButton_Delete:hover { background-color: #c9302c; }
-QPushButton#ActionButton_Delete:pressed { background-color: #ac2925; }
-*/
+QPushButton#ActionButton_Delete:hover { background-color: #CD5C5C; }
+QPushButton#ActionButton_Delete:pressed { background-color: #A93226; }
 
 
 /* ================== 其他常用控件 ================== */
 QLabel { /* color 会继承 QWidget */ }
 
-QLineEdit, QPlainTextEdit { 
+QLineEdit, QPlainTextEdit, QTextBrowser { /* QTextBrowser也加入进来，确保一致性 */
     background-color: #ffffff; 
     border: 1px solid #FCEAE4; 
     border-radius: 8px; 
     padding: 8px; 
     color: #2C160D; 
 }
+/* 为QTextBrowser的链接设置特定颜色（如果需要覆盖默认） */
+QTextBrowser a {
+    color: #8F4C33;
+    text-decoration: none;
+}
+QTextBrowser a:hover {
+    text-decoration: underline;
+}
+
+
 QComboBox { 
     background-color: #ffffff; 
     border: 1px solid #FCEAE4; 
-    border-radius: 0px; /* 去掉圆角 */
+    border-radius: 8px; /* 让ComboBox也有一点圆角，与QLineEdit统一 */
     padding: 8px; 
     color: #2C160D; 
+    min-height: 22px; /* 确保ComboBox的高度与QLineEdit相似 */
 }
-QComboBox::drop-down { border: none; }
-QComboBox QAbstractItemView { /* 下拉列表本身的样式 */
+QComboBox::drop-down { 
+    border: none; 
+    /* 可以考虑添加一个下拉箭头图标 */
+    /* image: url(path/to/dropdown-arrow.png); */
+    /* width: 15px; */
+    /* height: 15px; */
+    /* margin-right: 5px; */
+}
+QComboBox::down-arrow { /* 默认的下拉箭头，可以隐藏或替换 */
+    image: none; /* 隐藏默认箭头，如果使用自定义image */
+}
+
+QComboBox QAbstractItemView { 
     border: 1px solid #FCEAE4;
     background-color: #FFF8F6;
     selection-background-color: #FFDBCF;
-    selection-color: #2C160D; /* 选中项文字颜色 */
-    outline: 0px; /* 去掉选中时的虚线框 */
+    selection-color: #2C160D; 
+    outline: 0px; 
+    border-radius: 4px; /* 给下拉列表本身也加一点圆角 */
 }
 
 
 QGroupBox { 
     border: 1px solid #FCEAE4; 
     border-radius: 8px; 
-    margin-top: 10px; /* 为标题留出空间 */
-    padding: 25px 10px 10px 10px; /* 上(为标题留空)、右、下、左 */
+    margin-top: 10px; 
+    padding: 25px 10px 10px 10px; 
 }
 QGroupBox::title { 
     subcontrol-origin: margin; 
     subcontrol-position: top left; 
-    padding: 0px 8px; /* 标题左右留白 */
-    margin-left: 10px; /* 标题距离左边框的距离 */
-    background-color: #FFF8F6; /* 使标题看起来像是刻在背景上 */
+    padding: 0px 8px; 
+    margin-left: 10px; 
+    background-color: #FFF8F6; 
     color: #2C160D;
     font-weight: bold;
+    border-radius: 4px; /* 给标题背景也加一点圆角 */
 }
 
 QListWidget, QTableWidget { 
     background-color: #ffffff; 
     border: 1px solid #FCEAE4; 
     border-radius: 8px; 
+    outline: 0px; /* 去掉选中时的虚线框 */
 }
-QTableWidget { /* 表格特有的交替行颜色 */
+QTableWidget { 
     alternate-background-color: #fefcfb; 
+    gridline-color: #FCEAE4; /* 给表格线一个柔和的颜色 */
 }
 QListWidget::item { 
     padding: 10px; 
@@ -205,12 +238,19 @@ QListWidget::item {
 QListWidget::item:selected, QTableWidget::item:selected { 
     background-color: #FFDBCF; 
     color: #2C160D; 
+    /* border: 1px solid #8F4C33; 可选：给选中项加边框 */
 }
+/* 使QTableWidget的单元格在编辑时有更清晰的边框 */
+QTableWidget QLineEdit {
+    border-radius: 0px; /* 编辑器通常不需要圆角 */
+    border: 1px solid #8F4C33; /* 编辑时高亮边框 */
+}
+
 
 QHeaderView::section { 
     background-color: #FCEAE4; 
     padding: 10px; 
-    border: none; /* 通常表头不需要左右边框 */
+    border: none; 
     border-bottom: 1px solid #FFDBCF; 
     font-weight: bold;
     color: #2C160D;
@@ -222,10 +262,11 @@ QProgressBar {
     text-align: center; 
     color: #2C160D; 
     height: 24px; 
+    background-color: #ffffff; /* 给进度条背景一个明确的颜色 */
 }
 QProgressBar::chunk { 
     background-color: #8F4C33; 
-    border-radius: 11px; /* 比父控件小一点，形成边框感 */
+    border-radius: 11px; 
 }
 
 QSlider::groove:horizontal { 
@@ -239,7 +280,7 @@ QSlider::handle:horizontal {
     background: #8F4C33; 
     border: none; 
     width: 20px; 
-    margin: -6px 0; /* 使句柄在视觉上覆盖轨道 */
+    margin: -6px 0; 
     border-radius: 10px; 
 }
 
@@ -250,18 +291,29 @@ QScrollBar:vertical {
     margin: 0; 
 }
 QScrollBar::handle:vertical { 
-    background: #FCEAE4; 
-    min-height: 25px; /* 增加最小高度，更容易点击 */
+    background: #E8D2C6; /* 使滑块颜色更柔和 */
+    min-height: 25px; 
     border-radius: 7px; 
 }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { /* 隐藏上下箭头 */
-    border: none;
-    background: none;
-    height: 0px;
-    subcontrol-position: top;
-    subcontrol-origin: margin;
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { 
+    border: none; background: none; height: 0px;
+    subcontrol-position: top; subcontrol-origin: margin;
 }
-/* 水平滚动条类似，如果需要的话 */
+QScrollBar:horizontal {
+    border: none;
+    background: #fbeee9;
+    height: 15px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #E8D2C6;
+    min-width: 25px;
+    border-radius: 7px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none; background: none; width: 0px;
+}
+
 
 /* ================== 全局右键菜单 (QMenu) 样式 ================== */
 QMenu {
@@ -271,7 +323,6 @@ QMenu {
     padding: 5px;
     border-radius: 4px;
 }
-
 QMenu::item {
     background-color: transparent;
     color: #2C160D;
@@ -279,18 +330,15 @@ QMenu::item {
     border: 1px solid transparent;
     margin: 2px 0px;
 }
-
 QMenu::item:selected {
     background-color: #FFDBCF;
     color: #2C160D;
     border-radius: 3px;
 }
-
 QMenu::item:disabled {
     color: #a0a0a0;
     background-color: transparent;
 }
-
 QMenu::separator {
     height: 1px;
     background: #FFDBCF;
@@ -299,9 +347,20 @@ QMenu::separator {
     margin-top: 3px;
     margin-bottom: 3px;
 }
-
 QMenu::icon {
     padding-left: 10px;
     width: 16px;
     height: 16px;
 }
+
+/* ===== 新增/MODIFIED: 确保 QFormLayout 中的控件间距合适 ===== */
+/* QFormLayout 本身不能直接用QSS设置内部间距，但可以影响其子控件的边距 */
+/* 如果按钮在QFormLayout中显得太挤，可以尝试给这些按钮一个objectName, 然后单独设置其margin */
+/* 例如，如果 "打开" 按钮的 objectName 是 "OpenDirButtonInForm" */
+/*
+QPushButton#OpenDirButtonInForm {
+    margin-left: 5px;  
+}
+*/
+/* 或者，如果是一个 QHBoxLayout 包裹了 QLineEdit 和 QPushButton，可以对这个 QHBoxLayout 设置间距 */
+/* （这通常在Python代码中用 layout.setSpacing(5) 完成）*/

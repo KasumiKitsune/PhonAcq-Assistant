@@ -49,8 +49,10 @@ class VoicebankRecorderPage(QWidget):
         self.parent_window = parent_window
         self.WORD_LIST_DIR = WORD_LIST_DIR
         self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR
-        self.ToggleSwitch = ToggleSwitchClass
+        self.ToggleSwitch = ToggleSwitchClass # 虽然本页面未使用，但保持接口一致性
         self.Worker = WorkerClass
+        # 从父窗口获取最新的配置
+        self.config = self.parent_window.config
 
         self.session_active = False
         self.is_recording = False
@@ -68,12 +70,14 @@ class VoicebankRecorderPage(QWidget):
         self.record_btn.released.connect(self.stop_recording)
         
         self.setFocusPolicy(Qt.StrongFocus)
-        self.apply_layout_settings()
+        self.apply_layout_settings() # 初始化时应用一次
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
         left_layout = QVBoxLayout()
-        self.right_panel = QWidget()
+        
+        # 将右侧面板保存为成员变量以便后续调整宽度
+        self.right_panel = QWidget() 
         right_layout = QVBoxLayout(self.right_panel)
 
         self.list_widget = QListWidget()
@@ -90,7 +94,7 @@ class VoicebankRecorderPage(QWidget):
         self.start_btn.setObjectName("AccentButton")
         self.end_session_btn = QPushButton("结束当前会话")
         self.end_session_btn.setObjectName("ActionButton_Delete")
-        self.end_session_btn.hide()
+        self.end_session_btn.hide() # 初始隐藏
         
         self.control_layout.addRow("选择单词表:", self.word_list_combo)
         self.control_layout.addRow(self.start_btn)
@@ -110,21 +114,21 @@ class VoicebankRecorderPage(QWidget):
         right_layout.addWidget(self.record_btn)
         
         main_layout.addLayout(left_layout, 2)
-        main_layout.addWidget(self.right_panel, 1)
+        main_layout.addWidget(self.right_panel, 1) # 使用 self.right_panel
 
     def apply_layout_settings(self):
-        ui_settings = self.parent_window.config.get("ui_settings", {})
+        """从配置中读取并应用侧边栏宽度。"""
+        ui_settings = self.config.get("ui_settings", {})
         width = ui_settings.get("collector_sidebar_width", 320)
         self.right_panel.setFixedWidth(width)
 
     def load_config_and_prepare(self):
-        self.config = self.parent_window.config
-        self.apply_layout_settings()
+        """当标签页被选中时调用，加载最新配置并准备UI。"""
+        self.config = self.parent_window.config # 获取最新的全局配置
+        self.apply_layout_settings() # 确保侧边栏宽度是最新的
         if not self.session_active:
             self.populate_word_lists()
             
-    # ... (其余所有方法保持不变) ...
-    # (keyPressEvent, _get_weighted_length, ..., load_word_list_logic)
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter) and not event.isAutoRepeat():
             if self.record_btn.isEnabled() and not self.is_recording:
@@ -177,8 +181,10 @@ class VoicebankRecorderPage(QWidget):
             self.log("请先在列表中选择一个词！")
             self.is_recording = False
             return
+
         self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;")
         self.update_timer.start(50)
+            
         self.record_btn.setText("正在录音..."); self.record_btn.setStyleSheet("background-color: #f44336;")
         self.log(f"录制 '{self.current_word_list[self.current_word_index]['word']}'")
         self.stop_event.clear(); self.audio_queue = queue.Queue()
@@ -186,16 +192,19 @@ class VoicebankRecorderPage(QWidget):
 
     def stop_recording(self):
         if not self.recording_thread or not self.recording_thread.is_alive(): 
-            self.is_recording = False
+            self.is_recording = False # 确保状态正确
             return
+
         self.update_timer.stop()
         self.recording_indicator.setText("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;")
         self.volume_meter.setValue(0)
+            
         self.stop_event.set(); self.record_btn.setText("按住录音"); self.record_btn.setStyleSheet("")
         self.log("正在保存...")
         if self.recording_thread.is_alive():
-            self.recording_thread.join(timeout=0.5)
+            self.recording_thread.join(timeout=0.5) # 等待线程结束
         self.run_task_in_thread(self.save_recording_task)
+        self.is_recording = False # 确保在所有操作后重置状态
     
     def log(self, msg): self.status_label.setText(f"状态: {msg}")
     
@@ -205,17 +214,27 @@ class VoicebankRecorderPage(QWidget):
             self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.py')])
         
     def reset_ui(self):
+        """重置UI到初始状态，但不清除数据。"""
         self.word_list_combo.show()
         self.start_btn.show()
-        self.control_layout.removeRow(self.end_session_btn)
+
+        # 从布局中移除“结束会话”按钮的整行
+        # 检查按钮是否真的在布局中，避免重复移除或对已删除对象操作
+        if self.end_session_btn.parent() is not None: # 检查按钮是否已添加到布局中
+             self.control_layout.removeRow(self.end_session_btn)
+             # self.end_session_btn.deleteLater() # 可选：彻底删除按钮对象
+
         self.list_widget.clear()
         self.record_btn.setEnabled(False)
         self.log("请选择一个单词表开始录制。")
     
     def end_session(self):
+        """结束当前录制会话，清理数据并重置UI。"""
         reply = QMessageBox.question(self, '结束会话', '您确定要结束当前的语音包录制会话吗？',
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
+            if self.is_recording: # 如果正在录音，先停止
+                self.stop_recording()
             self.session_active = False
             self.current_word_list = []
             self.current_word_index = -1
@@ -227,6 +246,7 @@ class VoicebankRecorderPage(QWidget):
         wordlist_name,_=os.path.splitext(wordlist_file)
         self.audio_folder=os.path.join(self.AUDIO_RECORD_DIR,wordlist_name)
         if not os.path.exists(self.audio_folder): os.makedirs(self.audio_folder)
+        
         try:
             word_groups=self.load_word_list_logic(wordlist_file)
             self.current_word_list=[]
@@ -234,36 +254,49 @@ class VoicebankRecorderPage(QWidget):
                 for word,value in group.items():
                     ipa=value[0] if isinstance(value,tuple) else str(value)
                     self.current_word_list.append({'word':word,'ipa':ipa})
-            self.current_word_index=0
-            self.word_list_combo.hide(); self.start_btn.hide()
+            self.current_word_index=0 # 默认选中第一个
+            
+            self.word_list_combo.hide()
+            self.start_btn.hide()
+            # 重新创建按钮实例，以确保它在布局中是新的
             self.end_session_btn = QPushButton("结束当前会话")
             self.end_session_btn.setObjectName("ActionButton_Delete")
             self.end_session_btn.clicked.connect(self.end_session)
+            self.end_session_btn.show() # 确保按钮可见
             self.control_layout.addRow(self.end_session_btn)
+
+
             self.update_list_widget()
             self.record_btn.setEnabled(True)
             self.log("准备就绪，请选择词语并录音。")
+            
             self.session_active = True
+
         except Exception as e: 
             QMessageBox.critical(self,"错误",f"加载单词表失败: {e}")
             self.session_active = False
         
     def update_list_widget(self):
         current_row = self.list_widget.currentRow()
-        if current_row == -1: current_row = 0
+        if current_row == -1 and self.current_word_list: current_row = 0 # 如果没有选中项且列表不空，默认选第一个
+
         self.list_widget.clear()
         for item_data in self.current_word_list:
             display_text = self._format_list_item_text(item_data['word'], item_data['ipa'])
             item = QListWidgetItem(display_text)
+            
             filepath=os.path.join(self.audio_folder,f"{item_data['word']}.mp3")
             if os.path.exists(filepath): item.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
+            
             self.list_widget.addItem(item)
-        if self.current_word_list and current_row < len(self.current_word_list):
+            
+        if self.current_word_list and 0 <= current_row < len(self.current_word_list):
              self.list_widget.setCurrentRow(current_row)
              
     def on_recording_saved(self):
         self.log("录音已保存。")
         self.update_list_widget() 
+        
         if self.current_word_index + 1 < len(self.current_word_list):
             self.current_word_index += 1
             self.list_widget.setCurrentRow(self.current_word_index)
@@ -273,11 +306,24 @@ class VoicebankRecorderPage(QWidget):
         
     def recorder_thread_task(self):
         try:
-            with sd.InputStream(samplerate=self.config['audio_settings']['sample_rate'],channels=self.config['audio_settings']['channels'],
-                                callback=lambda i,f,t,s:self.audio_queue.put(i.copy())): self.stop_event.wait()
-        except Exception as e:print(f"录音错误: {e}")
-        
-    def save_recording_task(self,worker):
+            # ===== 新增/MODIFIED: 获取选择的录音设备 =====
+            device_index = self.config['audio_settings'].get('input_device_index', None)
+            # 如果 device_index 是 None, sounddevice 会使用系统默认设备
+            
+            with sd.InputStream(
+                device=device_index, # <--- 使用选择的设备
+                samplerate=self.config['audio_settings']['sample_rate'],
+                channels=self.config['audio_settings']['channels'],
+                callback=lambda i,f,t,s:self.audio_queue.put(i.copy())
+            ): 
+                self.stop_event.wait()
+        except Exception as e:
+            print(f"录音错误 (VoicebankRecorderPage): {e}")
+            # 可以在这里添加一个错误提示给用户，例如通过信号
+            self.parent_window.statusBar().showMessage(f"录音设备错误: {e}", 5000)
+
+
+    def save_recording_task(self,worker_instance): # 参数名改为 worker_instance
         if self.audio_queue.empty():return
         data=[self.audio_queue.get() for _ in range(self.audio_queue.qsize())];rec=np.concatenate(data,axis=0)
         gain=self.config['audio_settings'].get('recording_gain',1.0)

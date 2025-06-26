@@ -2,10 +2,11 @@
     "audio_settings": {
         "sample_rate": 44100,
         "channels": 1,
-        "recording_gain": 1.0
+        "recording_gain": 1.0,
+        "input_device_index": null
     },
     "file_settings": {
-        "word_list_file": "4_\u6807\u51c6\u8bcd\u8868_\u65b9\u8a00\u9002\u5e94\u6027\u6a21\u677f.py",
+        "word_list_file": "\u8bed\u8a00\u68c0\u6d4b.py",
         "participant_base_name": "Participant",
         "results_dir": "Results"
     },
@@ -35,7 +36,7 @@
     },
     "ui_settings": {
         "sidebar_width": 300,
-        "collector_sidebar_width": 400,
-        "editor_sidebar_width": 300
+        "collector_sidebar_width": 350,
+        "editor_sidebar_width": 350
     }
 }

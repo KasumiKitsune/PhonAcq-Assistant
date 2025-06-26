@@ -252,12 +252,12 @@ class PinyinToIpaPage(QWidget):
                 font = title_item.font(); font.setBold(True); title_item.setFont(font)
                 self.scheme_rules_table.setItem(row, 0, title_item); self.scheme_rules_table.setSpan(row, 0, 1, 4); i += 1
             else:
-                p_item1 = QTableWidgetItem(p1); ipa_item1 = QTableWidgetItem(f"[{ipa1}]"); ipa_item1.setFont(QFont("Doulos SIL", 12))
+                p_item1 = QTableWidgetItem(p1); ipa_item1 = QTableWidgetItem(f"[{ipa1}]"); ipa_item1.setFont(QFont("Doulos SIL", 10))
                 self.scheme_rules_table.setItem(row, 0, p_item1); self.scheme_rules_table.setItem(row, 1, ipa_item1); i += 1
                 if i < len(all_items):
                     p2, ipa2 = all_items[i]
                     if ipa2 is not None:
-                        p_item2 = QTableWidgetItem(p2); ipa_item2 = QTableWidgetItem(f"[{ipa2}]"); ipa_item2.setFont(QFont("Doulos SIL", 12))
+                        p_item2 = QTableWidgetItem(p2); ipa_item2 = QTableWidgetItem(f"[{ipa2}]"); ipa_item2.setFont(QFont("Doulos SIL", 10))
                         self.scheme_rules_table.setItem(row, 2, p_item2); self.scheme_rules_table.setItem(row, 3, ipa_item2); i += 1
             row += 1
         self.scheme_rules_table.resizeRowsToContents()

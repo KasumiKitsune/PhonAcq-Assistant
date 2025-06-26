@@ -8,3 +8,4 @@ gTTS
 thefuzz
 python-Levenshtein
 pypinyin
+markdown

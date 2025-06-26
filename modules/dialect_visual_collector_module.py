@@ -1,10 +1,12 @@
+# --- START OF FILE dialect_visual_collector_module.py ---
+
 # --- 模块元数据 ---
 MODULE_NAME = "方言图文采集"
 MODULE_DESCRIPTION = "展示图片并录制方言描述，支持文字备注显隐及图片缩放。"
 # ---
 
 import os
-import sys
+import sys # 确保 sys 被导入
 import importlib.util
 import threading
 import queue
@@ -18,12 +20,19 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QCheckBox, QStyle)
 from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QColor, QPainter, QTransform
 
-import sounddevice as sd
-import soundfile as sf
-import numpy as np
+# 模块级别依赖检查
+try:
+    import sounddevice as sd
+    import soundfile as sf
+    import numpy as np
+    DEPENDENCIES_MISSING = False
+except ImportError as e:
+    print(f"CRITICAL: dialect_visual_collector_module.py - Missing dependencies: {e}")
+    DEPENDENCIES_MISSING = True
+    MISSING_ERROR_MESSAGE = str(e)
 
-# --- 备用类定义 ---
 
+# 全局变量，用于在 create_page 中设置，然后在类中使用
 WORD_LIST_DIR_FOR_DIALECT_VISUAL = ""
 AUDIO_RECORD_DIR_FOR_DIALECT_VISUAL = ""
 
@@ -32,9 +41,20 @@ def create_page(parent_window, config, base_path, word_list_dir_visual, audio_re
     global WORD_LIST_DIR_FOR_DIALECT_VISUAL, AUDIO_RECORD_DIR_FOR_DIALECT_VISUAL
     WORD_LIST_DIR_FOR_DIALECT_VISUAL = word_list_dir_visual
     AUDIO_RECORD_DIR_FOR_DIALECT_VISUAL = audio_record_dir_visual
+
+    if DEPENDENCIES_MISSING:
+        error_page = QWidget()
+        layout = QVBoxLayout(error_page)
+        label = QLabel(f"方言图文采集模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy")
+        label.setAlignment(Qt.AlignCenter)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        return error_page
+        
     return DialectVisualCollectorPage(parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass)
 
 class ScalableImageLabel(QLabel):
+    # ... (ScalableImageLabel 类的代码保持不变，此处省略以减少篇幅) ...
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.pixmap = None; self.scale = 1.0; self.min_scale = 1.0
@@ -92,24 +112,45 @@ class ScalableImageLabel(QLabel):
     def resizeEvent(self, event):
         self.reset_view(); super().resizeEvent(event)
 
+
 class DialectVisualCollectorPage(QWidget):
-    LINE_WIDTH_THRESHOLD = 90
+    LINE_WIDTH_THRESHOLD = 90 # 虽然在这个模块中列表项显示简单，但保留以防万一
     def __init__(self, parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass):
         super().__init__()
         self.parent_window = parent_window; self.config = config; self.BASE_PATH = base_path
         self.ToggleSwitch = ToggleSwitchClass; self.Worker = WorkerClass; self.Logger = LoggerClass
         self.session_active = False; self.is_recording = False
-        self.original_items_list = [] # <--- 新增
+        self.original_items_list = []
         self.current_items_list = []
         self.current_item_index = -1; self.current_wordlist_path = None; self.current_wordlist_name = None
         self.current_audio_folder = None; self.audio_queue = queue.Queue(); self.recording_thread = None
         self.stop_event = threading.Event(); self.logger_instance = None
-        self._init_ui()
+        
+        self._init_ui() # 构建UI
+
+        # 连接信号
+        self.start_btn.clicked.connect(self.start_session)
+        self.end_session_btn.clicked.connect(self.end_session)
+        self.record_btn.pressed.connect(self.handle_record_pressed)
+        self.record_btn.released.connect(self.handle_record_released)
+        self.item_list_widget.currentItemChanged.connect(self.on_item_selected)
+        self.show_notes_switch.stateChanged.connect(self.toggle_notes_visibility)
+        self.show_prompt_switch.stateChanged.connect(self.toggle_prompt_visibility)
+        self.random_order_switch.stateChanged.connect(self.on_order_mode_changed)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+        # 初始加载配置（这也会调用 apply_layout_settings 如果需要）
         self.load_config_and_prepare()
+
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
-        left_panel = QWidget(); left_layout = QVBoxLayout(left_panel); left_panel.setFixedWidth(300)
+        
+        # 左侧面板 (列表)
+        self.left_panel = QWidget() # 保存以便应用宽度设置
+        left_layout = QVBoxLayout(self.left_panel)
+        # left_panel.setFixedWidth(300) # 移除硬编码宽度
+
         self.item_list_widget = QListWidget(); self.item_list_widget.setObjectName("DialectItemList")
         self.item_list_widget.setWordWrap(True); self.item_list_widget.setResizeMode(QListWidget.Adjust)
         self.item_list_widget.setUniformItemSizes(False); self.item_list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -117,6 +158,7 @@ class DialectVisualCollectorPage(QWidget):
         self.status_label.setMinimumHeight(25); self.status_label.setWordWrap(True)
         left_layout.addWidget(QLabel("采集项目:")); left_layout.addWidget(self.item_list_widget, 1); left_layout.addWidget(self.status_label)
         
+        # 中间面板 (图片和文本)
         center_panel = QWidget(); center_layout = QVBoxLayout(center_panel)
         self.image_viewer = ScalableImageLabel("图片区域"); self.image_viewer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.prompt_text_label = QLabel("提示文字区域"); self.prompt_text_label.setAlignment(Qt.AlignCenter); self.prompt_text_label.setWordWrap(True)
@@ -126,7 +168,11 @@ class DialectVisualCollectorPage(QWidget):
         self.notes_text_edit.setVisible(False)
         center_layout.addWidget(self.image_viewer, 1); center_layout.addWidget(self.prompt_text_label); center_layout.addWidget(self.notes_text_edit)
 
-        right_panel = QWidget(); right_panel_layout = QVBoxLayout(right_panel); right_panel.setFixedWidth(320)
+        # 右侧面板 (控制) - 这个模块的右侧面板宽度保持默认或由其内容决定
+        self.right_panel = QWidget() 
+        right_panel_layout = QVBoxLayout(self.right_panel)
+        # right_panel.setFixedWidth(320) # 移除此模块右侧面板的固定宽度
+
         control_group = QGroupBox("操作面板"); self.control_layout = QFormLayout(control_group)
         self.word_list_combo = QComboBox(); self.start_btn = QPushButton("加载并开始"); self.start_btn.setObjectName("AccentButton")
         self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.hide()
@@ -157,18 +203,25 @@ class DialectVisualCollectorPage(QWidget):
         right_panel_layout.addWidget(control_group); right_panel_layout.addWidget(options_group)
         right_panel_layout.addWidget(self.recording_status_panel); right_panel_layout.addStretch(); right_panel_layout.addWidget(self.record_btn)
         
-        main_layout.addWidget(left_panel); main_layout.addWidget(center_panel, 1); main_layout.addWidget(right_panel)
+        main_layout.addWidget(self.left_panel); 
+        main_layout.addWidget(center_panel, 1); 
+        main_layout.addWidget(self.right_panel) # 右侧面板加入布局
         self.setLayout(main_layout)
 
-        self.start_btn.clicked.connect(self.start_session)
-        self.end_session_btn.clicked.connect(self.end_session)
-        self.record_btn.pressed.connect(self.handle_record_pressed)
-        self.record_btn.released.connect(self.handle_record_released)
-        self.item_list_widget.currentItemChanged.connect(self.on_item_selected)
-        self.show_notes_switch.stateChanged.connect(self.toggle_notes_visibility)
-        self.show_prompt_switch.stateChanged.connect(self.toggle_prompt_visibility)
-        self.random_order_switch.stateChanged.connect(self.on_order_mode_changed) # <--- 连接新信号
-        self.setFocusPolicy(Qt.StrongFocus)
+    # ===== 新增/NEW: 应用左侧面板宽度的方法 =====
+    def apply_layout_settings(self):
+        """从配置中读取并应用左侧边栏宽度。"""
+        config = self.parent_window.config 
+        ui_settings = config.get("ui_settings", {})
+        # 注意：方言图文采集左侧是列表，应使用 editor_sidebar_width
+        width = ui_settings.get("editor_sidebar_width", 300) 
+        self.left_panel.setFixedWidth(width)
+
+
+    def load_config_and_prepare(self):
+        self.config = self.parent_window.config
+        self.apply_layout_settings() # 确保切换到此页面时，宽度被应用
+        if not self.session_active: self.populate_word_lists()
 
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter) and not event.isAutoRepeat():
@@ -224,12 +277,10 @@ class DialectVisualCollectorPage(QWidget):
         if 0 <= self.current_item_index < len(self.current_items_list):
             current_id = self.current_items_list[self.current_item_index].get('id')
         if state == Qt.Checked:
-            self.current_items_list = list(self.original_items_list)
-            random.shuffle(self.current_items_list)
+            self.current_items_list = list(self.original_items_list); random.shuffle(self.current_items_list)
             self.log("项目顺序已切换为: 随机")
         else:
-            self.current_items_list = list(self.original_items_list)
-            self.log("项目顺序已切换为: 顺序")
+            self.current_items_list = list(self.original_items_list); self.log("项目顺序已切换为: 顺序")
         new_row_index = -1
         if current_id:
             for i, item_data in enumerate(self.current_items_list):
@@ -249,8 +300,7 @@ class DialectVisualCollectorPage(QWidget):
         image_rel_path = item_data.get('image_path', '')
         image_full_path = os.path.join(wordlist_base_dir, image_rel_path) if image_rel_path else ''
         if image_full_path and os.path.exists(image_full_path):
-            reader = QImageReader(image_full_path); reader.setAutoTransform(True)
-            image = reader.read()
+            reader = QImageReader(image_full_path); reader.setAutoTransform(True); image = reader.read()
             if not image.isNull():
                 pixmap = QPixmap.fromImage(image)
                 if not pixmap.isNull(): self.image_viewer.set_pixmap(pixmap)
@@ -271,10 +321,6 @@ class DialectVisualCollectorPage(QWidget):
 
     def log(self, msg): self.status_label.setText(f"状态: {msg}")
 
-    def load_config_and_prepare(self):
-        self.config = self.parent_window.config
-        if not self.session_active: self.populate_word_lists()
-
     def populate_word_lists(self):
         self.word_list_combo.clear()
         if WORD_LIST_DIR_FOR_DIALECT_VISUAL and os.path.exists(WORD_LIST_DIR_FOR_DIALECT_VISUAL):
@@ -285,7 +331,8 @@ class DialectVisualCollectorPage(QWidget):
     def reset_ui(self):
         self.word_list_combo.show(); self.start_btn.show()
         for i in range(self.control_layout.rowCount()):
-            if self.control_layout.itemAt(i, QFormLayout.FieldRole) and self.control_layout.itemAt(i, QFormLayout.FieldRole).widget() == self.end_session_btn:
+            item_widget = self.control_layout.itemAt(i, QFormLayout.FieldRole).widget() if self.control_layout.itemAt(i, QFormLayout.FieldRole) else None
+            if item_widget == self.end_session_btn:
                 self.control_layout.removeRow(i); break
         self.item_list_widget.clear(); self.image_viewer.set_pixmap(None); self.image_viewer.setText("请加载图文词表")
         self.prompt_text_label.setText(""); self.notes_text_edit.setPlainText(""); self.notes_text_edit.setVisible(False)
@@ -349,12 +396,21 @@ class DialectVisualCollectorPage(QWidget):
             QMessageBox.information(self,"完成","所有项目已录制完毕！")
             if self.session_active: self.end_session()
         
+    # ===== 修改/MODIFIED: 使用配置文件中的录音设备 =====
     def _recorder_thread_task(self):
         try:
+            device_index = self.config['audio_settings'].get('input_device_index', None)
             sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
             ch = self.config.get('audio_settings', {}).get('channels', 1)
-            with sd.InputStream(samplerate=sr, channels=ch, callback=lambda i,f,t,s:self.audio_queue.put(i.copy())): self.stop_event.wait()
-        except Exception as e: print(f"录音线程错误: {e}"); self.log(f"录音错误: {e}")
+            with sd.InputStream(
+                device=device_index, 
+                samplerate=sr, 
+                channels=ch, 
+                callback=lambda i,f,t,s:self.audio_queue.put(i.copy())
+            ): 
+                self.stop_event.wait()
+        except Exception as e: 
+            print(f"录音线程错误 (DialectVisualCollector): {e}"); self.log(f"录音错误: {e}")
 
     def _save_recording_task(self, worker_instance):
         if self.audio_queue.empty(): return
