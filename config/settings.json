@@ -1,0 +1,36 @@
+{
+    "audio_settings": {
+        "sample_rate": 44100,
+        "channels": 1,
+        "recording_gain": 1.0
+    },
+    "file_settings": {
+        "word_list_file": "\u5355\u8bed\u8a00\u7b80\u6d01\u6a21\u677f.py",
+        "participant_base_name": "participant",
+        "results_dir": "Results"
+    },
+    "gtts_settings": {
+        "default_lang": "en-us",
+        "auto_detect": true
+    },
+    "theme": "Whispering_Woods.qss",
+    "splash_settings": {
+        "enabled": true,
+        "random": true
+    },
+    "editor_settings": {
+        "table_font_size": 16,
+        "smart_detect_threshold": 70
+    },
+    "datamgr_settings": {
+        "default_sort_col": 2,
+        "default_sort_order": "desc"
+    },
+    "app_settings": {
+        "show_splash_screen": true,
+        "random_splash": true
+    },
+    "dialect_visual_settings": {
+        "notes_area_height": 120
+    }
+}

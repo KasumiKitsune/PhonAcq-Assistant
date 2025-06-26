@@ -1,0 +1,10 @@
+PyQt5
+pandas
+openpyxl
+sounddevice
+soundfile
+numpy
+gTTS
+thefuzz
+python-Levenshtein
+pypinyin

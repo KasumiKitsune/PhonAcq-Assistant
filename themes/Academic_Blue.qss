@@ -1,0 +1,90 @@
+/*
+ * Academic Blue Theme
+ * Author: AI Assistant & Sager
+ * Description: A calm and professional theme with a blue palette, suitable for academic software.
+ */
+
+/* ================== 全局样式 ================== */
+QWidget {
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+    color: #333333; /* 深灰色文字 */
+    background-color: transparent;
+    font-size: 18px;
+}
+QMainWindow { background-color: #F5F7FA; } /* 非常浅的蓝灰色背景 */
+QWidget#CentralWidget, QStackedWidget > QWidget { background-color: #F5F7FA; }
+QMessageBox, QDialog { background-color: #FFFFFF; border: 1px solid #DCDFE6; }
+QMessageBox QLabel { font-size: 18px; color: #333333; }
+
+/* ================== 一级标签页 (Ribbon-Style) ================== */
+QTabWidget#MainTabWidget::pane { border-top: 1px solid #DCDFE6; }
+QTabWidget#MainTabWidget::tab-bar { alignment: left; }
+QTabBar::tab:!first { margin-left: -1px; }
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background: #E4E7ED; /* 浅灰色标签背景 */
+    color: #606266; /* 中灰色文字 */
+    border: 1px solid #DCDFE6;
+    border-bottom: none;
+    padding: 12px 20px;
+    font-size: 20px;
+    font-weight: bold;
+    min-width: 180px;
+    margin-right: 4px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover {
+    color: #409EFF; /* 品牌蓝 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background: #F5F7FA;
+    color: #303133; /* 近黑色文字 */
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-color: #F5F7FA;
+}
+
+/* ================== 二级标签页 (Compact-Style) ================== */
+QTabWidget#SubTabWidget::pane { border: none; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 2px solid #E4E7ED; }
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent;
+    color: #606266;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 10px 25px; 
+    font-size: 18px;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover {
+    color: #409EFF;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #409EFF;
+    font-weight: bold;
+    border-bottom: 3px solid #409EFF;
+}
+
+/* ================== 其他控件样式 ================== */
+QPushButton { border: 1px solid #DCDFE6; padding: 11px 23px; border-radius: 22px; font-size: 18px; background-color: #FFFFFF; color: #606266; }
+QPushButton:hover { background-color: #ECF5FF; color: #409EFF; border-color: #C6E2FF; }
+QPushButton:pressed { background-color: #d9ecff; }
+QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border-color: #EBEEF5;}
+QPushButton#AccentButton { background-color: #409EFF; color: #FFFFFF; font-weight: bold; border: none; }
+QPushButton#AccentButton:hover { background-color: #66B1FF; }
+QPushButton#AccentButton:pressed { background-color: #3A8EE6; }
+QLabel { color: #303133; }
+QLineEdit, QPlainTextEdit, QComboBox { background-color: #FFFFFF; border: 1px solid #DCDFE6; border-radius: 8px; padding: 8px; color: #606266; }
+QLineEdit:focus, QPlainTextEdit:focus { border-color: #409EFF; }
+QComboBox::drop-down { border: none; }
+QGroupBox { border: 1px solid #E4E7ED; border-radius: 8px; margin-top: 10px; padding-top: 18px; font-weight: bold; }
+QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 8px; left: 10px; background-color: #F5F7FA; }
+QListWidget, QTableWidget { background-color: #FFFFFF; border: 1px solid #DCDFE6; border-radius: 8px; alternate-background-color: #FAFAFA; }
+QListWidget::item { padding: 10px; border-bottom: 1px solid #EBEEF5; }
+QListWidget::item:selected, QTableWidget::item:selected { background-color: #ECF5FF; color: #409EFF; }
+QHeaderView::section { background-color: #F5F7FA; padding: 10px; border: none; border-bottom: 1px solid #EBEEF5; font-weight: bold; color: #909399; }
+QProgressBar { border: 1px solid #EBEEF5; border-radius: 12px; text-align: center; color: #FFFFFF; height: 24px; background-color: #EBEEF5; }
+QProgressBar::chunk { background-color: #409EFF; border-radius: 11px; }
+QSlider::groove:horizontal { border: none; height: 8px; background: #E4E7ED; margin: 2px 0; border-radius: 4px; }
+QSlider::handle:horizontal { background: #409EFF; border: 2px solid #FFFFFF; width: 18px; margin: -7px 0; border-radius: 10px; }
+QScrollBar:vertical { border: none; background: #F5F7FA; width: 15px; margin: 0; }
+QScrollBar::handle:vertical { background: #DCDFE6; min-height: 20px; border-radius: 7px; }

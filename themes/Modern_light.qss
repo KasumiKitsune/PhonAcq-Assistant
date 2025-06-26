@@ -1,0 +1,307 @@
+/*
+ * Modern Light 2-Level Tab Theme v1.3 (Normalized)
+ * Author: AI Assistant & Sager
+ * Description: A clean, modern light theme for a 2-level tabbed UI with larger fonts.
+ */
+
+/* ================== 全局样式 ================== */
+QWidget {
+    font-family: "Microsoft YaHei", sans-serif;
+    color: #2C160D;
+    background-color: transparent; /* 全局透明背景，具体控件再覆盖 */
+    font-size: 18px;
+}
+
+QMainWindow { /* 主窗口，也是大部分页面的背景 */
+    background-color: #FFF8F6; 
+}
+
+QMessageBox, QDialog { 
+    background-color: #FFF8F6; 
+}
+QMessageBox QLabel { 
+    font-size: 18px; 
+    /* color 会继承 QWidget 的全局设置 */
+}
+
+/* ================== 一级标签页 (Ribbon-Style) ================== */
+QTabWidget#MainTabWidget::pane { 
+    border-top: 1px solid #FFDBCF; 
+    background-color: #FFF8F6; /* 确保内容区背景与主窗口一致 */
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+}
+
+QTabBar::tab:!first { /* 用于处理相邻标签边框重叠 */
+    margin-left: -1px; 
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background: #FCEAE4;
+    color: #8F4C33;
+    border: 1px solid #FFDBCF;
+    border-bottom: none; /* 选中的标签底部边框由 pane 的 top-border 形成融合感 */
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 4px; 
+    min-width: 180px;
+    padding: 12px 20px;
+}
+
+QTabWidget#MainTabWidget QTabBar::tab:hover {
+    background: #FFDBCF;
+}
+
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background: #FFF8F6; 
+    color: #2C160D;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    /* border-bottom-color: #FFF8F6; 让 pane 的 border-top 生效 */
+}
+
+QTabWidget#MainTabWidget QTabBar::tab:disabled { /* 为禁用的主标签页添加样式 */
+    background: #E0E0E0;
+    color: #a0a0a0;
+}
+
+
+/* ================== 二级标签页 (Compact-Style) ================== */
+QTabWidget#SubTabWidget::pane { 
+    border: none; 
+    background-color: transparent; /* 二级标签页的内容区通常是其父控件的背景 */
+}
+QTabWidget#SubTabWidget::tab-bar { 
+    alignment: left; 
+}
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent;
+    color: #8F4C33;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 10px 25px; 
+    font-size: 18px;
+}
+
+QTabWidget#SubTabWidget QTabBar::tab:hover {
+    background-color: #fef5f2;
+    border-bottom: 3px solid #FFDBCF;
+}
+
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #2C160D;
+    font-weight: bold;
+    border-bottom: 3px solid #8F4C33;
+}
+
+QTabWidget#SubTabWidget QTabBar::tab:disabled { /* 为禁用的子标签页添加样式 */
+    color: #b0b0b0;
+}
+
+/* ================== 按钮样式 ================== */
+QPushButton {
+    border: none; 
+    padding: 12px 24px; 
+    border-radius: 22px; 
+    font-size: 18px;
+    background-color: #FCEAE4; 
+    color: #2C160D;
+}
+QPushButton:hover { background-color: #FFDBCF; }
+QPushButton:pressed { background-color: #e8d2c6; }
+QPushButton:disabled { background-color: #E0E0E0; color: #a0a0a0; }
+
+/* 特殊按钮: AccentButton (强调按钮) */
+QPushButton#AccentButton { 
+    background-color: #8F4C33; 
+    color: #FFF8F6; 
+    font-weight: bold; 
+}
+QPushButton#AccentButton:hover { background-color: #a45f43; }
+QPushButton#AccentButton:pressed { background-color: #7a3f23; }
+
+/* 特殊按钮: LinkButton (表格内链接式删除按钮) */
+QPushButton#LinkButton {
+    background-color: transparent;
+    color: #8F4C33;
+    border: none;
+    text-decoration: underline;
+    padding: 5px;
+    border-radius: 0px;
+    font-size: 16px; /* 链接按钮可以小一点 */
+}
+QPushButton#LinkButton:hover { color: #a45f43; }
+QPushButton#LinkButton:pressed { color: #2C160D; }
+
+/* 特殊按钮: ActionButton_Delete (如果需要，为结束会话等按钮定义特殊红色系样式) */
+/*
+QPushButton#ActionButton_Delete {
+    background-color: #d9534f; 
+    color: white;
+    font-weight: bold;
+}
+QPushButton#ActionButton_Delete:hover { background-color: #c9302c; }
+QPushButton#ActionButton_Delete:pressed { background-color: #ac2925; }
+*/
+
+
+/* ================== 其他常用控件 ================== */
+QLabel { /* color 会继承 QWidget */ }
+
+QLineEdit, QPlainTextEdit { 
+    background-color: #ffffff; 
+    border: 1px solid #FCEAE4; 
+    border-radius: 8px; 
+    padding: 8px; 
+    color: #2C160D; 
+}
+QComboBox { 
+    background-color: #ffffff; 
+    border: 1px solid #FCEAE4; 
+    border-radius: 0px; /* 去掉圆角 */
+    padding: 8px; 
+    color: #2C160D; 
+}
+QComboBox::drop-down { border: none; }
+QComboBox QAbstractItemView { /* 下拉列表本身的样式 */
+    border: 1px solid #FCEAE4;
+    background-color: #FFF8F6;
+    selection-background-color: #FFDBCF;
+    selection-color: #2C160D; /* 选中项文字颜色 */
+    outline: 0px; /* 去掉选中时的虚线框 */
+}
+
+
+QGroupBox { 
+    border: 1px solid #FCEAE4; 
+    border-radius: 8px; 
+    margin-top: 10px; /* 为标题留出空间 */
+    padding: 25px 10px 10px 10px; /* 上(为标题留空)、右、下、左 */
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top left; 
+    padding: 0px 8px; /* 标题左右留白 */
+    margin-left: 10px; /* 标题距离左边框的距离 */
+    background-color: #FFF8F6; /* 使标题看起来像是刻在背景上 */
+    color: #2C160D;
+    font-weight: bold;
+}
+
+QListWidget, QTableWidget { 
+    background-color: #ffffff; 
+    border: 1px solid #FCEAE4; 
+    border-radius: 8px; 
+}
+QTableWidget { /* 表格特有的交替行颜色 */
+    alternate-background-color: #fefcfb; 
+}
+QListWidget::item { 
+    padding: 10px; 
+    border-bottom: 1px solid #FFF8F6; 
+}
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #FFDBCF; 
+    color: #2C160D; 
+}
+
+QHeaderView::section { 
+    background-color: #FCEAE4; 
+    padding: 10px; 
+    border: none; /* 通常表头不需要左右边框 */
+    border-bottom: 1px solid #FFDBCF; 
+    font-weight: bold;
+    color: #2C160D;
+}
+
+QProgressBar { 
+    border: 1px solid #FCEAE4; 
+    border-radius: 12px; 
+    text-align: center; 
+    color: #2C160D; 
+    height: 24px; 
+}
+QProgressBar::chunk { 
+    background-color: #8F4C33; 
+    border-radius: 11px; /* 比父控件小一点，形成边框感 */
+}
+
+QSlider::groove:horizontal { 
+    border: none; 
+    height: 8px; 
+    background: #FCEAE4; 
+    margin: 2px 0; 
+    border-radius: 4px; 
+}
+QSlider::handle:horizontal { 
+    background: #8F4C33; 
+    border: none; 
+    width: 20px; 
+    margin: -6px 0; /* 使句柄在视觉上覆盖轨道 */
+    border-radius: 10px; 
+}
+
+QScrollBar:vertical { 
+    border: none; 
+    background: #fbeee9; 
+    width: 15px; 
+    margin: 0; 
+}
+QScrollBar::handle:vertical { 
+    background: #FCEAE4; 
+    min-height: 25px; /* 增加最小高度，更容易点击 */
+    border-radius: 7px; 
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { /* 隐藏上下箭头 */
+    border: none;
+    background: none;
+    height: 0px;
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+/* 水平滚动条类似，如果需要的话 */
+
+/* ================== 全局右键菜单 (QMenu) 样式 ================== */
+QMenu {
+    background-color: #FFF8F6;
+    color: #2C160D;
+    border: 1px solid #FCEAE4;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+QMenu::item {
+    background-color: transparent;
+    color: #2C160D;
+    padding: 8px 25px 8px 25px;
+    border: 1px solid transparent;
+    margin: 2px 0px;
+}
+
+QMenu::item:selected {
+    background-color: #FFDBCF;
+    color: #2C160D;
+    border-radius: 3px;
+}
+
+QMenu::item:disabled {
+    color: #a0a0a0;
+    background-color: transparent;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #FFDBCF;
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
+QMenu::icon {
+    padding-left: 10px;
+    width: 16px;
+    height: 16px;
+}
