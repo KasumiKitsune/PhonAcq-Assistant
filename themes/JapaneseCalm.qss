@@ -1,5 +1,5 @@
 /*
- * Japanese Calm Theme (for PhonAcq Assistant)
+ * Japanese Calm Theme v1.1 (Enhanced & Fixed)
  * Author: AI Assistant & Sager
  * Description: A serene and elegant theme inspired by traditional Japanese aesthetics.
  * Palette: 
@@ -14,18 +14,19 @@
 
 /* ================== 全局样式 ================== */
 QWidget {
-    font-family: "Microsoft YaHei", "Hiragino Sans GB", "Meiryo", sans-serif; /* 添加了常见日文字体 */
-    color: #4A4A4A; /* 深墨色文字 */
+    font-family: "Microsoft YaHei", "Hiragino Sans GB", "Meiryo", sans-serif;
+    color: #4A4A4A; 
     background-color: transparent;
     font-size: 18px;
 }
 
-QMainWindow { 
-    background-color: #FAF0E6; /* 象牙白背景 */
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget { 
+    background-color: #FAF0E6; 
 }
 
 QMessageBox, QDialog { 
     background-color: #FAF0E6; 
+    border: 1px solid #DCD0C0;
 }
 QMessageBox QLabel { 
     font-size: 18px; 
@@ -34,20 +35,18 @@ QMessageBox QLabel {
 
 /* ================== 一级标签页 ================== */
 QTabWidget#MainTabWidget::pane { 
-    border-top: 1px solid #DCD0C0; /* 浅褐色边框 */
+    border-top: 1px solid #DCD0C0;
     background-color: #FAF0E6; 
 }
 QTabWidget#MainTabWidget::tab-bar { 
     alignment: left; 
 }
-
 QTabBar::tab:!first { 
     margin-left: -1px; 
 }
-
 QTabWidget#MainTabWidget QTabBar::tab {
-    background: #EAE0D6; /* 稍深的米色 */
-    color: #3A539B; /* 靛蓝文字 */
+    background: #EAE0D6;
+    color: #3A539B;
     border: 1px solid #DCD0C0;
     border-bottom: none;
     font-size: 20px;
@@ -58,18 +57,15 @@ QTabWidget#MainTabWidget QTabBar::tab {
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
 }
-
 QTabWidget#MainTabWidget QTabBar::tab:hover {
-    background: #F5EDE2; /* 更浅的米色 */
-    color: #003366; /* 更深的靛蓝 */
+    background: #F5EDE2;
+    color: #003366;
 }
-
 QTabWidget#MainTabWidget QTabBar::tab:selected {
     background: #FAF0E6; 
     color: #3A539B;
     border-bottom-color: #FAF0E6; 
 }
-
 QTabWidget#MainTabWidget QTabBar::tab:disabled {
     background: #E0D8CE;
     color: #9E9E9E;
@@ -83,75 +79,74 @@ QTabWidget#SubTabWidget::pane {
 }
 QTabWidget#SubTabWidget::tab-bar { 
     alignment: left; 
-    border-bottom: 1px solid #DCD0C0; /* 给二级标签栏底部加一条细线 */
+    border-bottom: 1px solid #DCD0C0;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab {
     background: transparent;
-    color: #3A539B; /* 靛蓝文字 */
+    color: #3A539B;
     border: none;
     border-bottom: 3px solid transparent;
     padding: 10px 22px; 
     font-size: 18px;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab:hover {
     color: #003366;
-    border-bottom: 3px solid #FECFDE; /* 樱花粉悬停下划线 */
+    border-bottom: 3px solid #FECFDE;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab:selected {
     color: #3A539B;
     font-weight: bold;
-    border-bottom: 3px solid #3A539B; /* 靛蓝选中下划线 */
+    border-bottom: 3px solid #3A539B;
 }
-
 QTabWidget#SubTabWidget QTabBar::tab:disabled {
     color: #BEBEBE;
 }
 
 /* ================== 按钮样式 ================== */
 QPushButton {
-    border: 1px solid #FFB7C5; /* 樱花粉边框 */
+    border: 1px solid #FFB7C5; 
     padding: 10px 22px; 
-    border-radius: 6px; /* 改为更传统的方形圆角 */
+    border-radius: 6px; 
     font-size: 18px;
-    background-color: #FFB7C5; /* 樱花粉背景 */
-    color: #4A4A4A; /* 深墨色文字 */
+    background-color: #FFB7C5; 
+    color: #4A4A4A; 
+    min-height: 30px;
 }
 QPushButton:hover { background-color: #FECFDE; border-color: #FECFDE; }
 QPushButton:pressed { background-color: #FDDDE6; }
 QPushButton:disabled { background-color: #E0E0E0; color: #a0a0a0; border-color: #d0d0d0; }
 
-/* 特殊按钮: AccentButton (强调按钮，使用靛蓝) */
 QPushButton#AccentButton { 
     background-color: #3A539B; 
-    color: #FAF0E6; /* 象牙白文字 */
+    color: #FAF0E6; 
     border-color: #3A539B;
     font-weight: bold; 
+    padding: 12px 24px;
+    border-radius: 8px;
 }
 QPushButton#AccentButton:hover { background-color: #4E69A2; border-color: #4E69A2;}
 QPushButton#AccentButton:pressed { background-color: #2C4077; border-color: #2C4077;}
 
-/* 特殊按钮: LinkButton (表格内链接式删除按钮) */
 QPushButton#LinkButton {
     background-color: transparent;
-    color: #3A539B; /* 靛蓝色 */
+    color: #3A539B; 
     border: none;
     text-decoration: underline;
     padding: 5px;
     border-radius: 0px;
     font-size: 16px;
+    min-height: 0px;
 }
 QPushButton#LinkButton:hover { color: #4E69A2; }
 QPushButton#LinkButton:pressed { color: #2C4077; }
 
-/* 特殊按钮: ActionButton_Delete (例如“结束会话”，用醒目但不过于刺眼的颜色) */
 QPushButton#ActionButton_Delete {
-    background-color: #E57373; /* 柔和的红色 */
+    background-color: #E57373; 
     color: white;
     border-color: #E57373;
     font-weight: bold;
+    padding: 12px 24px;
+    border-radius: 8px;
 }
 QPushButton#ActionButton_Delete:hover { background-color: #EF5350; border-color: #EF5350;}
 QPushButton#ActionButton_Delete:pressed { background-color: #D32F2F; border-color: #D32F2F;}
@@ -160,34 +155,39 @@ QPushButton#ActionButton_Delete:pressed { background-color: #D32F2F; border-colo
 /* ================== 其他常用控件 ================== */
 QLabel { color: #4A4A4A; }
 
-QLineEdit, QPlainTextEdit { 
+QLineEdit, QPlainTextEdit, QTextBrowser { 
     background-color: #ffffff; 
     border: 1px solid #DCD0C0; 
-    border-radius: 4px; /* 细微圆角 */
+    border-radius: 4px; 
     padding: 8px; 
     color: #4A4A4A; 
+    selection-background-color: #FECFDE;
+    selection-color: #4A4A4A;
 }
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus {
+    border-color: #3A539B;
+}
+QTextBrowser a { color: #3A539B; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; }
+
+
 QComboBox { 
     background-color: #ffffff; 
     border: 1px solid #DCD0C0; 
-    border-radius: 0px; 
+    border-radius: 4px; /* 与QLineEdit统一 */
     padding: 8px; 
     color: #4A4A4A; 
+    min-height: 26px;
 }
-QComboBox::drop-down { 
-    border: none; 
-    /* 可以考虑用一个向下的小箭头图标替换默认的，如果需要的话 */
-    /* image: url(path/to/dropdown_arrow_japanese.png); */
-    /* subcontrol-origin: padding; */
-    /* subcontrol-position: top right; */
-    /* width: 20px; */
-}
-QComboBox QAbstractItemView { /* 下拉列表本身的样式 */
+QComboBox:focus { border-color: #3A539B; }
+QComboBox::drop-down { border: none; }
+QComboBox QAbstractItemView {
     border: 1px solid #DCD0C0;
-    background-color: #FAF0E6; /* 象牙白背景 */
-    selection-background-color: #FECFDE; /* 樱花粉选中背景 */
+    background-color: #FAF0E6; 
+    selection-background-color: #FECFDE; 
     selection-color: #4A4A4A;
     outline: 0px;
+    border-radius: 4px;
 }
 
 
@@ -203,7 +203,7 @@ QGroupBox::title {
     padding: 0px 10px; 
     margin-left: 10px; 
     background-color: #FAF0E6; 
-    color: #3A539B; /* 靛蓝标题 */
+    color: #3A539B; 
     font-weight: bold;
     border-radius: 4px;
 }
@@ -212,26 +212,38 @@ QListWidget, QTableWidget {
     background-color: #ffffff; 
     border: 1px solid #DCD0C0; 
     border-radius: 6px; 
+    outline: 0px;
 }
 QTableWidget { 
-    alternate-background-color: #F7F2EC; /* 更柔和的交替行颜色 */
+    alternate-background-color: #F7F2EC; 
+    gridline-color: #EAE0D6;
 }
 QListWidget::item { 
     padding: 10px; 
     border-bottom: 1px solid #EAE0D6; 
 }
 QListWidget::item:selected, QTableWidget::item:selected { 
-    background-color: #FECFDE; /* 樱花粉选中 */
+    background-color: #FECFDE; 
     color: #4A4A4A; 
 }
+QTableWidget QLineEdit {
+    border-radius: 0px;
+    border: 1px solid #3A539B;
+}
+QTableCornerButton::section {
+    background-color: #EAE0D6; /* 与表头背景一致 */
+    border-bottom: 1px solid #DCD0C0;
+    border-right: 1px solid #DCD0C0;
+}
+
 
 QHeaderView::section { 
-    background-color: #EAE0D6; /* 稍深的米色 */
+    background-color: #EAE0D6; 
     padding: 10px; 
     border: none;
     border-bottom: 1px solid #DCD0C0; 
     font-weight: bold;
-    color: #3A539B; /* 靛蓝表头文字 */
+    color: #3A539B; 
 }
 
 QProgressBar { 
@@ -243,7 +255,7 @@ QProgressBar {
     background-color: #FAF0E6;
 }
 QProgressBar::chunk { 
-    background-color: #3A539B; /* 靛蓝进度条 */
+    background-color: #3A539B; 
     border-radius: 7px;
 }
 
@@ -255,7 +267,7 @@ QSlider::groove:horizontal {
     border-radius: 3px; 
 }
 QSlider::handle:horizontal { 
-    background: #3A539B; /* 靛蓝滑块 */
+    background: #3A539B; 
     border: none; 
     width: 18px; 
     margin: -6px 0;
@@ -270,17 +282,32 @@ QScrollBar:vertical {
     border-radius: 0px;
 }
 QScrollBar::handle:vertical { 
-    background: #DCD0C0; /* 更深的米色作为滑块 */
+    background: #DCD0C0; 
     min-height: 25px;
     border-radius: 6px; 
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none; background: none; height: 0px;
 }
+QScrollBar:horizontal { 
+    border: 1px solid #EAE0D6; 
+    background: #FAF0E6; 
+    height: 15px; 
+    margin: 0; 
+    border-radius: 0px;
+}
+QScrollBar::handle:horizontal { 
+    background: #DCD0C0; 
+    min-width: 25px;
+    border-radius: 6px; 
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none; background: none; width: 0px;
+}
 
 /* ================== 全局右键菜单 (QMenu) 样式 ================== */
 QMenu {
-    background-color: #FAF0E6; /* 象牙白 */
+    background-color: #FAF0E6; 
     color: #4A4A4A;
     border: 1px solid #DCD0C0;
     padding: 5px;
@@ -292,18 +319,28 @@ QMenu::item {
     padding: 8px 25px 8px 25px;
     border: 1px solid transparent;
     margin: 2px 0px;
+    border-radius: 3px;
 }
 QMenu::item:selected {
-    background-color: #FECFDE; /* 樱花粉选中 */
+    background-color: #FECFDE; 
     color: #4A4A4A;
-    border-radius: 3px;
 }
 QMenu::item:disabled { color: #a0a0a0; }
 QMenu::separator { height: 1px; background: #DCD0C0; margin: 3px 10px; }
 QMenu::icon { padding-left: 10px; width: 16px; height: 16px; }
 
-/* ================== ToggleSwitch 特殊样式 (如果需要) ================== */
-/* ToggleSwitch 的颜色现在由 Python 代码动态设置，但可以保留一些基本样式 */
+/* ================== 开关控件 (ToggleSwitch) - Japanese Calm ================== */
 ToggleSwitch {
-    /* 可以不设置，因为颜色在代码中控制 */
+    qproperty-trackColorOff: #DCD0C0;      /* 关闭时: 浅褐色轨道 */
+    qproperty-trackColorOn: #FFB7C5;       
+    qproperty-knobColor: #3A539B;         
+    qproperty-trackBorderRadius: 15;       /* 轨道圆角 */
+    qproperty-knobMargin: 3;               /* 滑块边距 */
+    qproperty-knobShape: 'ellipse';        /* 明确指定圆形 */
+    qproperty-borderWidth: 2;              /* 1px 边框 */
+    qproperty-borderColor: #3A539B;        /* 边框颜色 */
+    min-width: 60px;                       
+    max-width: 60px;                       
+    min-height: 30px;                      
+    max-height: 30px;                      
 }

@@ -12,7 +12,7 @@ import time
 import importlib.util
 from datetime import datetime
 import re 
-import subprocess # 用于打开文件夹
+import subprocess 
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QMessageBox, QComboBox, QFormLayout,
@@ -57,7 +57,6 @@ def create_page(parent_window, config, AUDIO_TTS_DIR_ROOT, ToggleSwitchClass, Wo
 
 class TtsUtilityPage(QWidget):
     log_message_signal = pyqtSignal(str)
-    progress_signal = pyqtSignal(int, str) 
     task_finished_signal = pyqtSignal(str)
 
     def __init__(self, parent_window, config, AUDIO_TTS_DIR_ROOT, ToggleSwitchClass, WorkerClass, detect_language_func, STD_WORD_LIST_DIR):
@@ -79,11 +78,10 @@ class TtsUtilityPage(QWidget):
         self._init_ui()
         self._connect_signals()
         self.log_message_signal.connect(self.log_message)
-        self.progress_signal.connect(self.update_progress)
         self.task_finished_signal.connect(self.on_tts_task_finished)
 
     def _init_ui(self):
-        main_layout = QHBoxLayout(self) 
+        main_layout = QHBoxLayout(self)
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -96,11 +94,10 @@ class TtsUtilityPage(QWidget):
         editor_group = QGroupBox("即时编辑与转换")
         editor_v_layout = QVBoxLayout(editor_group)
         self.editor_table = QTableWidget()
-        # ===== 修改/MODIFIED: 移除序号列 =====
         self.editor_table.setColumnCount(2)
         self.editor_table.setHorizontalHeaderLabels(["单词/短语", "语言"])
-        self.editor_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch) # 单词列拉伸
-        self.editor_table.setColumnWidth(1, 200) # 语言列固定宽度
+        self.editor_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.editor_table.setColumnWidth(1, 200)
         self.editor_table.setAlternatingRowColors(True)
 
         editor_btn_layout = QHBoxLayout()
@@ -126,22 +123,29 @@ class TtsUtilityPage(QWidget):
         if idx != -1: self.default_lang_combo.setCurrentIndex(idx)
         else: self.default_lang_combo.setCurrentIndex(self.default_lang_combo.findData("en-us") or 0)
         
-        self.auto_detect_lang_checkbox = QCheckBox("表格中语言为空时，自动检测"); self.auto_detect_lang_checkbox.setChecked(gtts_conf.get("auto_detect", True))
-        self.slow_speed_checkbox = QCheckBox("使用较慢的语速"); self.slow_speed_checkbox.setChecked(False)
-        
-        # ===== 修改/MODIFIED: 输出子目录行 =====
+        # ===== 修改/MODIFIED: 使用 ToggleSwitch 替换 QCheckBox =====
+        self.auto_detect_lang_switch = self.ToggleSwitch()
+        self.auto_detect_lang_switch.setChecked(gtts_conf.get("auto_detect", True))
+        auto_detect_layout = QHBoxLayout()
+        auto_detect_layout.addWidget(self.auto_detect_lang_switch)
+        auto_detect_layout.addStretch()
+
+        self.slow_speed_switch = self.ToggleSwitch()
+        self.slow_speed_switch.setChecked(False)
+        slow_speed_layout = QHBoxLayout()
+        slow_speed_layout.addWidget(self.slow_speed_switch)
+        slow_speed_layout.addStretch()
+
         output_dir_layout = QHBoxLayout()
         self.output_subdir_input = QLineEdit(f"tts_util_{datetime.now().strftime('%Y%m%d')}")
         self.output_subdir_input.setPlaceholderText("例如: my_project_tts")
-        self.open_output_dir_btn = QPushButton("打开")
-        self.open_output_dir_btn.setToolTip("打开当前指定的输出文件夹")
-        output_dir_layout.addWidget(self.output_subdir_input, 1) # 输入框占更多空间
-        output_dir_layout.addWidget(self.open_output_dir_btn)
+        self.open_output_dir_btn = QPushButton("打开"); self.open_output_dir_btn.setToolTip("打开当前指定的输出文件夹")
+        output_dir_layout.addWidget(self.output_subdir_input, 1); output_dir_layout.addWidget(self.open_output_dir_btn)
         
         settings_form_layout.addRow("默认转换语言:", self.default_lang_combo)
-        settings_form_layout.addRow(self.auto_detect_lang_checkbox)
-        settings_form_layout.addRow(self.slow_speed_checkbox)
-        settings_form_layout.addRow("输出子目录名:", output_dir_layout) # 使用新的 QHBoxLayout
+        settings_form_layout.addRow("语言检测:", auto_detect_layout)
+        settings_form_layout.addRow("放慢语速:", slow_speed_layout)
+        settings_form_layout.addRow("输出文件夹:", output_dir_layout)
         
         right_panel_main_layout.addWidget(settings_group)
         status_group = QGroupBox("转换状态与日志")
@@ -163,6 +167,7 @@ class TtsUtilityPage(QWidget):
         self.add_table_row() 
 
     def _connect_signals(self):
+        # ... (与上一版本一致)
         self.load_wordlist_btn.clicked.connect(self.load_wordlist_from_file)
         self.add_row_btn.clicked.connect(self.add_table_row)
         self.remove_row_btn.clicked.connect(self.remove_selected_table_row)
@@ -170,62 +175,39 @@ class TtsUtilityPage(QWidget):
         self.submit_edited_btn.clicked.connect(self.process_edited_list)
         self.start_tts_btn.clicked.connect(self.start_tts_processing)
         self.stop_tts_btn.clicked.connect(self.stop_tts_processing)
-        self.open_output_dir_btn.clicked.connect(self.open_target_output_directory) # 连接新按钮
+        self.open_output_dir_btn.clicked.connect(self.open_target_output_directory)
 
     def open_target_output_directory(self):
-        """打开当前在输入框中指定的输出子目录。"""
+        # ... (与上一版本一致)
         subdir_name = self.output_subdir_input.text().strip()
-        if not subdir_name:
-            self.log_message("错误：输出子目录名为空，无法打开。")
-            QMessageBox.warning(self, "目录为空", "请输入或确认输出子目录名称。")
-            return
-        
-        # 清理一次，以防用户输入不安全字符
+        if not subdir_name: QMessageBox.warning(self, "目录为空", "请输入或确认输出子目录名称。"); return
         safe_subdir_name = re.sub(r'[\\/*?:"<>|]', "_", subdir_name)
         target_dir = os.path.join(self.AUDIO_TTS_DIR_ROOT, safe_subdir_name)
-
         if not os.path.exists(target_dir):
-            reply = QMessageBox.question(self, "目录不存在", 
-                                         f"目录 '{target_dir}' 不存在。\n是否现在创建它？",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            reply = QMessageBox.question(self, "目录不存在", f"目录 '{target_dir}' 不存在。\n是否现在创建它？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
-                try:
-                    os.makedirs(target_dir)
-                    self.log_message(f"目录已创建: {target_dir}")
-                except Exception as e:
-                    self.log_message(f"创建目录失败: {target_dir} - {e}")
-                    QMessageBox.critical(self, "创建失败", f"无法创建目录:\n{e}")
-                    return
-            else:
-                return # 用户选择不创建
-
-        # 尝试打开文件夹
+                try: os.makedirs(target_dir); self.log_message(f"目录已创建: {target_dir}")
+                except Exception as e: QMessageBox.critical(self, "创建失败", f"无法创建目录:\n{e}"); return
+            else: return
         try:
-            if sys.platform == 'win32':
-                os.startfile(os.path.realpath(target_dir))
-            elif sys.platform == 'darwin': # macOS
-                subprocess.check_call(['open', target_dir])
-            else: # Linux and other UNIX-like
-                subprocess.check_call(['xdg-open', target_dir])
+            if sys.platform == 'win32': os.startfile(os.path.realpath(target_dir))
+            elif sys.platform == 'darwin': subprocess.check_call(['open', target_dir])
+            else: subprocess.check_call(['xdg-open', target_dir])
             self.log_message(f"尝试打开目录: {target_dir}")
-        except Exception as e:
-            self.log_message(f"打开目录失败: {target_dir} - {e}")
-            QMessageBox.critical(self, "打开失败", f"无法打开目录:\n{e}")
-
+        except Exception as e: QMessageBox.critical(self, "打开失败", f"无法打开目录:\n{e}")
 
     def log_message(self, message):
-        # ... (保持不变)
+        # ... (与上一版本一致)
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_output.appendPlainText(f"[{timestamp}] {message}")
         self.log_output.ensureCursorVisible()
 
     def update_progress(self, value, text_format): 
-        # ... (保持不变)
-        self.progress_bar.setValue(value)
-        self.progress_bar.setFormat(text_format)
+        # ... (与上一版本一致)
+        self.progress_bar.setValue(value); self.progress_bar.setFormat(text_format)
 
     def on_tts_task_finished(self, message):
-        # ... (保持不变)
+        # ... (与上一版本一致)
         self.log_message(message)
         is_error_or_interrupted = "错误" in message or "中断" in message
         current_progress = self.progress_bar.value()
@@ -238,13 +220,11 @@ class TtsUtilityPage(QWidget):
             self.tts_thread.deleteLater(); self.tts_thread = None
         if self.tts_worker: self.tts_worker.deleteLater(); self.tts_worker = None
 
-    # ===== 修改/MODIFIED: add_table_row 移除序号列 =====
     def add_table_row(self, word="", lang_code=""):
+        # ... (与上一版本一致)
         row_position = self.editor_table.rowCount()
         self.editor_table.insertRow(row_position)
-        # self.editor_table.setItem(row_position, 0, QTableWidgetItem(str(row_position + 1))) # 移除序号
-        self.editor_table.setItem(row_position, 0, QTableWidgetItem(word)) # 单词现在是第0列
-        
+        self.editor_table.setItem(row_position, 0, QTableWidgetItem(word))
         lang_combo_in_table = QComboBox(); lang_combo_in_table.setIconSize(QSize(24, 18))
         current_selection_code = lang_code if lang_code else ""
         for display_name, code_val in LANGUAGE_MAP_TTS.items():
@@ -255,21 +235,21 @@ class TtsUtilityPage(QWidget):
         index_to_set = lang_combo_in_table.findData(current_selection_code)
         if index_to_set != -1: lang_combo_in_table.setCurrentIndex(index_to_set)
         else: lang_combo_in_table.setCurrentIndex(lang_combo_in_table.findData("") or 0)
-        self.editor_table.setCellWidget(row_position, 1, lang_combo_in_table) # 语言现在是第1列
+        self.editor_table.setCellWidget(row_position, 1, lang_combo_in_table)
         self.editor_table.scrollToBottom()
 
-    # ===== 修改/MODIFIED: remove_selected_table_row 不再更新序号 =====
     def remove_selected_table_row(self):
+        # ... (与上一版本一致)
         selected_rows = sorted(list(set(index.row() for index in self.editor_table.selectedIndexes())), reverse=True)
         if not selected_rows: QMessageBox.information(self, "提示", "请先选择要删除的行。"); return
         for row_index in selected_rows: self.editor_table.removeRow(row_index)
-        # 序号列已移除，无需更新
 
     def clear_editor_table(self):
+        # ... (与上一版本一致)
         self.editor_table.setRowCount(0); self.add_table_row() 
 
     def load_wordlist_from_file(self):
-        # ... (保持不变)
+        # ... (与上一版本一致)
         filepath, _ = QFileDialog.getOpenFileName(self, "选择标准词表文件", self.STD_WORD_LIST_DIR, "Python 文件 (*.py)")
         if not filepath: return
         self.current_wordlist_path = filepath; self.loaded_file_label.setText(os.path.basename(filepath))
@@ -289,24 +269,22 @@ class TtsUtilityPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "加载错误", f"加载词表文件失败: {e}"); self.loaded_file_label.setText("加载失败"); self.current_wordlist_path = None
 
-    # ===== 修改/MODIFIED: get_items_from_editor 调整列索引 =====
     def get_items_from_editor(self):
+        # ... (与上一版本一致)
         items = []
         for r in range(self.editor_table.rowCount()):
-            text_item = self.editor_table.item(r, 0) # 单词在第0列
-            text = text_item.text().strip() if text_item else ""
-            lang_combo_widget = self.editor_table.cellWidget(r, 1) # 语言在第1列
-            lang_code = lang_combo_widget.currentData() if lang_combo_widget else ""
+            text_item = self.editor_table.item(r, 0); text = text_item.text().strip() if text_item else ""
+            lang_combo_widget = self.editor_table.cellWidget(r, 1); lang_code = lang_combo_widget.currentData() if lang_combo_widget else ""
             if text: items.append({'text': text, 'lang': lang_code})
         return items
 
     def process_edited_list(self):
-        # ... (保持不变)
+        # ... (与上一版本一致)
         self.current_wordlist_path = None ; self.loaded_file_label.setText("<当前编辑列表>")
         self.start_tts_processing()
 
     def start_tts_processing(self):
-        # ... (大部分逻辑保持不变)
+        # ... (与上一版本一致，但会使用新的 self.auto_detect_lang_switch 和 self.slow_speed_switch)
         items_to_process = self.get_items_from_editor()
         source_description = self.loaded_file_label.text()
         if not items_to_process: QMessageBox.information(self, "无内容", "没有有效的词条进行TTS转换。"); return
@@ -317,12 +295,20 @@ class TtsUtilityPage(QWidget):
         if not os.path.exists(target_dir):
             try: os.makedirs(target_dir)
             except Exception as e: QMessageBox.critical(self, "创建目录失败", f"无法创建输出子目录 '{target_dir}':\n{e}"); return
+        
         self.log_message(f"开始TTS转换任务 ({source_description})... 输出到: {target_dir}")
         self.progress_bar.setValue(0); self.progress_bar.setFormat("准备中... (0%)")
         self.start_tts_btn.setEnabled(False); self.submit_edited_btn.setEnabled(False)
         self.load_wordlist_btn.setEnabled(False); self.stop_tts_btn.setEnabled(True)
         self.stop_tts_event.clear()
-        tts_settings = {'default_lang': self.default_lang_combo.currentData(), 'auto_detect': self.auto_detect_lang_checkbox.isChecked(), 'slow': self.slow_speed_checkbox.isChecked()}
+        
+        # ===== 修改/MODIFIED: 从 ToggleSwitch 获取设置 =====
+        tts_settings = {
+            'default_lang': self.default_lang_combo.currentData(), 
+            'auto_detect': self.auto_detect_lang_switch.isChecked(), 
+            'slow': self.slow_speed_switch.isChecked()
+        }
+
         self.tts_thread = QThread()
         self.tts_worker = self.Worker(self._perform_tts_task, items_to_process, target_dir, tts_settings, self.stop_tts_event)
         self.tts_worker.moveToThread(self.tts_thread)
@@ -334,14 +320,14 @@ class TtsUtilityPage(QWidget):
         self.tts_thread.start()
 
     def stop_tts_processing(self):
-        # ... (保持不变)
+        # ... (与上一版本一致)
         if self.tts_thread and self.tts_thread.isRunning():
             self.stop_tts_event.set()
             self.log_message("已发送停止请求，正在等待当前条目处理完毕...")
             self.stop_tts_btn.setEnabled(False) 
 
     def _perform_tts_task(self, worker_instance, items, target_dir, tts_settings, stop_event):
-        # ... (大部分逻辑保持不变，但确保文件名生成和进度更新正确)
+        # ... (与上一版本一致)
         total_items = len(items); processed_count = 0; errors = []
         worker_instance.progress.emit(0, "准备开始...") 
         for i, item_data in enumerate(items):

@@ -364,3 +364,40 @@ QPushButton#OpenDirButtonInForm {
 */
 /* 或者，如果是一个 QHBoxLayout 包裹了 QLineEdit 和 QPushButton，可以对这个 QHBoxLayout 设置间距 */
 /* （这通常在Python代码中用 layout.setSpacing(5) 完成）*/
+ToggleSwitch {
+    qproperty-trackColorOff: #E0E0E0;      /* 关闭时: 浅灰色轨道 */
+    qproperty-trackColorOn: #8F4C33;       /* 打开时: 主题棕色 */
+    qproperty-knobColor: #FFFFFF;          /* 滑块: 白色 */
+    qproperty-trackBorderRadius: 15;       /* 轨道圆角 */
+    qproperty-knobMargin: 3;               
+    qproperty-knobShape: 'ellipse';        /* 明确指定圆形 */
+    qproperty-borderWidth: 0;              /* 无边框 */
+    qproperty-borderColor: transparent;    
+    min-width: 60px;                       
+    max-width: 60px;                       
+    min-height: 30px;                      
+    max-height: 30px;                      
+}
+/* --- 方言图文采集页面 --- */
+QLabel#ScalableImageLabel {
+    border: 1px solid #FCEAE4;
+    background-color: #FFFFFF;
+    color: #a0a0a0; /* 占位文字颜色 */
+}
+
+QLabel#PromptTextLabel {
+    padding: 5px;
+    color: #4A4034; /* 主文本颜色 */
+    font-size: 20px;
+    font-weight: bold;
+    background-color: #FAF6F4; /* 一个非常浅的背景，与主背景区分 */
+    border-radius: 8px;
+}
+
+QTextEdit#NotesTextEdit {
+    background-color: #fdfaf6;
+    border: 1px solid #EAE0C9;
+    border-radius: 4px;
+    padding: 8px;
+    color: #4A4034;
+}

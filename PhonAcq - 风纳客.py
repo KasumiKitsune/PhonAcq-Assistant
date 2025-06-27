@@ -2,10 +2,11 @@ import os
 import sys
 import time # 用于非常短的延时，确保splash有时间绘制
 import random
+import re # 新增：用于解析QSS
 
 # ===== 阶段一：最小化初始导入，用于立即显示 Splash Screen =====
 from PyQt5.QtWidgets import QApplication, QSplashScreen, QProgressBar
-from PyQt5.QtGui import QPixmap, QColor, QFont, QIntValidator # 新增 QIntValidator
+from PyQt5.QtGui import QPixmap, QColor, QFont, QIntValidator
 from PyQt5.QtCore import Qt, QCoreApplication
 
 # 全局变量，提前定义，后续填充
@@ -23,12 +24,13 @@ main_config = {}
 
 # 提前定义 get_base_path，因为它不依赖太多外部库
 def get_base_path():
+    """Gets the base path of the application, handling frozen executables."""
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     else: return os.path.abspath(".")
 
 def ensure_directories_exist():
     """
-    检查并创建程序运行所需的所有核心文件夹。
+    Checks and creates all core directories required for the application to run.
     """
     required_paths = [
         CONFIG_DIR,
@@ -55,43 +57,6 @@ def ensure_directories_exist():
     print("--- 文件夹检查完毕 ---")
 
 
-# ===== 主程序执行块提前，以便尽快显示 Splash Screen =====
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    BASE_PATH = get_base_path() 
-    assets_path = os.path.join(BASE_PATH, "assets")
-    splash_dir = os.path.join(assets_path, "splashes")
-    splash_pix = None
-    if os.path.exists(splash_dir) and os.path.isdir(splash_dir):
-        images = [f for f in os.listdir(splash_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-        if images:
-            chosen_image_path = os.path.join(splash_dir, random.choice(images))
-            splash_pix = QPixmap(chosen_image_path)
-            print(f"随机加载启动图: {os.path.basename(chosen_image_path)}")
-    if splash_pix is None or splash_pix.isNull():
-        default_splash_path = os.path.join(assets_path, "splash.png")
-        splash_pix = QPixmap(default_splash_path)
-        if splash_pix.isNull():
-            splash_pix = QPixmap(600, 350)
-            splash_pix.fill(QColor("#FCEAE4"))
-    
-    splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
-    splash.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-    splash.progressBar = QProgressBar(splash)
-    splash.progressBar.setGeometry(15, splash_pix.height() - 60, splash_pix.width() - 30, 24)
-    splash.progressBar.setRange(0, 100); splash.progressBar.setValue(0); splash.progressBar.setTextVisible(False)
-    splash.setFont(QFont("Microsoft YaHei", 10))
-    splash.setStyleSheet("""
-        QProgressBar {
-            background-color: rgba(0, 0, 0, 80); border: none; border-radius: 12px; text-align: center; color: white;
-        }
-        QProgressBar::chunk { background-color: white; border-radius: 12px; }
-        QSplashScreen > QLabel { background-color: rgba(0, 0, 0, 100); color: white; padding: 4px 8px; border-radius: 4px; }
-    """)
-    splash.show()
-    splash.showMessage("正在准备环境...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)
-    app.processEvents()
-
 # ===== 阶段二：现在可以导入其他模块和定义函数了 =====
 import json
 import threading
@@ -99,13 +64,15 @@ import queue
 from datetime import datetime
 import importlib.util
 
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QPushButton, QLabel, QListWidget, QListWidgetItem,
-                             QLineEdit, QFileDialog, QMessageBox, QComboBox, QSlider, QStyle,
-                             QFormLayout, QGroupBox, QCheckBox,
-                             QTabWidget, QScrollArea)
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer
-from PyQt5.QtGui import QIcon, QFont, QPainter, QIntValidator # 确保 QIntValidator 已导入
+from PyQt5.QtWidgets import (QApplication, QSplashScreen, QProgressBar, QMainWindow, 
+                             QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+                             QListWidget, QListWidgetItem, QLineEdit, QFileDialog, 
+                             QMessageBox, QComboBox, QSlider, QStyle, QFormLayout, 
+                             QGroupBox, QCheckBox, QTabWidget, QScrollArea, QSpacerItem,
+                             QSizePolicy)
+from PyQt5.QtGui import (QPixmap, QColor, QFont, QIntValidator, QPainter, 
+                         QPen, QBrush, QIcon) # 导入更多 GDI+ 相关的类
+from PyQt5.QtCore import Qt, QCoreApplication, QThread, pyqtSignal, QObject, QTimer, pyqtProperty, QRect # 导入 pyqtProperty
 
 try:
     import pandas as pd
@@ -117,12 +84,17 @@ try:
     import pypinyin
     import markdown 
 except ImportError as e:
-    if 'splash' in locals() and splash: splash.hide()
+    # ===== 修改/MODIFIED: 移除对 splash 变量的检查 =====
+    # 在这个执行阶段，splash 变量必然不存在，所以直接显示错误消息并退出。
+    # 我们需要一个临时的 QApplication 实例来显示 QMessageBox。
+    # 这段代码只会在缺少依赖库时执行。
+    app = QApplication(sys.argv)
     QMessageBox.critical(None, "依赖库缺失", f"错误: {e}\n\n请运行: pip install PyQt5 pandas openpyxl sounddevice soundfile numpy gtts markdown pypinyin")
     sys.exit(1)
 
 
 # --- 全局路径变量的完整定义 ---
+BASE_PATH = get_base_path() # Re-assign after imports if needed, though it's set early
 CONFIG_DIR = os.path.join(BASE_PATH, "config")
 WORD_LIST_DIR = os.path.join(BASE_PATH, "word_lists")
 THEMES_DIR = os.path.join(BASE_PATH, "themes")
@@ -134,6 +106,7 @@ SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 # --- 动态模块加载 ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'modules')))
 def load_modules(splash_ref=None, progress_offset=0, progress_scale=1.0):
+    """Dynamically loads modules from the 'modules' directory."""
     global MODULES; MODULES = {}
     modules_dir = os.path.join(get_base_path(), "modules")
     if not os.path.exists(modules_dir): os.makedirs(modules_dir)
@@ -145,7 +118,7 @@ def load_modules(splash_ref=None, progress_offset=0, progress_scale=1.0):
         if splash_ref:
             splash_ref.showMessage(f"加载模块: {filename} ...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)
             splash_ref.progressBar.setValue(base_progress + current_stage_progress)
-            app.processEvents()
+            QApplication.processEvents()
         module_name = filename[:-3]
         try:
             filepath = os.path.join(modules_dir, filename)
@@ -156,10 +129,12 @@ def load_modules(splash_ref=None, progress_offset=0, progress_scale=1.0):
 
 # --- 核心逻辑与辅助函数 ---
 class Logger:
+    """A simple file logger."""
     def __init__(self, fp): self.fp = fp; open(self.fp, 'a', encoding='utf-8').write(f"\n--- Log started at {datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
     def log(self, msg): open(self.fp, 'a', encoding='utf-8').write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] - {msg}\n")
 
 def setup_and_load_config():
+    """Initializes and loads the main configuration file."""
     if not os.path.exists(CONFIG_DIR): os.makedirs(CONFIG_DIR)
     default_settings = {
         "ui_settings": {
@@ -170,7 +145,7 @@ def setup_and_load_config():
             "sample_rate": 44100, 
             "channels": 1, 
             "recording_gain": 1.0,
-            "input_device_index": None # None 表示使用系统默认
+            "input_device_index": None # None means use system default
         },
         "file_settings": {"word_list_file": "default_list.py", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True}, "theme": "Modern_light_tab.qss"
@@ -207,6 +182,7 @@ def setup_and_load_config():
 
 
 def detect_language(text):
+    """Detects the primary language of a given text string."""
     if not text: return None
     ranges = {
         'han': (0x4e00, 0x9fff), 'kana': (0x3040, 0x30ff), 
@@ -242,6 +218,7 @@ def detect_language(text):
     return None
 
 class Worker(QObject):
+    """A generic worker thread for running tasks in the background."""
     finished = pyqtSignal(object); progress = pyqtSignal(int, str); error = pyqtSignal(str)
     def __init__(self, task, *args, **kwargs): super().__init__(); self.task=task; self.args=args; self.kwargs=kwargs
     def run(self):
@@ -249,33 +226,129 @@ class Worker(QObject):
         except Exception as e: self.error.emit(f"后台任务失败: {e}")
 
 class ToggleSwitch(QCheckBox):
+    """
+    A QSS-driven toggle switch widget.
+    """
     def __init__(self, parent=None):
-        super().__init__(parent); self.setFixedSize(60, 30); self.setCursor(Qt.PointingHandCursor)
-        self._bg_color = "#E0E0E0"; self._circle_color = QColor("white"); self._active_color = QColor("#8F4C33")
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing); p.setPen(Qt.NoPen)
-        rect = self.rect(); p.setBrush(self._active_color if self.isChecked() else QColor(self._bg_color))
-        p.drawRoundedRect(rect, 15, 15); p.setBrush(self._circle_color); margin = 3; diameter = rect.height() - 2 * margin
-        x_pos = rect.width() - diameter - margin if self.isChecked() else margin
-        p.drawEllipse(x_pos, margin, diameter, diameter)
-    def mousePressEvent(self, event): self.setChecked(not self.isChecked()); return super().mousePressEvent(event)
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+        
+        # --- Default properties for QSS ---
+        self._trackColorOff = QColor("#E0E0E0")
+        self._trackColorOn = QColor("#8F4C33")
+        self._knobColor = QColor("#FFFFFF")
+        self._trackBorderRadius = 14
+        self._knobMargin = 3
+        self._knobShape = 'ellipse' 
+        self._knobBorderRadius = 0 
+        self._borderColor = QColor(Qt.transparent)
+        self._borderWidth = 0 
 
+    # --- pyqtProperty definitions ---
+    @pyqtProperty(QColor)
+    def trackColorOff(self): return self._trackColorOff
+    @trackColorOff.setter
+    def trackColorOff(self, color): self._trackColorOff = color; self.update()
+    @pyqtProperty(QColor)
+    def trackColorOn(self): return self._trackColorOn
+    @trackColorOn.setter
+    def trackColorOn(self, color): self._trackColorOn = color; self.update()
+    @pyqtProperty(QColor)
+    def knobColor(self): return self._knobColor
+    @knobColor.setter
+    def knobColor(self, color): self._knobColor = color; self.update()
+    @pyqtProperty(int)
+    def trackBorderRadius(self): return self._trackBorderRadius
+    @trackBorderRadius.setter
+    def trackBorderRadius(self, radius): self._trackBorderRadius = radius; self.update()
+    @pyqtProperty(int)
+    def knobMargin(self): return self._knobMargin
+    @knobMargin.setter
+    def knobMargin(self, margin): self._knobMargin = margin; self.update()
+    @pyqtProperty(str)
+    def knobShape(self): return self._knobShape
+    @knobShape.setter
+    def knobShape(self, shape):
+        if shape in ['ellipse', 'rectangle']: self._knobShape = shape; self.update()
+    @pyqtProperty(int)
+    def knobBorderRadius(self): return self._knobBorderRadius
+    @knobBorderRadius.setter
+    def knobBorderRadius(self, radius): self._knobBorderRadius = radius; self.update()
+    @pyqtProperty(QColor)
+    def borderColor(self): return self._borderColor
+    @borderColor.setter
+    def borderColor(self, color): self._borderColor = color; self.update()
+    @pyqtProperty(int)
+    def borderWidth(self): return self._borderWidth
+    @borderWidth.setter
+    def borderWidth(self, width): self._borderWidth = width; self.update()
+
+    def paintEvent(self, event):
+        """Custom painting logic for the toggle switch."""
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        
+        rect = self.rect()
+        
+        # 1. Draw optional outer border
+        if self._borderWidth > 0 and self._borderColor.isValid() and self._borderColor.alpha() > 0:
+            pen = QPen(self._borderColor, self._borderWidth)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            half_pen_width = self._borderWidth // 2
+            border_rect = rect.adjusted(half_pen_width, half_pen_width, -half_pen_width, -half_pen_width)
+            p.setBrush(Qt.NoBrush) 
+            p.drawRoundedRect(border_rect, self.trackBorderRadius, self.trackBorderRadius)
+
+        # 2. Draw track
+        p.setPen(Qt.NoPen) 
+        track_color = self.trackColorOn if self.isChecked() else self.trackColorOff
+        p.setBrush(QBrush(track_color))
+        track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
+        track_inner_radius = max(0, self.trackBorderRadius - self._borderWidth)
+        p.drawRoundedRect(track_rect, track_inner_radius, track_inner_radius)
+        
+        # 3. Draw knob
+        margin = self.knobMargin
+        knob_height = track_rect.height() - (2 * margin)
+        knob_width = knob_height 
+        
+        if self.isChecked():
+            x_pos = track_rect.right() - knob_width - margin + 1
+        else:
+            x_pos = track_rect.left() + margin
+            
+        knob_rect = QRect(x_pos, track_rect.top() + margin, knob_width, knob_height)
+        p.setBrush(QBrush(self.knobColor))
+        
+        if self.knobShape == 'rectangle':
+            p.drawRoundedRect(knob_rect, self.knobBorderRadius, self.knobBorderRadius)
+        else:
+            p.drawEllipse(knob_rect)
+
+    def mousePressEvent(self, event):
+        """Toggles the state on left-click."""
+        if event.button() == Qt.LeftButton:
+            self.setChecked(not self.isChecked())
+            event.accept() 
+        else:
+            super().mousePressEvent(event)
 
 # ========== 主窗口和页面类 ==========
 class MainWindow(QMainWindow):
+    """The main application window."""
     def __init__(self, splash_ref=None):
-        # ... (super().__init__() 和其他初始化代码) ...
         super().__init__()
         self.splash_ref = splash_ref
-        if self.splash_ref: self.splash_ref.showMessage("初始化主窗口...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(35); app.processEvents()
-        self.setWindowTitle("PhonAcq Assistant - 音韵习得实验助手"); self.setGeometry(100, 100, 1200, 850)
+        if self.splash_ref: self.splash_ref.showMessage("初始化主窗口...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(35); QApplication.processEvents()
+        self.setWindowTitle("PhonAcq - 风纳客"); self.setGeometry(100, 100, 1200, 850)
         icon_path = os.path.join(BASE_PATH, "config", "icon.ico") 
         if os.path.exists(icon_path): self.setWindowIcon(QIcon(icon_path))
         self.config = main_config
         self.main_tabs = QTabWidget(); self.main_tabs.setObjectName("MainTabWidget"); self.setCentralWidget(self.main_tabs)
-        if self.splash_ref: self.splash_ref.showMessage("创建核心页面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(50); app.processEvents()
+        if self.splash_ref: self.splash_ref.showMessage("创建核心页面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(50); QApplication.processEvents()
 
-        # 1. 实例化所有功能页面
+        # 1. Instantiate all functional pages
         self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '口音采集会话', 
             lambda m, ts, w, l: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH))
         self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '语音包录制', 
@@ -295,16 +368,12 @@ class MainWindow(QMainWindow):
             lambda m: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR))
         self.pinyin_to_ipa_page = self.create_module_or_placeholder('pinyin_to_ipa_module', '拼音转IPA', 
             lambda m, ts: m.create_page(self, ts))
-        
-        # ===== 修改/MODIFIED: lambda 函数现在接收 std_wld 参数 =====
         self.tts_utility_page = self.create_module_or_placeholder('tts_utility_module', 'TTS 工具',
             lambda m, ts, w, dl, std_wld: m.create_page(self, self.config, AUDIO_TTS_DIR, ts, w, dl, std_wld)
         )
-            
         self.settings_page = SettingsPage(self) 
         
-        # ... (MainWindow 的其余部分，包括UI布局、信号连接、apply_theme 等，与上一个版本一致)
-        if self.splash_ref: self.splash_ref.showMessage("构建用户界面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(75); app.processEvents()
+        if self.splash_ref: self.splash_ref.showMessage("构建用户界面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(75); QApplication.processEvents()
         collection_tabs = QTabWidget(); collection_tabs.setObjectName("SubTabWidget"); collection_tabs.addTab(self.accent_collection_page, "口音采集会话"); collection_tabs.addTab(self.voicebank_recorder_page, "语音包录制")
         dialect_study_tabs = QTabWidget(); dialect_study_tabs.setObjectName("SubTabWidget"); dialect_study_tabs.addTab(self.dialect_visual_page, "图文采集"); dialect_study_tabs.addTab(self.dialect_visual_editor_page, "图文词表编辑")
         corpus_tabs = QTabWidget(); corpus_tabs.setObjectName("SubTabWidget"); corpus_tabs.addTab(self.wordlist_editor_page, "词表编辑器"); corpus_tabs.addTab(self.converter_page, "Excel 转换器"); corpus_tabs.addTab(self.audio_manager_page, "数据管理器")
@@ -312,12 +381,11 @@ class MainWindow(QMainWindow):
         settings_and_help_tabs = QTabWidget(); settings_and_help_tabs.setObjectName("SubTabWidget"); settings_and_help_tabs.addTab(self.settings_page, "程序设置"); settings_and_help_tabs.addTab(self.help_page, "帮助文档")
         self.main_tabs.addTab(collection_tabs, "数据采集"); self.main_tabs.addTab(dialect_study_tabs, "方言研究"); self.main_tabs.addTab(corpus_tabs, "语料管理"); self.main_tabs.addTab(utilities_tabs, "实用工具"); self.main_tabs.addTab(settings_and_help_tabs, "系统与帮助")
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed); collection_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据采集", i)); corpus_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("语料管理", i)); dialect_study_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("方言研究", i)); utilities_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("实用工具", i)); settings_and_help_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("系统与帮助", i))
-        if self.splash_ref: self.splash_ref.showMessage("准备完成! (100%)", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(100); app.processEvents()
+        if self.splash_ref: self.splash_ref.showMessage("准备完成! (100%)", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(100); QApplication.processEvents()
         self.apply_theme(); self.on_main_tab_changed(0)
 
-
-    # ===== 修改/MODIFIED: create_module_or_placeholder 为 tts_utility_module 传递 WORD_LIST_DIR =====
     def create_module_or_placeholder(self, module_key, name, page_factory):
+        """Creates a page from a module or a placeholder if the module is missing."""
         if module_key in MODULES:
             try:
                 module = MODULES[module_key]['module']
@@ -326,20 +394,20 @@ class MainWindow(QMainWindow):
                 elif module_key == 'pinyin_to_ipa_module': return page_factory(module, ToggleSwitch)
                 elif module_key == 'voicebank_recorder_module': return page_factory(module, ToggleSwitch, Worker)
                 elif module_key == 'tts_utility_module': 
-                    # 现在 page_factory (lambda) 会接收 WORD_LIST_DIR 作为最后一个参数
                     return page_factory(module, ToggleSwitch, Worker, detect_language, WORD_LIST_DIR) 
                 return page_factory(module)
             except Exception as e: print(f"创建模块 '{name}' 页面时出错: {e}")
         page = QWidget(); layout = QVBoxLayout(page); layout.setAlignment(Qt.AlignCenter); layout.addWidget(QLabel(f"模块 '{name}' 未加载或创建失败。")); return page
 
-    # ... (on_main_tab_changed, on_sub_tab_changed, apply_theme 方法保持不变)
     def on_main_tab_changed(self, index):
+        """Handles logic when the main tab changes."""
         current_main_tab_text = self.main_tabs.tabText(index)
         current_main_widget = self.main_tabs.widget(index)
         if current_main_widget and isinstance(current_main_widget, QTabWidget): 
             self.on_sub_tab_changed(current_main_tab_text, current_main_widget.currentIndex())
         
     def on_sub_tab_changed(self, group_name, index):
+        """Handles logic when a sub-tab changes, calling refresh/load methods."""
         try:
             main_tab_content_widget = None
             for i in range(self.main_tabs.count()):
@@ -368,6 +436,7 @@ class MainWindow(QMainWindow):
             elif index == 1 and hasattr(self, 'help_page') and self.help_page == active_sub_tab_widget and hasattr(self.help_page, 'update_help_content'): self.help_page.update_help_content()
             
     def apply_theme(self):
+        """Applies the currently selected theme from the configuration."""
         theme_path = os.path.join(THEMES_DIR, self.config.get("theme", "Modern_light_tab.qss"))
         if os.path.exists(theme_path):
             with open(theme_path, "r", encoding="utf-8") as f: self.setStyleSheet(f.read())
@@ -376,8 +445,9 @@ class MainWindow(QMainWindow):
             self.setStyleSheet("") 
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
-# ===== SettingsPage 类，包含对侧边栏宽度和录音设备的修改 =====
+
 class SettingsPage(QWidget):
+    """The settings page for the application."""
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
@@ -385,28 +455,27 @@ class SettingsPage(QWidget):
         main_layout = QVBoxLayout(self)
         columns_layout = QHBoxLayout()
 
-        # ===== 修改/MODIFIED: 为左右两栏创建 QWidget 作为容器，以便设置最大宽度 =====
         self.left_column_widget = QWidget()
         left_column_layout = QVBoxLayout(self.left_column_widget)
         
         self.right_column_widget = QWidget()
         right_column_layout = QVBoxLayout(self.right_column_widget)
 
-        # --- 第1组: 界面与外观 ---
+        # --- Group 1: UI & Appearance ---
         ui_appearance_group = QGroupBox("界面与外观")
         ui_appearance_form_layout = QFormLayout(ui_appearance_group)
         
         self.collector_width_input = QLineEdit()
-        self.collector_width_input.setValidator(QIntValidator(200, 500, self))
-        self.collector_width_label = QLabel("范围: 200-500 px")
+        self.collector_width_input.setValidator(QIntValidator(200, 600, self))
+        self.collector_width_label = QLabel("范围: 200-600 px")
         collector_width_layout = QHBoxLayout()
         collector_width_layout.addWidget(self.collector_width_input)
         collector_width_layout.addWidget(self.collector_width_label)
         ui_appearance_form_layout.addRow("采集类页面侧边栏宽度:", collector_width_layout)
         
         self.editor_width_input = QLineEdit()
-        self.editor_width_input.setValidator(QIntValidator(200, 500, self))
-        self.editor_width_label = QLabel("范围: 200-500 px")
+        self.editor_width_input.setValidator(QIntValidator(200, 600, self))
+        self.editor_width_label = QLabel("范围: 200-600 px")
         editor_width_layout = QHBoxLayout()
         editor_width_layout.addWidget(self.editor_width_input)
         editor_width_layout.addWidget(self.editor_width_label)
@@ -415,7 +484,7 @@ class SettingsPage(QWidget):
         self.theme_combo = QComboBox()
         ui_appearance_form_layout.addRow("主题皮肤:", self.theme_combo)
         
-        # --- 第2组: 文件与路径 ---
+        # --- Group 2: Files & Paths ---
         file_group = QGroupBox("文件与路径")
         file_layout = QFormLayout(file_group)
         self.results_dir_input = QLineEdit()
@@ -427,7 +496,7 @@ class SettingsPage(QWidget):
         file_layout.addRow("默认单词表 (口音采集):", self.word_list_combo)
         file_layout.addRow("默认被试者名称:", self.participant_name_input)
         
-        # --- 第3组: gTTS (在线) 设置 ---
+        # --- Group 3: gTTS Settings ---
         gtts_group = QGroupBox("gTTS (在线) 设置")
         gtts_layout = QFormLayout(gtts_group)
         self.gtts_lang_combo = QComboBox()
@@ -437,7 +506,7 @@ class SettingsPage(QWidget):
         gtts_layout.addRow("默认语言 (无指定时):", self.gtts_lang_combo)
         gtts_layout.addRow("自动检测语言 (中/日等):", auto_detect_layout)
 
-        # --- 第4组: 音频与录音 ---
+        # --- Group 4: Audio & Recording ---
         audio_group = QGroupBox("音频与录音")
         audio_layout = QFormLayout(audio_group)
         
@@ -463,14 +532,11 @@ class SettingsPage(QWidget):
         right_column_layout.addWidget(audio_group)
         right_column_layout.addStretch()
 
-        # ===== 修改/MODIFIED: 为右栏容器设置最大宽度 =====
-        self.left_column_widget.setMaximumWidth(600) # 或者一个你认为合适的值
-        self.right_column_widget.setMaximumWidth(600) # 或者一个你认为合适的值
+        self.left_column_widget.setMaximumWidth(600)
+        self.right_column_widget.setMaximumWidth(600)
 
         columns_layout.addWidget(self.left_column_widget)
         columns_layout.addWidget(self.right_column_widget)
-
-
 
         button_layout = QHBoxLayout()
         self.save_btn = QPushButton("保存所有设置"); self.save_btn.setObjectName("AccentButton")
@@ -485,16 +551,16 @@ class SettingsPage(QWidget):
         self.theme_combo.currentTextChanged.connect(self.preview_theme)
 
     def populate_all(self):
+        """Populates all combo boxes with available options."""
         self.populate_themes(); self.populate_word_lists(); self.populate_input_devices()
 
     def populate_input_devices(self):
+        """Populates the input device combo box."""
         self.input_device_combo.clear()
         try:
             devices = sd.query_devices()
             default_input_idx = sd.default.device[0] if isinstance(sd.default.device, (list, tuple)) and len(sd.default.device) > 0 else -1
-
             self.input_device_combo.addItem("系统默认", None) 
-
             for i, device in enumerate(devices):
                 if device['max_input_channels'] > 0:
                     device_name = f"{device['name']}"
@@ -506,18 +572,24 @@ class SettingsPage(QWidget):
             self.input_device_combo.addItem("无法获取设备列表", -1)
 
     def select_results_dir(self):
+        """Opens a dialog to select the results directory."""
         directory = QFileDialog.getExistingDirectory(self, "选择结果文件夹", self.results_dir_input.text())
         if directory: self.results_dir_input.setText(directory)
 
     def populate_word_lists(self):
+        """Populates the word list combo box."""
         self.word_list_combo.clear()
         if os.path.exists(WORD_LIST_DIR): self.word_list_combo.addItems([f for f in os.listdir(WORD_LIST_DIR) if f.endswith('.py')])
 
     def populate_themes(self):
+        """Populates the theme combo box."""
         self.theme_combo.clear()
-        if os.path.exists(THEMES_DIR): self.theme_combo.addItems([f for f in os.listdir(THEMES_DIR) if f.endswith('.qss')])
-    
+        themes_dir_path = os.path.join(get_base_path(), "themes")
+        if os.path.exists(themes_dir_path): 
+            self.theme_combo.addItems([f for f in os.listdir(themes_dir_path) if f.endswith('.qss') and not f.startswith('_')])
+
     def load_settings(self):
+        """Loads all settings from the config and populates the UI fields."""
         self.populate_all() 
         self.config = self.parent_window.config
         
@@ -553,23 +625,21 @@ class SettingsPage(QWidget):
         self.gain_slider.setValue(int(gain * 10))
 
     def preview_theme(self, theme_file):
+        """Temporarily applies a theme for previewing."""
         if not theme_file: return
         theme_path = os.path.join(THEMES_DIR, theme_file)
         if os.path.exists(theme_path):
             with open(theme_path, "r", encoding="utf-8") as f: self.parent_window.setStyleSheet(f.read())
             
     def save_settings(self):
+        """Saves all settings to the config file and applies them."""
         try:
             collector_width = int(self.collector_width_input.text())
             editor_width = int(self.editor_width_input.text())
-            if not (200 <= collector_width <= 500 and 200 <= editor_width <= 500):
-                QMessageBox.warning(self, "输入无效", "侧边栏宽度必须在 200 到 500 像素之间。")
-                ui_settings = self.config.get("ui_settings", {})
-                self.collector_width_input.setText(str(ui_settings.get("collector_sidebar_width", 320)))
-                self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
-                return
-        except ValueError:
-            QMessageBox.warning(self, "输入无效", "侧边栏宽度必须是数字。")
+            if not (200 <= collector_width <= 600 and 200 <= editor_width <= 600): # 调整范围
+                raise ValueError("侧边栏宽度必须在 200 到 600 像素之间。")
+        except ValueError as e:
+            QMessageBox.warning(self, "输入无效", str(e))
             ui_settings = self.config.get("ui_settings", {})
             self.collector_width_input.setText(str(ui_settings.get("collector_sidebar_width", 320)))
             self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
@@ -589,6 +659,9 @@ class SettingsPage(QWidget):
         audio_settings["input_device_index"] = self.input_device_combo.currentData()
 
         try:
+            # ===== 新增/MODIFIED: 保存设置时，提取并缓存启动进度条样式 =====
+            self.cache_splash_progressbar_style()
+
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f: json.dump(self.config, f, indent=4)
             self.parent_window.config = self.config 
             self.parent_window.apply_theme() 
@@ -602,7 +675,122 @@ class SettingsPage(QWidget):
             QMessageBox.information(self, "成功", "所有设置已成功保存并应用！")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"保存设置失败: {e}")
+
+    def cache_splash_progressbar_style(self):
+        """
+        解析选定的主题文件，提取 QProgressBar 的样式，并保存到缓存文件中。
+        """
+        selected_theme_file = self.theme_combo.currentText()
+        theme_path = os.path.join(THEMES_DIR, selected_theme_file)
+        cache_path = os.path.join(THEMES_DIR, "_splash_progressbar.qss")
+
+        if not os.path.exists(theme_path):
+            # 如果主题文件不存在，可以考虑删除缓存或什么都不做
+            if os.path.exists(cache_path):
+                try: os.remove(cache_path)
+                except Exception as e: print(f"无法删除缓存的进度条样式: {e}")
+            return
+
+        try:
+            with open(theme_path, 'r', encoding='utf-8') as f:
+                full_qss = f.read()
+
+            # 使用正则表达式提取 QProgressBar { ... } 和 QProgressBar::chunk { ... } 的内容
+            # 这个正则表达式会匹配 "QProgressBar" 开头，直到遇到第一个未配对的 "}"
+            # 它能处理嵌套，但对于非常复杂的QSS可能不够完美，但对我们的情况足够了
+            progressbar_styles = re.findall(r'(QProgressBar[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', full_qss)
+            
+            final_style_to_cache = ""
+            if progressbar_styles:
+                # 只获取第一个匹配项，通常就是我们需要的那个
+                final_style_to_cache = progressbar_styles[0]
+                
+            # 也需要找到 ::chunk 的样式
+            chunk_styles = re.findall(r'(QProgressBar::chunk[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', full_qss)
+            if chunk_styles:
+                final_style_to_cache += "\n" + chunk_styles[0]
+            
+            if final_style_to_cache:
+                with open(cache_path, 'w', encoding='utf-8') as f_cache:
+                    f_cache.write(f"/* Auto-generated for splash screen from {selected_theme_file} */\n")
+                    f_cache.write(final_style_to_cache)
+                print(f"启动进度条样式已缓存至: {cache_path}")
+            else:
+                # 如果在主题中找不到进度条样式，则删除缓存文件，以便下次启动使用默认样式
+                if os.path.exists(cache_path):
+                    os.remove(cache_path)
+        except Exception as e:
+            print(f"缓存启动进度条样式时出错: {e}")
+
+# ===== 主程序执行块 =====
 if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    BASE_PATH = get_base_path() 
+    assets_path = os.path.join(BASE_PATH, "assets")
+    
+    # --- 启动画面图片加载逻辑 ---
+    splash_dir = os.path.join(assets_path, "splashes")
+    splash_pix = None
+    if os.path.exists(splash_dir) and os.path.isdir(splash_dir):
+        images = [f for f in os.listdir(splash_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        if images:
+            chosen_image_path = os.path.join(splash_dir, random.choice(images))
+            splash_pix = QPixmap(chosen_image_path)
+            print(f"随机加载启动图: {os.path.basename(chosen_image_path)}")
+    if splash_pix is None or splash_pix.isNull():
+        default_splash_path = os.path.join(assets_path, "splash.png")
+        splash_pix = QPixmap(default_splash_path)
+        if splash_pix.isNull():
+            splash_pix = QPixmap(600, 350)
+            splash_pix.fill(QColor("#FCEAE4"))
+    
+    splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
+    splash.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+    
+    splash.progressBar = QProgressBar(splash)
+    splash.progressBar.setGeometry(15, splash_pix.height() - 60, splash_pix.width() - 30, 24)
+    splash.progressBar.setRange(0, 100); splash.progressBar.setValue(0); splash.progressBar.setTextVisible(False)
+    splash.setFont(QFont("Microsoft YaHei", 10))
+    
+    # ===== 修改/MODIFIED: 启动画面样式加载逻辑 =====
+    splash_progressbar_style_cache = os.path.join(get_base_path(), "themes", "_splash_progressbar.qss")
+    
+    splash_style = ""
+    if os.path.exists(splash_progressbar_style_cache):
+        try:
+            with open(splash_progressbar_style_cache, 'r', encoding='utf-8') as f:
+                splash_style = f.read()
+            print("从缓存加载启动进度条样式。")
+        except Exception as e:
+            print(f"读取缓存样式失败: {e}")
+            splash_style = "" # 出错则回退
+
+    # 如果没有缓存或读取失败，则使用硬编码的默认样式
+    if not splash_style:
+        print("使用默认启动进度条样式。")
+        splash_style = """
+            QProgressBar {
+                background-color: rgba(0, 0, 0, 80); border: none; border-radius: 12px; 
+                text-align: center; color: white;
+            }
+            QProgressBar::chunk { background-color: white; border-radius: 12px; }
+        """
+        
+    # 为 QLabel 设置通用样式
+    splash_style += """
+        QSplashScreen > QLabel { 
+            background-color: rgba(0, 0, 0, 100); color: white; 
+            padding: 4px 8px; border-radius: 4px; 
+        }
+    """
+    
+    splash.setStyleSheet(splash_style)
+
+    splash.show()
+    splash.showMessage("正在准备环境...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)
+    app.processEvents()
+
+    # --- 主程序执行流程 ---
     splash.showMessage("加载核心组件...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(10); app.processEvents()
     main_config = setup_and_load_config()
     splash.showMessage("加载用户配置...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(20); app.processEvents()

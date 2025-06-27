@@ -339,3 +339,48 @@ QMenu::icon {
     width: 16px;
     height: 16px;
 }
+QTableCornerButton::section {
+    background-color: #3E3E3E; /* 与表头背景一致 */
+    border-bottom: 1px solid #525252;
+    border-right: 1px solid #525252;
+}
+
+/* ================== 开关控件 (ToggleSwitch) - Tech Dark ================== */
+ToggleSwitch {
+    qproperty-trackColorOff: #2E2E2E;      /* 关闭时: 深灰色轨道 */
+    qproperty-trackColorOn: #00BCD4;       /* 打开时: 主题青色 */
+    qproperty-knobColor: #FFFFFF;          /* 滑块: 白色 */
+    qproperty-trackBorderRadius: 4px;      /* 轨道圆角 */
+    qproperty-knobMargin: 2;               
+    qproperty-knobShape: 'ellipse';        /* 明确指定圆形 */
+    qproperty-borderWidth: 1;              
+    qproperty-borderColor: #4A4A4A;        
+    min-width: 60px;                       
+    max-width: 60px;                       
+    min-height: 30px;                      
+    max-height: 30px;                      
+}
+/* --- 方言图文采集页面 --- */
+QLabel#ScalableImageLabel {
+    border: 1px solid #4A4A4A;
+    background-color: #2E2E2E; /* 与输入框背景一致 */
+    color: #757575; /* 占位文字颜色 */
+}
+
+QLabel#PromptTextLabel {
+    padding: 5px;
+    color: #00BCD4; /* 主题强调色 */
+    font-size: 20px;
+    font-weight: bold;
+    background-color: #2E2E2E;
+    border: 1px solid #4A4A4A;
+    border-radius: 8px;
+}
+
+QTextEdit#NotesTextEdit {
+    background-color: #272727;
+    border: 1px solid #4A4A4A;
+    border-radius: 4px;
+    padding: 8px;
+    color: #BDBDBD; /* 稍暗的文字，以区分 */
+}

@@ -54,13 +54,12 @@ def create_page(parent_window, config, base_path, word_list_dir_visual, audio_re
     return DialectVisualCollectorPage(parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass)
 
 class ScalableImageLabel(QLabel):
-    # ... (ScalableImageLabel 类的代码保持不变，此处省略以减少篇幅) ...
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.pixmap = None; self.scale = 1.0; self.min_scale = 1.0
         self.offset = QPoint(0, 0); self.panning = False; self.last_mouse_pos = QPoint()
         self.setMinimumSize(400, 300); self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("QLabel { border: 1px solid #cccccc; background-color: #f0f0f0; color: #888888; }")
+        self.setObjectName("ScalableImageLabel")
     def set_pixmap(self, pixmap): self.pixmap = pixmap; self.reset_view()
     def calculate_min_scale(self):
         if not self.pixmap or self.pixmap.isNull() or self.width() <= 0 or self.height() <= 0: self.min_scale = 1.0; return
@@ -114,7 +113,9 @@ class ScalableImageLabel(QLabel):
 
 
 class DialectVisualCollectorPage(QWidget):
-    LINE_WIDTH_THRESHOLD = 90 # 虽然在这个模块中列表项显示简单，但保留以防万一
+    LINE_WIDTH_THRESHOLD = 90
+    recording_device_error_signal = pyqtSignal(str)
+    
     def __init__(self, parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass):
         super().__init__()
         self.parent_window = parent_window; self.config = config; self.BASE_PATH = base_path
@@ -123,10 +124,17 @@ class DialectVisualCollectorPage(QWidget):
         self.original_items_list = []
         self.current_items_list = []
         self.current_item_index = -1; self.current_wordlist_path = None; self.current_wordlist_name = None
-        self.current_audio_folder = None; self.audio_queue = queue.Queue(); self.recording_thread = None
-        self.stop_event = threading.Event(); self.logger_instance = None
         
-        self._init_ui() # 构建UI
+        # 分别初始化两个队列
+        self.current_audio_folder = None
+        self.audio_queue = queue.Queue() # 用于录音数据
+        self.volume_meter_queue = queue.Queue(maxsize=2) # 用于音量计，maxsize确保不积压
+        
+        self.recording_thread = None
+        self.session_stop_event = threading.Event()
+        self.logger_instance = None
+        
+        self._init_ui()
 
         # 连接信号
         self.start_btn.clicked.connect(self.start_session)
@@ -137,20 +145,17 @@ class DialectVisualCollectorPage(QWidget):
         self.show_notes_switch.stateChanged.connect(self.toggle_notes_visibility)
         self.show_prompt_switch.stateChanged.connect(self.toggle_prompt_visibility)
         self.random_order_switch.stateChanged.connect(self.on_order_mode_changed)
+        self.recording_device_error_signal.connect(self.show_recording_device_error)
         self.setFocusPolicy(Qt.StrongFocus)
 
-        # 初始加载配置（这也会调用 apply_layout_settings 如果需要）
         self.load_config_and_prepare()
 
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
         
-        # 左侧面板 (列表)
-        self.left_panel = QWidget() # 保存以便应用宽度设置
+        self.left_panel = QWidget()
         left_layout = QVBoxLayout(self.left_panel)
-        # left_panel.setFixedWidth(300) # 移除硬编码宽度
-
         self.item_list_widget = QListWidget(); self.item_list_widget.setObjectName("DialectItemList")
         self.item_list_widget.setWordWrap(True); self.item_list_widget.setResizeMode(QListWidget.Adjust)
         self.item_list_widget.setUniformItemSizes(False); self.item_list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -158,21 +163,23 @@ class DialectVisualCollectorPage(QWidget):
         self.status_label.setMinimumHeight(25); self.status_label.setWordWrap(True)
         left_layout.addWidget(QLabel("采集项目:")); left_layout.addWidget(self.item_list_widget, 1); left_layout.addWidget(self.status_label)
         
-        # 中间面板 (图片和文本)
         center_panel = QWidget(); center_layout = QVBoxLayout(center_panel)
         self.image_viewer = ScalableImageLabel("图片区域"); self.image_viewer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.prompt_text_label = QLabel("提示文字区域"); self.prompt_text_label.setAlignment(Qt.AlignCenter); self.prompt_text_label.setWordWrap(True)
-        self.prompt_text_label.setFixedHeight(60); self.prompt_text_label.setStyleSheet("QLabel { padding: 5px; color: #555; }")
-        self.notes_text_edit = QTextEdit(); self.notes_text_edit.setReadOnly(True); self.notes_text_edit.setObjectName("NotesTextEdit")
-        self.notes_text_edit.setFixedHeight(120); self.notes_text_edit.setStyleSheet("QTextEdit#NotesTextEdit {background-color: #fdfaf6; border: 1px solid #EAE0C9; border-radius: 4px; padding: 8px; color: #4A4034;}")
+        self.prompt_text_label = QLabel("提示文字区域")
+        self.prompt_text_label.setObjectName("PromptTextLabel")
+        self.prompt_text_label.setAlignment(Qt.AlignCenter); self.prompt_text_label.setWordWrap(True)
+        self.prompt_text_label.setFixedHeight(60)
+        self.notes_text_edit = QTextEdit()
+        self.notes_text_edit.setObjectName("NotesTextEdit")
+        self.notes_text_edit.setReadOnly(True)
+        self.notes_text_edit.setFixedHeight(120)
         self.notes_text_edit.setVisible(False)
-        center_layout.addWidget(self.image_viewer, 1); center_layout.addWidget(self.prompt_text_label); center_layout.addWidget(self.notes_text_edit)
+        center_layout.addWidget(self.image_viewer, 1)
+        center_layout.addWidget(self.prompt_text_label)
+        center_layout.addWidget(self.notes_text_edit)
 
-        # 右侧面板 (控制) - 这个模块的右侧面板宽度保持默认或由其内容决定
         self.right_panel = QWidget() 
         right_panel_layout = QVBoxLayout(self.right_panel)
-        # right_panel.setFixedWidth(320) # 移除此模块右侧面板的固定宽度
-
         control_group = QGroupBox("操作面板"); self.control_layout = QFormLayout(control_group)
         self.word_list_combo = QComboBox(); self.start_btn = QPushButton("加载并开始"); self.start_btn.setObjectName("AccentButton")
         self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.hide()
@@ -205,28 +212,31 @@ class DialectVisualCollectorPage(QWidget):
         
         main_layout.addWidget(self.left_panel); 
         main_layout.addWidget(center_panel, 1); 
-        main_layout.addWidget(self.right_panel) # 右侧面板加入布局
+        main_layout.addWidget(self.right_panel)
         self.setLayout(main_layout)
 
-    # ===== 新增/NEW: 应用左侧面板宽度的方法 =====
     def apply_layout_settings(self):
-        """从配置中读取并应用左侧边栏宽度。"""
         config = self.parent_window.config 
         ui_settings = config.get("ui_settings", {})
-        # 注意：方言图文采集左侧是列表，应使用 editor_sidebar_width
         width = ui_settings.get("editor_sidebar_width", 300) 
         self.left_panel.setFixedWidth(width)
 
 
     def load_config_and_prepare(self):
         self.config = self.parent_window.config
-        self.apply_layout_settings() # 确保切换到此页面时，宽度被应用
+        self.apply_layout_settings()
         if not self.session_active: self.populate_word_lists()
+
+    def show_recording_device_error(self, error_message):
+        QMessageBox.critical(self, "录音设备错误", error_message)
+        self.log(f"录音设备错误，请检查设置。")
+        self.record_btn.setEnabled(False)
+        if self.session_active:
+            self.end_session(force=True)
 
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter) and not event.isAutoRepeat():
-            if self.record_btn.isEnabled() and not self.is_recording:
-                self.is_recording = True; self.handle_record_pressed(); event.accept()
+            if self.record_btn.isEnabled(): self.handle_record_pressed(); event.accept()
         else: super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
@@ -235,34 +245,33 @@ class DialectVisualCollectorPage(QWidget):
         else: super().keyReleaseEvent(event)
 
     def handle_record_pressed(self):
-        if not self.session_active or self.is_recording: return
-        self.is_recording = True; self._start_recording_logic()
+        if self.session_active and not self.is_recording:
+            self._start_recording_logic()
 
     def handle_record_released(self):
-        if not self.session_active or not self.is_recording: return
-        self._stop_recording_logic()
+        if self.session_active and self.is_recording:
+            self._stop_recording_logic()
 
     def _start_recording_logic(self):
         self.current_item_index = self.item_list_widget.currentRow()
-        if self.current_item_index == -1: self.log("请先在列表中选择一个项目！"); self.is_recording = False; return
-        self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;"); self.update_timer.start(50)
+        if self.current_item_index == -1: 
+            self.log("请先在列表中选择一个项目！")
+            return
+        
+        while not self.audio_queue.empty():
+            try: self.audio_queue.get_nowait()
+            except queue.Empty: break
+            
+        self.is_recording = True
+        self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;")
         self.record_btn.setText("正在录音..."); self.record_btn.setStyleSheet("background-color: #f44336; color: white;")
         self.log(f"录制项目: '{self.current_items_list[self.current_item_index].get('id', '未知项目')}'")
-        self.audio_queue = queue.Queue(); self.stop_event.clear()
-        self.recording_thread = threading.Thread(target=self._recorder_thread_task, daemon=True); self.recording_thread.start()
 
     def _stop_recording_logic(self):
-        if not self.recording_thread or not self.recording_thread.is_alive():
-            if self.is_recording: self.is_recording = False
-            self.record_btn.setText("按住录音"); self.record_btn.setStyleSheet("")
-            return
-        self.update_timer.stop()
-        self.recording_indicator.setText("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;")
-        self.volume_meter.setValue(0); self.record_btn.setText("按住录音"); self.record_btn.setStyleSheet("")
-        self.log("正在保存...")
-        self.stop_event.set()
-        if self.recording_thread.is_alive(): self.recording_thread.join(timeout=0.5)
         self.is_recording = False
+        self.recording_indicator.setText("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;")
+        self.record_btn.setText("按住录音"); self.record_btn.setStyleSheet("")
+        self.log("正在保存...")
         self._run_task_in_thread(self._save_recording_task)
 
     def _format_list_item_text(self, item_id, prompt_text): return item_id
@@ -312,12 +321,15 @@ class DialectVisualCollectorPage(QWidget):
         self.notes_text_edit.setPlainText(item_data.get('notes', '无备注'))
 
     def update_volume_meter(self):
-        if not self.audio_queue.empty():
-            data_chunk = self.audio_queue.get()
+        try:
+            data_chunk = self.volume_meter_queue.get_nowait()
             if data_chunk is not None:
-                try: volume_norm = np.linalg.norm(data_chunk) * 10; self.volume_meter.setValue(int(volume_norm))
-                except Exception as e: print(f"Error calculating volume: {e}")
-        else: self.volume_meter.setValue(int(self.volume_meter.value() * 0.8))
+                volume_norm = np.linalg.norm(data_chunk) * 20 
+                self.volume_meter.setValue(int(volume_norm))
+        except queue.Empty:
+            self.volume_meter.setValue(int(self.volume_meter.value() * 0.8))
+        except Exception as e:
+            print(f"Error calculating volume: {e}")
 
     def log(self, msg): self.status_label.setText(f"状态: {msg}")
 
@@ -338,12 +350,23 @@ class DialectVisualCollectorPage(QWidget):
         self.prompt_text_label.setText(""); self.notes_text_edit.setPlainText(""); self.notes_text_edit.setVisible(False)
         self.show_notes_switch.setChecked(False); self.record_btn.setEnabled(False); self.log("请选择图文词表开始采集。")
 
-    def end_session(self):
-        reply = QMessageBox.question(self, '结束会话', '您确定要结束当前的图文采集会话吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.session_active = False; self.current_items_list = []; self.original_items_list = []; self.current_item_index = -1
-            self.current_wordlist_path = None; self.current_wordlist_name = None; self.current_audio_folder = None
-            self.logger_instance = None; self.reset_ui(); self.populate_word_lists()
+    def end_session(self, force=False):
+        if not force:
+            reply = QMessageBox.question(self, '结束会话', '您确定要结束当前的图文采集会话吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        
+        self.update_timer.stop()
+        self.volume_meter.setValue(0)
+
+        self.session_stop_event.set()
+        if self.recording_thread and self.recording_thread.is_alive():
+            self.recording_thread.join(timeout=1.0)
+        self.recording_thread = None
+
+        self.session_active = False; self.current_items_list = []; self.original_items_list = []; self.current_item_index = -1
+        self.current_wordlist_path = None; self.current_wordlist_name = None; self.current_audio_folder = None
+        self.logger_instance = None; self.reset_ui(); self.populate_word_lists()
 
     def start_session(self):
         wordlist_file = self.word_list_combo.currentText()
@@ -361,6 +384,13 @@ class DialectVisualCollectorPage(QWidget):
             log_file_path = os.path.join(self.current_audio_folder, "collection_log.txt")
             self.logger_instance = self.Logger(log_file_path)
             self.logger_instance.log(f"Dialect visual collection session started for wordlist: {self.current_wordlist_name}")
+            
+            self.session_stop_event.clear()
+            self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
+            self.recording_thread.start()
+            
+            self.update_timer.start(30)
+            
             self.word_list_combo.hide(); self.start_btn.hide()
             self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete")
             self.end_session_btn.clicked.connect(self.end_session)
@@ -388,16 +418,23 @@ class DialectVisualCollectorPage(QWidget):
                 selected_item_to_display = self.item_list_widget.item(new_row_to_select)
                 if selected_item_to_display: self.on_item_selected(selected_item_to_display, None)
 
-    def on_recording_saved(self):
-        self.log("录音已保存。"); self.update_list_widget() 
+    def on_recording_saved(self, result):
+        self.log("录音已保存。")
+        self.update_list_widget() 
         if self.current_item_index + 1 < len(self.current_items_list):
             self.current_item_index += 1; self.item_list_widget.setCurrentRow(self.current_item_index)
         else: 
-            QMessageBox.information(self,"完成","所有项目已录制完毕！")
-            if self.session_active: self.end_session()
+            all_done = True
+            for item_data in self.current_items_list:
+                audio_filename = f"{item_data.get('id')}.mp3"
+                if not os.path.exists(os.path.join(self.current_audio_folder, audio_filename)):
+                    all_done = False; break
+            if all_done:
+                QMessageBox.information(self,"完成","所有项目已录制完毕！")
+                if self.session_active: self.end_session()
         
-    # ===== 修改/MODIFIED: 使用配置文件中的录音设备 =====
-    def _recorder_thread_task(self):
+    def _persistent_recorder_task(self):
+        """此线程在整个会话期间运行，保持音频流打开以实现即时录音。"""
         try:
             device_index = self.config['audio_settings'].get('input_device_index', None)
             sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
@@ -406,11 +443,26 @@ class DialectVisualCollectorPage(QWidget):
                 device=device_index, 
                 samplerate=sr, 
                 channels=ch, 
-                callback=lambda i,f,t,s:self.audio_queue.put(i.copy())
+                callback=self._audio_callback
             ): 
-                self.stop_event.wait()
+                self.session_stop_event.wait()
         except Exception as e: 
-            print(f"录音线程错误 (DialectVisualCollector): {e}"); self.log(f"录音错误: {e}")
+            error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"
+            print(f"持久化录音线程错误: {error_msg}")
+            self.recording_device_error_signal.emit(error_msg)
+
+    def _audio_callback(self, indata, frames, time, status):
+        """此函数由 sounddevice 在后台高频调用。"""
+        if status:
+            print(f"录音状态警告: {status}", file=sys.stderr)
+        
+        try:
+            self.volume_meter_queue.put_nowait(indata.copy())
+        except queue.Full:
+            pass
+
+        if self.is_recording:
+            self.audio_queue.put(indata.copy())
 
     def _save_recording_task(self, worker_instance):
         if self.audio_queue.empty(): return
@@ -444,7 +496,8 @@ class DialectVisualCollectorPage(QWidget):
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater); self.thread.finished.connect(self.thread.deleteLater)
         self.worker.error.connect(lambda msg:QMessageBox.critical(self,"后台错误",msg))
-        if task_func == self._save_recording_task: self.worker.finished.connect(self.on_recording_saved)
+        if task_func == self._save_recording_task:
+            self.worker.finished.connect(self.on_recording_saved)
         self.thread.start()
         
     def load_word_list_logic(self, filename_from_combo):

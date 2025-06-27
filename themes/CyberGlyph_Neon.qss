@@ -196,3 +196,47 @@ QMenu::item:selected { background-color: #3A2F4D; color: #00FFFF; }
 QMenu::item:disabled { color: #504068; }
 QMenu::separator { height: 2px; background: #60507F; margin: 4px 2px; }
 QMenu::icon { padding-left: 8px; width: 16px; height: 16px; }
+ToggleSwitch {
+    qproperty-trackColorOff: #3A2F4D;
+    qproperty-trackColorOn: #006666;
+    qproperty-knobColor: #00FFFF;
+    qproperty-trackBorderRadius: 0; /* 外部容器和轨道的圆角 */
+    qproperty-knobMargin: 0;
+    qproperty-knobShape: 'rectangle';
+    qproperty-knobBorderRadius: 0;
+    
+    /* ===== 修改/MODIFIED: 使用自定义属性来定义边框 ===== */
+    qproperty-borderColor: #00FFFF; /* 定义边框颜色 */
+    qproperty-borderWidth: 2;       /* 定义边框宽度 */
+
+
+    min-width: 60px;
+    max-width: 60px;
+    min-height: 24px;
+    max-height: 24px;
+}
+/* --- 方言图文采集页面 --- */
+QLabel#ScalableImageLabel {
+    border: 2px solid #60507F; /* Muted Purple border */
+    background-color: #1A1423; /* Slightly Lighter Indigo */
+    color: #60507F; /* 占位文字颜色 */
+    border-radius: 0px; /* 保持锐角 */
+}
+
+QLabel#PromptTextLabel {
+    padding: 8px;
+    color: #FF00FF; /* Neon Magenta */
+    font-size: 20px;
+    font-weight: bold;
+    background-color: #120D1A; /* Deep Indigo, 与主背景一致 */
+    border: 1px dashed #60507F; /* 虚线边框 */
+    border-radius: 0px;
+}
+
+QTextEdit#NotesTextEdit {
+    background-color: #1A1423;
+    border: 1px solid #3A2F4D;
+    border-radius: 0px;
+    padding: 8px;
+    color: #9080A8; /* Muted Lavender */
+}
