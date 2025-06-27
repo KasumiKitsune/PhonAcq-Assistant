@@ -1,0 +1,244 @@
+/*
+ * The Great Wave - Daylight Edition v1.0
+ * Author: AI Assistant & Sager
+ * Description: A bright, high-contrast theme inspired by "The Great Wave off Kanagawa" under daylight.
+ *              Features sharp angles, dynamic asymmetry, and a striking blue-on-white palette.
+ */
+
+/* ================== 全局样式 (Daylight Sky & Ink) ================== */
+QWidget {
+    font-family: "Microsoft YaHei", "Yu Gothic", "Meiryo", sans-serif;
+    color: #1C2A40; /* Deep Prussian Blue (Ink) */
+    background-color: transparent;
+    font-size: 18px;
+    font-weight: bold; 
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
+    background-color: #F5F8FA; /* Very Light Blue-Gray (Sky) */
+}
+
+QMessageBox, QDialog { 
+    background-color: #FFFFFF; /* Pure White */
+    border: 1px solid #8AB2D6; /* Soft Wave Blue */
+    border-radius: 0px;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 18px; 
+    color: #1C2A40;
+}
+
+/* ================== 一级标签页 (Sunlit Waves) ================== */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #8AB2D6;
+    border-top: none;
+    background-color: #F5F8FA;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+    background-color: transparent;
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: #E8EEF4; /* Lighter Sky */
+    color: #A79B82; /* Sand/Wood Color */
+    border: 1px solid #C5D9E8;
+    border-bottom: none;
+    font-size: 20px;
+    margin-right: -1px; 
+    min-width: 190px;
+    padding: 12px 25px 12px 15px; 
+    border-top-left-radius: 10px;
+    border-top-right-radius: 0px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    background-color: #FFFFFF; 
+    color: #3B6894; /* Deep Wave Blue */
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #F5F8FA; 
+    color: #3B6894; 
+    border-color: #8AB2D6 #8AB2D6 transparent #8AB2D6; 
+    padding-bottom: 13px; 
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    background-color: #E8EEF4; color: #A8B8C8; border-color: #D5E0E8;
+}
+
+/* ================== 二级标签页 (Ripples) ================== */
+QTabWidget#SubTabWidget::pane { border: none; background-color: transparent; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 1px solid #C5D9E8; }
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; color: #8AB2D6; border: none;
+    border-bottom: 4px solid transparent; 
+    padding: 8px 20px; 
+    font-size: 18px;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #3B6894; 
+    border-bottom: 4px solid #A79B82;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #3B6894; font-weight: bold; border-bottom: 4px solid #3B6894; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #A8B8C8; }
+
+/* ================== 按钮样式 (Driftwood & Sea) ================== */
+QPushButton {
+    border: 1px solid #A79B82; 
+    padding: 10px 22px; border-radius: 0px; 
+    font-size: 18px; background-color: transparent; color: #A79B82; 
+    min-height: 30px;
+}
+QPushButton:hover { background-color: rgba(167, 155, 130, 0.1); color: #1C2A40; border-color: #1C2A40;}
+QPushButton:pressed { background-color: rgba(138, 178, 214, 0.2); border-color: #8AB2D6;}
+QPushButton:disabled { background-color: transparent; color: #A8B8C8; border-color: #D5E0E8;}
+
+QPushButton#AccentButton { 
+    background-color: #3B6894; color: #FFFFFF; font-weight: bold; border: 1px solid #1C2A40; 
+    padding: 12px 24px;
+}
+QPushButton#AccentButton:hover { background-color: #4A7BA8; }
+QPushButton#AccentButton:pressed { background-color: #2C5A80; }
+
+QPushButton#LinkButton {
+    background-color: transparent; color: #A79B82; border: none;
+    text-decoration: none; padding: 5px; font-size: 17px;
+    border-bottom: 1px dashed #A79B82; min-height: 0px;
+}
+QPushButton#LinkButton:hover { color: #1C2A40; border-bottom: 1px solid #1C2A40; }
+QPushButton#LinkButton:pressed { color: #3B6894; }
+
+QPushButton#ActionButton_Delete {
+    background-color: transparent; color: #E53935; font-weight: bold; border: 1px solid #E53935;
+    padding: 12px 24px;
+}
+QPushButton#ActionButton_Delete:hover { background-color: rgba(229, 57, 53, 0.1); }
+QPushButton#ActionButton_Delete:pressed { background-color: rgba(229, 57, 53, 0.2); }
+
+/* ================== 其他常用控件 ================== */
+QLabel { color: #1C2A40; background-color: transparent; }
+
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px; 
+    padding: 8px; color: #1C2A40; 
+    selection-background-color: #8AB2D6; selection-color: #FFFFFF; 
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border-color: #3B6894; }
+QTextBrowser a { color: #3B6894; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; color: #1C2A40; }
+
+QComboBox { 
+    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px; 
+    padding: 7px 8px; color: #1C2A40; min-height: 26px;
+}
+QComboBox:focus { border-color: #3B6894; }
+QComboBox::drop-down { border: none; background-color: #E8EEF4; width: 20px;}
+QComboBox QAbstractItemView { 
+    border: 1px solid #8AB2D6; background-color: #FFFFFF; 
+    selection-background-color: #E8EEF4; selection-color: #1C2A40; 
+    outline: 0px; border-radius: 0px; color: #1C2A40;
+}
+QComboBox QAbstractItemView::item { padding: 8px 12px; }
+
+QGroupBox { 
+    border: none;
+    border-top: 3px solid qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8AB2D6, stop:1 #A79B82); 
+    border-bottom: 1px solid #C5D9E8;
+    margin-top: 15px; 
+    padding: 25px 15px 15px 15px;
+    background-color: transparent;
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; subcontrol-position: top left; 
+    padding: 2px 10px; margin-left: 5px; 
+    background-color: #C5D9E8; color: #1C2A40; 
+    font-weight: bold; border-radius: 0px;
+}
+
+QListWidget, QTableWidget { 
+    background-color: #FFFFFF; border: 1px solid #C5D9E8; 
+    border-radius: 0px; outline: 0px;
+    alternate-background-color: #F8FAFC; gridline-color: #E8EEF4; 
+}
+QTableCornerButton::section { background-color: #E8EEF4; border: 1px solid #C5D9E8; }
+QListWidget::item { padding: 10px; border-bottom: 1px solid #E8EEF4; color: #1C2A40; }
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #3B6894; color: #FFFFFF; 
+}
+QTableWidget QLineEdit { border-radius: 0px; border: 1px solid #3B6894; background-color: #FFFFFF; color: #1C2A40; }
+
+QHeaderView::section { 
+    background-color: #E8EEF4; padding: 10px; border: none;
+    border-bottom: 2px solid #3B6894; font-weight: bold; color: #3B6894;
+}
+
+QProgressBar { 
+    border: 1px solid #A79B82; border-radius: 0px; text-align: center; 
+    color: #FFFFFF; height: 22px; background-color: #F5F8FA; font-weight: bold;
+}
+QProgressBar::chunk { 
+    background-color: #3B6894; /* Deep Wave Blue */
+    margin: 1px;
+}
+
+QSlider::groove:horizontal { 
+    border: none; height: 4px; background: #C5D9E8; margin: 2px 0; border-radius: 0px; 
+}
+QSlider::handle:horizontal { 
+    background: #FFFFFF; border: 1px solid #3B6894; width: 10px; 
+    height: 20px; margin: -8px 0; border-radius: 0px; 
+}
+
+QScrollBar:vertical { border: none; background: #F5F8FA; width: 14px; margin: 0; }
+QScrollBar::handle:vertical { background: #C5D9E8; min-height: 30px; border-radius: 0px; }
+QScrollBar:horizontal { border: none; background: #F5F8FA; height: 14px; margin: 0; }
+QScrollBar::handle:horizontal { background: #C5D9E8; min-width: 30px; border-radius: 0px; }
+QScrollBar::add-line, QScrollBar::sub-line { border: none; background: #E8EEF4; }
+QScrollBar::up-arrow, QScrollBar::down-arrow, QScrollBar::left-arrow, QScrollBar::right-arrow { width: 0; height: 0;}
+
+QMenu {
+    background-color: #FFFFFF; color: #1C2A40; border: 1px solid #8AB2D6; 
+    padding: 4px; border-radius: 0px;
+}
+QMenu::item {
+    background-color: transparent; color: #1C2A40; padding: 8px 25px;
+    border: none;
+}
+QMenu::item:selected { background-color: #E8EEF4; color: #3B6894; }
+QMenu::item:disabled { color: #A8B8C8; }
+QMenu::separator { height: 1px; background: #E8EEF4; margin: 4px 2px; }
+QMenu::icon { padding-left: 8px; width: 16px; height: 16px; }
+
+/* ================== ToggleSwitch 样式 (The Great Wave - Daylight) ================== */
+ToggleSwitch {
+    qproperty-trackColorOff: #C5D9E8;      /* 关闭时: 浅天蓝 */
+    qproperty-trackColorOn: #3B6894;       /* 打开时: 深浪蓝 */
+    qproperty-knobColor: #FFFFFF;          /* 滑块: 纯白 */
+    qproperty-trackBorderRadius: 0;        
+    qproperty-borderWidth: 1;              
+    qproperty-borderColor: #8AB2D6;        
+    qproperty-knobMargin: 1;               
+    qproperty-knobShape: 'rectangle';      
+    min-width: 60px; max-width: 60px;                       
+    min-height: 28px; max-height: 28px;                      
+}
+ToggleSwitch:hover {
+    qproperty-borderColor: #3B6894;
+}
+
+/* --- 方言图文采集页面 --- */
+QLabel#ScalableImageLabel {
+    border: 1px solid #C5D9E8;
+    background-color: #FFFFFF;
+    color: #A8B8C8; 
+}
+QLabel#PromptTextLabel {
+    padding: 8px; color: #1C2A40; font-size: 20px; font-weight: bold;
+    background-color: transparent; border: none; border-bottom: 2px solid #A79B82;
+}
+QTextEdit#NotesTextEdit {
+    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px;
+    padding: 8px; color: #A79B82;
+}
