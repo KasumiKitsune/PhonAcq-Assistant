@@ -193,4 +193,4 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 # Ignore local utility scripts
-commit_and_push.py
+Git可视化提交工具.exe
