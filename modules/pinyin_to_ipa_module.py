@@ -38,7 +38,7 @@ try:
             SUPPORTS_NEUTRAL_TONE_WITH_5 = True
             print("INFO: pypinyin supports 'neutral_tone_with_5'.")
         else:
-            print("WARN: Installed pypinyin version does not support 'neutral_tone_with_5'.")
+            print("提示: 本地的 pypinyin 版本不支持 'neutral_tone_with_5'，“普通话音变”可能有误。")
     except Exception as e:
         print(f"WARN: Could not inspect pypinyin signature, assuming older version. Error: {e}")
 

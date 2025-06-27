@@ -375,6 +375,22 @@ class AccentCollectionPage(QWidget):
             self.status_label.setText("状态：正在保存录音...")
             
     def on_recording_saved(self, result):
+        # [新增] 专门处理 MP3 编码器缺失的错误
+        if result == "save_failed_mp3_encoder":
+            QMessageBox.critical(self, "MP3 编码器缺失", 
+                "无法将录音保存为 MP3 格式。\n\n"
+                "这通常是因为您的系统中缺少 LAME MP3 编码器库 (例如 libmp3lame)。\n\n"
+                "建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
+            # 即使保存失败，也重置UI让用户可以继续
+            self.status_label.setText("状态：MP3保存失败！");
+            self.list_widget.setEnabled(True)
+            self.replay_btn.setEnabled(False) # 因为没有文件，所以禁用重听
+            self.record_btn.setEnabled(True) # 让用户可以重试或录制下一个
+            recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
+            self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
+            return
+
+        # --- 以下是原有的成功保存逻辑 ---
         self.status_label.setText("状态：录音已保存。");self.list_widget.setEnabled(True);self.replay_btn.setEnabled(True)
         self.random_switch.setEnabled(True);self.full_list_switch.setEnabled(True)
         
@@ -403,8 +419,7 @@ class AccentCollectionPage(QWidget):
             recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
             self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
         else:
-            self.handle_session_completion()
-        
+            self.handle_session_completion()        
     def handle_session_completion(self):
         unrecorded_count=sum(1 for item in self.current_word_list if not item['recorded'])
         if self.current_word_list:
@@ -465,34 +480,58 @@ class AccentCollectionPage(QWidget):
         if self.is_recording:
             self.audio_queue.put(indata.copy())
         
-    def save_recording_task(self,worker):
-        if self.audio_queue.empty():return None
+    def save_recording_task(self, worker):
+        if self.audio_queue.empty():
+            return None # 没有数据可保存
+
         data_frames = []
         while not self.audio_queue.empty():
             try:
                 data_frames.append(self.audio_queue.get_nowait())
             except queue.Empty:
                 break
-        if not data_frames: return None
+        
+        if not data_frames:
+            return None
 
-        rec = np.concatenate(data_frames,axis=0)
-        gain = self.config['audio_settings'].get('recording_gain',1.0)
-        if gain != 1.0: rec = np.clip(rec*gain,-1.0,1.0)
+        rec = np.concatenate(data_frames, axis=0)
+        gain = self.config['audio_settings'].get('recording_gain', 1.0)
+        if gain != 1.0:
+            rec = np.clip(rec * gain, -1.0, 1.0)
         
         if self.current_word_index < 0 or self.current_word_index >= len(self.current_word_list):
-            if self.logger: self.logger.log(f"ERROR: Invalid current_word_index ({self.current_word_index}) in save_recording_task.")
+            if self.logger:
+                self.logger.log(f"ERROR: Invalid current_word_index ({self.current_word_index}) in save_recording_task.")
             return "save_failed_invalid_index"
 
+        # 1. 获取用户选择的录音格式，默认为 'wav'
+        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+        
+        # 2. 根据格式确定文件名
         word = self.current_word_list[self.current_word_index]['word']
-        filepath = os.path.join(self.recordings_folder,f"{word}.wav")
+        filename = f"{word}.{recording_format}"
+        filepath = os.path.join(self.recordings_folder, filename)
+        
         try:
-            sf.write(filepath,rec,self.config['audio_settings']['sample_rate'])
-            if self.logger: self.logger.log(f"Recording saved: {filepath}")
+            # 3. soundfile 会根据文件扩展名自动选择编码格式
+            sf.write(filepath, rec, self.config['audio_settings']['sample_rate'])
+            if self.logger:
+                self.logger.log(f"Recording saved: {filepath}")
             return "save_successful"
         except Exception as e:
-            if self.logger: self.logger.log(f"ERROR saving recording '{filepath}': {e}")
-            return f"save_failed_exception: {e}"
-        
+            if self.logger:
+                self.logger.log(f"ERROR saving recording '{filepath}': {e}")
+            
+            # 4. 对 MP3 写入失败提供更友好的提示
+            if recording_format == 'mp3' and 'format not understood' in str(e).lower():
+                 # 这里不能直接调用 QMessageBox，因为它属于UI线程。
+                 # 可以在 on_recording_saved 方法中处理这个特殊的返回值来弹窗。
+                 # 或者，更简单的方式是直接在日志中记录清晰的错误。
+                 error_msg = f"保存MP3失败: 缺少LAME编码器。请安装 (如 `brew install lame` 或 `apt-get install libmp3lame-dev`) 或在设置中切换为WAV格式。"
+                 if self.logger: self.logger.log(f"FATAL: {error_msg}")
+                 return f"save_failed_mp3_encoder"
+
+            return f"save_failed_exception: {e}"        
     def run_task_in_thread(self,task_func,*args):
         self.thread=QThread();self.worker=self.Worker(task_func,*args);self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run);self.worker.finished.connect(self.thread.quit)

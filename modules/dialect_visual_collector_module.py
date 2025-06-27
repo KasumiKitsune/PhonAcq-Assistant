@@ -419,20 +419,35 @@ class DialectVisualCollectorPage(QWidget):
                 if selected_item_to_display: self.on_item_selected(selected_item_to_display, None)
 
     def on_recording_saved(self, result):
+        # [新增] 专门处理 MP3 编码器缺失的错误
+        if result == "save_failed_mp3_encoder":
+            QMessageBox.critical(self, "MP3 编码器缺失", 
+                "无法将录音保存为 MP3 格式。\n\n"
+                "这通常是因为您的系统中缺少 LAME MP3 编码器库 (例如 libmp3lame)。\n\n"
+                "建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
+            self.log("MP3保存失败！请检查编码器或设置。")
+            # 即使失败也应该让UI恢复
+            return
+
         self.log("录音已保存。")
         self.update_list_widget() 
         if self.current_item_index + 1 < len(self.current_items_list):
             self.current_item_index += 1; self.item_list_widget.setCurrentRow(self.current_item_index)
         else: 
             all_done = True
+            recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             for item_data in self.current_items_list:
-                audio_filename = f"{item_data.get('id')}.mp3"
-                if not os.path.exists(os.path.join(self.current_audio_folder, audio_filename)):
+                # 检查主要格式和回退的WAV格式
+                main_audio_filename = f"{item_data.get('id')}.{recording_format}"
+                wav_fallback_filename = f"{item_data.get('id')}.wav"
+                if not os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) and \
+                   not os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename)):
                     all_done = False; break
+            
             if all_done:
                 QMessageBox.information(self,"完成","所有项目已录制完毕！")
                 if self.session_active: self.end_session()
-        
+                
     def _persistent_recorder_task(self):
         """此线程在整个会话期间运行，保持音频流打开以实现即时录音。"""
         try:
@@ -465,29 +480,60 @@ class DialectVisualCollectorPage(QWidget):
             self.audio_queue.put(indata.copy())
 
     def _save_recording_task(self, worker_instance):
-        if self.audio_queue.empty(): return
-        data_chunks = [];
-        while not self.audio_queue.empty(): data_chunks.append(self.audio_queue.get())
-        if not data_chunks: return
+        if self.audio_queue.empty():
+            return None # 没有数据可保存
+
+        data_chunks = []
+        while not self.audio_queue.empty():
+            try:
+                data_chunks.append(self.audio_queue.get_nowait())
+            except queue.Empty:
+                break
+        
+        if not data_chunks:
+            return None
+
         rec = np.concatenate(data_chunks, axis=0)
         gain = self.config.get('audio_settings', {}).get('recording_gain', 1.0)
-        if gain != 1.0: rec = np.clip(rec * gain, -1.0, 1.0)
+        if gain != 1.0:
+            rec = np.clip(rec * gain, -1.0, 1.0)
+
+        # 1. 获取用户选择的录音格式，默认为 'wav'
+        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+
+        # 2. 根据格式确定文件名
         item_id = self.current_items_list[self.current_item_index].get('id', f"item_{self.current_item_index + 1}")
-        filename = f"{item_id}.mp3"; filepath = os.path.join(self.current_audio_folder, filename)
+        filename = f"{item_id}.{recording_format}"
+        filepath = os.path.join(self.current_audio_folder, filename)
+        
         try:
+            # 3. soundfile 会根据文件扩展名自动选择编码格式
             sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
-            sf.write(filepath, rec, sr, format='MP3'); self.log(f"文件 '{filename}' 已保存。")
-            if self.logger_instance: self.logger_instance.log(f"Recording saved: {filepath}")
+            sf.write(filepath, rec, sr) # soundfile > 0.10.0 can use format directly
+            self.log(f"文件 '{filename}' 已保存。")
+            if self.logger_instance:
+                self.logger_instance.log(f"Recording saved: {filepath}")
         except Exception as e:
-            self.log(f"保存MP3失败: {e}");
-            if self.logger_instance: self.logger_instance.log(f"ERROR saving MP3: {e}")
-            try:
-                wav_path = os.path.splitext(filepath)[0] + ".wav"
-                sf.write(wav_path, rec, sr); self.log(f"已尝试保存为WAV: {os.path.basename(wav_path)}")
-                if self.logger_instance: self.logger_instance.log(f"Fallback WAV saved: {wav_path}")
-            except Exception as e_wav:
-                self.log(f"保存WAV也失败: {e_wav}")
-                if self.logger_instance: self.logger_instance.log(f"ERROR saving WAV: {e_wav}")
+            self.log(f"保存 {recording_format.upper()} 失败: {e}")
+            if self.logger_instance:
+                self.logger_instance.log(f"ERROR saving {recording_format.upper()}: {e}")
+            
+            # 4. 对 MP3 写入失败提供特殊处理
+            if recording_format == 'mp3' and 'format not understood' in str(e).lower():
+                return "save_failed_mp3_encoder"
+            
+            # 尝试回退到 WAV
+            if recording_format != 'wav':
+                try:
+                    wav_path = os.path.splitext(filepath)[0] + ".wav"
+                    sf.write(wav_path, rec, sr)
+                    self.log(f"已尝试回退保存为WAV: {os.path.basename(wav_path)}")
+                    if self.logger_instance:
+                        self.logger_instance.log(f"Fallback WAV saved: {wav_path}")
+                except Exception as e_wav:
+                    self.log(f"回退保存WAV也失败: {e_wav}")
+                    if self.logger_instance:
+                        self.logger_instance.log(f"ERROR saving fallback WAV: {e_wav}")
         return None
 
     def _run_task_in_thread(self, task_func, *args):

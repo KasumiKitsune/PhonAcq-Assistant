@@ -1,9 +1,0 @@
-/* Auto-generated for splash screen from Whispering_Woods.qss */
-QProgressBar { 
-    border: 1px solid #B8A990; border-radius: 15px; text-align: center; 
-    color: #4A4034; height: 22px; background-color: #FDFBF5;
-}
-QProgressBar::chunk { 
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #A8D8A8, stop:1 #788C67); 
-    border-radius: 14px;
-}

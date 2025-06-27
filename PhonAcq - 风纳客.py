@@ -1,3 +1,5 @@
+# --- START OF FILE Dev.py ---
+
 import os
 import sys
 import time # 用于非常短的延时，确保splash有时间绘制
@@ -18,6 +20,8 @@ AUDIO_TTS_DIR = ""
 AUDIO_RECORD_DIR = ""
 MODULES_DIR = ""
 SETTINGS_FILE = ""
+TOOLTIPS_FILE = ""
+tooltips_config = {}
 MODULES = {}
 main_config = {}
 
@@ -84,17 +88,13 @@ try:
     import pypinyin
     import markdown 
 except ImportError as e:
-    # ===== 修改/MODIFIED: 移除对 splash 变量的检查 =====
-    # 在这个执行阶段，splash 变量必然不存在，所以直接显示错误消息并退出。
-    # 我们需要一个临时的 QApplication 实例来显示 QMessageBox。
-    # 这段代码只会在缺少依赖库时执行。
     app = QApplication(sys.argv)
     QMessageBox.critical(None, "依赖库缺失", f"错误: {e}\n\n请运行: pip install PyQt5 pandas openpyxl sounddevice soundfile numpy gtts markdown pypinyin")
     sys.exit(1)
 
 
 # --- 全局路径变量的完整定义 ---
-BASE_PATH = get_base_path() # Re-assign after imports if needed, though it's set early
+BASE_PATH = get_base_path()
 CONFIG_DIR = os.path.join(BASE_PATH, "config")
 WORD_LIST_DIR = os.path.join(BASE_PATH, "word_lists")
 THEMES_DIR = os.path.join(BASE_PATH, "themes")
@@ -102,6 +102,8 @@ AUDIO_TTS_DIR = os.path.join(BASE_PATH, "audio_tts")
 AUDIO_RECORD_DIR = os.path.join(BASE_PATH, "audio_record")
 MODULES_DIR = os.path.join(BASE_PATH, "modules")
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
+TOOLTIPS_FILE = os.path.join(CONFIG_DIR, "tooltips.json")
+
 
 # --- 动态模块加载 ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'modules')))
@@ -127,6 +129,34 @@ def load_modules(splash_ref=None, progress_offset=0, progress_scale=1.0):
             MODULES[module_name] = {'module': module, 'name': getattr(module, 'MODULE_NAME', module_name), 'desc': getattr(module, 'MODULE_DESCRIPTION', '无描述'), 'file': filename}
         except Exception as e: print(f"加载模块 '{filename}' 失败: {e}")
 
+def load_tooltips_config():
+    """
+    加载 config/tooltips.json 文件。如果文件不存在，则创建一个包含占位符的默认文件。
+    """
+    default_tooltips = {
+        "数据采集": { "description": "包含所有用于实时录制和收集语音数据的功能模块。", "sub_tabs": { "口音采集会话": "适用于标准的文本到语音朗读任务。", "语音包录制": "用于为标准词表录制高质量的真人提示音。" }},
+        "方言研究": { "description": "专为方言学田野调查设计的工具集。", "sub_tabs": { "图文采集": "展示图片并录制方言描述。", "图文词表编辑": "在程序内直接创建、编辑和保存用于“图文采集”的词表。" }},
+        "语料管理": { "description": "提供对项目所使用的词表和已生成的音频数据进行管理的工具。", "sub_tabs": { "词表编辑器": "可视化地创建和编辑标准词表。", "Excel 转换器": "支持标准词表与图文词表的双向转换。", "数据管理器": "浏览、试听、重命名和删除所有已录制的音频数据。" }},
+        "实用工具": { "description": "提供一系列辅助性的语言学工具。", "sub_tabs": { "拼音转IPA": "将汉字实时转换为国际音标。", "TTS 工具": "批量或即时将文本列表转换为语音文件。" }},
+        "系统与帮助": { "description": "配置应用程序的行为、外观，并获取使用帮助。", "sub_tabs": { "程序设置": "调整应用的各项参数，包括UI布局、音频设备和主题皮肤等。", "帮助文档": "提供详细的程序使用指南和常见问题解答。" }}
+    }
+    if not os.path.exists(TOOLTIPS_FILE):
+        try:
+            with open(TOOLTIPS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(default_tooltips, f, indent=4, ensure_ascii=False)
+            print(f"创建默认 tooltips 文件: {TOOLTIPS_FILE}")
+            return default_tooltips
+        except Exception as e:
+            print(f"创建默认 tooltips 文件失败: {e}")
+            return {}
+
+    try:
+        with open(TOOLTIPS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"加载 tooltips 文件失败: {e}")
+        return {}
+
 # --- 核心逻辑与辅助函数 ---
 class Logger:
     """A simple file logger."""
@@ -145,7 +175,7 @@ def setup_and_load_config():
             "sample_rate": 44100, 
             "channels": 1, 
             "recording_gain": 1.0,
-            "input_device_index": None # None means use system default
+            "input_device_index": None
         },
         "file_settings": {"word_list_file": "default_list.py", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True}, "theme": "Modern_light_tab.qss"
@@ -175,11 +205,10 @@ def setup_and_load_config():
             if os.path.exists(SETTINGS_FILE):
                 os.rename(SETTINGS_FILE, corrupted_path)
             print(f"Corrupted settings file moved to {corrupted_path}. Loading default settings.")
-            open(SETTINGS_FILE, 'w', encoding='utf-8').write(json.dumps(default_settings, indent=4)) # Create a new default one
+            open(SETTINGS_FILE, 'w', encoding='utf-8').write(json.dumps(default_settings, indent=4))
         except Exception as e_move:
             print(f"Could not move/recreate settings file: {e_move}")
         return default_settings
-
 
 def detect_language(text):
     """Detects the primary language of a given text string."""
@@ -199,7 +228,7 @@ def detect_language(text):
         elif ranges['hangul_syllables'][0] <= code <= ranges['hangul_syllables'][1] or \
              ranges['hangul_jamo'][0] <= code <= ranges['hangul_jamo'][1] or \
              ranges['hangul_compat_jamo'][0] <= code <= ranges['hangul_compat_jamo'][1]:
-            counts['hangul_syllables'] += 1; is_meaningful = True # Group all hangul
+            counts['hangul_syllables'] += 1; is_meaningful = True
         elif ranges['han'][0] <= code <= ranges['han'][1]: counts['han'] += 1; is_meaningful = True
         elif ranges['cyrillic'][0] <= code <= ranges['cyrillic'][1]: counts['cyrillic'] += 1; is_meaningful = True
         elif ranges['latin_basic'][0] <= code <= ranges['latin_basic'][1] or \
@@ -211,9 +240,9 @@ def detect_language(text):
     if total_meaningful_chars == 0: return None
 
     if counts['hangul_syllables'] / total_meaningful_chars > 0.3: return 'ko'
-    if counts['kana'] / total_meaningful_chars > 0.05 or counts['kana'] > 1 : return 'ja' # 1 for single kana word
+    if counts['kana'] / total_meaningful_chars > 0.05 or counts['kana'] > 1 : return 'ja'
     if counts['cyrillic'] / total_meaningful_chars > 0.3: return 'ru'
-    if counts['han'] / total_meaningful_chars > 0.4 : return 'zh-cn' # After ja/ko
+    if counts['han'] / total_meaningful_chars > 0.4 : return 'zh-cn'
     if counts['latin_basic'] / total_meaningful_chars > 0.5: return 'en-us'
     return None
 
@@ -232,19 +261,9 @@ class ToggleSwitch(QCheckBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.PointingHandCursor)
-        
-        # --- Default properties for QSS ---
-        self._trackColorOff = QColor("#E0E0E0")
-        self._trackColorOn = QColor("#8F4C33")
-        self._knobColor = QColor("#FFFFFF")
-        self._trackBorderRadius = 14
-        self._knobMargin = 3
-        self._knobShape = 'ellipse' 
-        self._knobBorderRadius = 0 
-        self._borderColor = QColor(Qt.transparent)
-        self._borderWidth = 0 
-
-    # --- pyqtProperty definitions ---
+        self._trackColorOff = QColor("#E0E0E0"); self._trackColorOn = QColor("#8F4C33"); self._knobColor = QColor("#FFFFFF")
+        self._trackBorderRadius = 14; self._knobMargin = 3; self._knobShape = 'ellipse' ; self._knobBorderRadius = 0 
+        self._borderColor = QColor(Qt.transparent); self._borderWidth = 0 
     @pyqtProperty(QColor)
     def trackColorOff(self): return self._trackColorOff
     @trackColorOff.setter
@@ -284,62 +303,36 @@ class ToggleSwitch(QCheckBox):
     def borderWidth(self, width): self._borderWidth = width; self.update()
 
     def paintEvent(self, event):
-        """Custom painting logic for the toggle switch."""
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        
-        rect = self.rect()
-        
-        # 1. Draw optional outer border
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing); rect = self.rect()
         if self._borderWidth > 0 and self._borderColor.isValid() and self._borderColor.alpha() > 0:
-            pen = QPen(self._borderColor, self._borderWidth)
-            pen.setJoinStyle(Qt.RoundJoin)
-            p.setPen(pen)
+            pen = QPen(self._borderColor, self._borderWidth); pen.setJoinStyle(Qt.RoundJoin); p.setPen(pen)
             half_pen_width = self._borderWidth // 2
             border_rect = rect.adjusted(half_pen_width, half_pen_width, -half_pen_width, -half_pen_width)
-            p.setBrush(Qt.NoBrush) 
-            p.drawRoundedRect(border_rect, self.trackBorderRadius, self.trackBorderRadius)
-
-        # 2. Draw track
-        p.setPen(Qt.NoPen) 
-        track_color = self.trackColorOn if self.isChecked() else self.trackColorOff
-        p.setBrush(QBrush(track_color))
-        track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
+            p.setBrush(Qt.NoBrush); p.drawRoundedRect(border_rect, self.trackBorderRadius, self.trackBorderRadius)
+        p.setPen(Qt.NoPen); track_color = self.trackColorOn if self.isChecked() else self.trackColorOff
+        p.setBrush(QBrush(track_color)); track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
         track_inner_radius = max(0, self.trackBorderRadius - self._borderWidth)
         p.drawRoundedRect(track_rect, track_inner_radius, track_inner_radius)
-        
-        # 3. Draw knob
-        margin = self.knobMargin
-        knob_height = track_rect.height() - (2 * margin)
-        knob_width = knob_height 
-        
-        if self.isChecked():
-            x_pos = track_rect.right() - knob_width - margin + 1
-        else:
-            x_pos = track_rect.left() + margin
-            
-        knob_rect = QRect(x_pos, track_rect.top() + margin, knob_width, knob_height)
-        p.setBrush(QBrush(self.knobColor))
-        
-        if self.knobShape == 'rectangle':
-            p.drawRoundedRect(knob_rect, self.knobBorderRadius, self.knobBorderRadius)
-        else:
-            p.drawEllipse(knob_rect)
+        margin = self.knobMargin; knob_height = track_rect.height() - (2 * margin); knob_width = knob_height 
+        if self.isChecked(): x_pos = track_rect.right() - knob_width - margin + 1
+        else: x_pos = track_rect.left() + margin
+        knob_rect = QRect(x_pos, track_rect.top() + margin, knob_width, knob_height); p.setBrush(QBrush(self.knobColor))
+        if self.knobShape == 'rectangle': p.drawRoundedRect(knob_rect, self.knobBorderRadius, self.knobBorderRadius)
+        else: p.drawEllipse(knob_rect)
 
     def mousePressEvent(self, event):
-        """Toggles the state on left-click."""
-        if event.button() == Qt.LeftButton:
-            self.setChecked(not self.isChecked())
-            event.accept() 
-        else:
-            super().mousePressEvent(event)
+        if event.button() == Qt.LeftButton: self.setChecked(not self.isChecked()); event.accept() 
+        else: super().mousePressEvent(event)
+
 
 # ========== 主窗口和页面类 ==========
 class MainWindow(QMainWindow):
     """The main application window."""
-    def __init__(self, splash_ref=None):
+    def __init__(self, splash_ref=None, tooltips_ref=None):
         super().__init__()
         self.splash_ref = splash_ref
+        self.tooltips_config = tooltips_ref if tooltips_ref is not None else {}
+        
         if self.splash_ref: self.splash_ref.showMessage("初始化主窗口...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(35); QApplication.processEvents()
         self.setWindowTitle("PhonAcq - 风纳客"); self.setGeometry(100, 100, 1200, 850)
         icon_path = os.path.join(BASE_PATH, "config", "icon.ico") 
@@ -348,7 +341,6 @@ class MainWindow(QMainWindow):
         self.main_tabs = QTabWidget(); self.main_tabs.setObjectName("MainTabWidget"); self.setCentralWidget(self.main_tabs)
         if self.splash_ref: self.splash_ref.showMessage("创建核心页面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(50); QApplication.processEvents()
 
-        # 1. Instantiate all functional pages
         self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '口音采集会话', 
             lambda m, ts, w, l: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH))
         self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '语音包录制', 
@@ -381,8 +373,31 @@ class MainWindow(QMainWindow):
         settings_and_help_tabs = QTabWidget(); settings_and_help_tabs.setObjectName("SubTabWidget"); settings_and_help_tabs.addTab(self.settings_page, "程序设置"); settings_and_help_tabs.addTab(self.help_page, "帮助文档")
         self.main_tabs.addTab(collection_tabs, "数据采集"); self.main_tabs.addTab(dialect_study_tabs, "方言研究"); self.main_tabs.addTab(corpus_tabs, "语料管理"); self.main_tabs.addTab(utilities_tabs, "实用工具"); self.main_tabs.addTab(settings_and_help_tabs, "系统与帮助")
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed); collection_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据采集", i)); corpus_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("语料管理", i)); dialect_study_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("方言研究", i)); utilities_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("实用工具", i)); settings_and_help_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("系统与帮助", i))
+        
+        self.apply_tooltips()
+        
         if self.splash_ref: self.splash_ref.showMessage("准备完成! (100%)", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(100); QApplication.processEvents()
         self.apply_theme(); self.on_main_tab_changed(0)
+
+    def apply_tooltips(self):
+        """遍历所有Tab并从配置文件中应用Tooltips。"""
+        if not self.tooltips_config:
+            return
+
+        for i in range(self.main_tabs.count()):
+            main_tab_text = self.main_tabs.tabText(i)
+            main_tab_data = self.tooltips_config.get(main_tab_text, {})
+            
+            main_tooltip = main_tab_data.get('description', f"{main_tab_text} 功能模块")
+            self.main_tabs.setTabToolTip(i, main_tooltip)
+            
+            sub_tab_widget = self.main_tabs.widget(i)
+            if isinstance(sub_tab_widget, QTabWidget):
+                sub_tabs_data = main_tab_data.get('sub_tabs', {})
+                for j in range(sub_tab_widget.count()):
+                    sub_tab_text = sub_tab_widget.tabText(j)
+                    sub_tooltip = sub_tabs_data.get(sub_tab_text, "无详细描述。")
+                    sub_tab_widget.setTabToolTip(j, sub_tooltip)
 
     def create_module_or_placeholder(self, module_key, name, page_factory):
         """Creates a page from a module or a placeholder if the module is missing."""
@@ -461,10 +476,8 @@ class SettingsPage(QWidget):
         self.right_column_widget = QWidget()
         right_column_layout = QVBoxLayout(self.right_column_widget)
 
-        # --- Group 1: UI & Appearance ---
         ui_appearance_group = QGroupBox("界面与外观")
         ui_appearance_form_layout = QFormLayout(ui_appearance_group)
-        
         self.collector_width_input = QLineEdit()
         self.collector_width_input.setValidator(QIntValidator(200, 600, self))
         self.collector_width_label = QLabel("范围: 200-600 px")
@@ -472,7 +485,6 @@ class SettingsPage(QWidget):
         collector_width_layout.addWidget(self.collector_width_input)
         collector_width_layout.addWidget(self.collector_width_label)
         ui_appearance_form_layout.addRow("采集类页面侧边栏宽度:", collector_width_layout)
-        
         self.editor_width_input = QLineEdit()
         self.editor_width_input.setValidator(QIntValidator(200, 600, self))
         self.editor_width_label = QLabel("范围: 200-600 px")
@@ -480,11 +492,9 @@ class SettingsPage(QWidget):
         editor_width_layout.addWidget(self.editor_width_input)
         editor_width_layout.addWidget(self.editor_width_label)
         ui_appearance_form_layout.addRow("管理/编辑类页面侧边栏宽度:", editor_width_layout)
-        
         self.theme_combo = QComboBox()
         ui_appearance_form_layout.addRow("主题皮肤:", self.theme_combo)
         
-        # --- Group 2: Files & Paths ---
         file_group = QGroupBox("文件与路径")
         file_layout = QFormLayout(file_group)
         self.results_dir_input = QLineEdit()
@@ -496,7 +506,6 @@ class SettingsPage(QWidget):
         file_layout.addRow("默认单词表 (口音采集):", self.word_list_combo)
         file_layout.addRow("默认被试者名称:", self.participant_name_input)
         
-        # --- Group 3: gTTS Settings ---
         gtts_group = QGroupBox("gTTS (在线) 设置")
         gtts_layout = QFormLayout(gtts_group)
         self.gtts_lang_combo = QComboBox()
@@ -506,13 +515,10 @@ class SettingsPage(QWidget):
         gtts_layout.addRow("默认语言 (无指定时):", self.gtts_lang_combo)
         gtts_layout.addRow("自动检测语言 (中/日等):", auto_detect_layout)
 
-        # --- Group 4: Audio & Recording ---
         audio_group = QGroupBox("音频与录音")
         audio_layout = QFormLayout(audio_group)
-        
         self.input_device_combo = QComboBox() 
         audio_layout.addRow("录音设备:", self.input_device_combo)
-
         self.sample_rate_combo = QComboBox()
         self.sample_rate_combo.addItems(["44100 Hz (CD质量, 推荐)","48000 Hz (录音室质量)","22050 Hz (中等质量)","16000 Hz (语音识别常用)"])
         self.channels_combo = QComboBox()
@@ -527,14 +533,11 @@ class SettingsPage(QWidget):
         left_column_layout.addWidget(ui_appearance_group)
         left_column_layout.addWidget(file_group)
         left_column_layout.addStretch()
-
         right_column_layout.addWidget(gtts_group)
         right_column_layout.addWidget(audio_group)
         right_column_layout.addStretch()
-
         self.left_column_widget.setMaximumWidth(600)
         self.right_column_widget.setMaximumWidth(600)
-
         columns_layout.addWidget(self.left_column_widget)
         columns_layout.addWidget(self.right_column_widget)
 
@@ -631,12 +634,13 @@ class SettingsPage(QWidget):
         if os.path.exists(theme_path):
             with open(theme_path, "r", encoding="utf-8") as f: self.parent_window.setStyleSheet(f.read())
             
+    # ===== 修改/MODIFIED: 优化 save_settings 方法 =====
     def save_settings(self):
         """Saves all settings to the config file and applies them."""
         try:
             collector_width = int(self.collector_width_input.text())
             editor_width = int(self.editor_width_input.text())
-            if not (200 <= collector_width <= 600 and 200 <= editor_width <= 600): # 调整范围
+            if not (200 <= collector_width <= 600 and 200 <= editor_width <= 600):
                 raise ValueError("侧边栏宽度必须在 200 到 600 像素之间。")
         except ValueError as e:
             QMessageBox.warning(self, "输入无效", str(e))
@@ -645,10 +649,15 @@ class SettingsPage(QWidget):
             self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
             return
 
+        # 1. 保存旧主题名以供比较
+        old_theme = self.config.get('theme')
+        new_theme = self.theme_combo.currentText()
+
+        # 2. 更新配置字典
         self.config.setdefault("ui_settings", {})["collector_sidebar_width"] = collector_width
         self.config.setdefault("ui_settings", {})["editor_sidebar_width"] = editor_width
         
-        self.config['theme'] = self.theme_combo.currentText()
+        self.config['theme'] = new_theme
         self.config['file_settings'] = {"word_list_file": self.word_list_combo.currentText(), "participant_base_name": self.participant_name_input.text(), "results_dir": self.results_dir_input.text()}
         self.config['gtts_settings'] = {"default_lang": self.gtts_lang_combo.currentText(), "auto_detect": self.gtts_auto_detect_switch.isChecked()}
         
@@ -659,12 +668,19 @@ class SettingsPage(QWidget):
         audio_settings["input_device_index"] = self.input_device_combo.currentData()
 
         try:
-            # ===== 新增/MODIFIED: 保存设置时，提取并缓存启动进度条样式 =====
-            self.cache_splash_progressbar_style()
+            # 3. 仅在主题更改或缓存文件不存在时，才更新缓存
+            cache_path = os.path.join(THEMES_DIR, "_splash_progressbar.qss")
+            if old_theme != new_theme or not os.path.exists(cache_path):
+                print("主题已更改或缓存不存在，正在更新启动进度条样式...")
+                self.cache_splash_progressbar_style()
 
+            # 4. 写入主配置文件
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f: json.dump(self.config, f, indent=4)
+            
+            # 5. 应用更改
             self.parent_window.config = self.config 
             self.parent_window.apply_theme() 
+            self.parent_window.apply_tooltips()
             
             for page_attr_name in ['accent_collection_page', 'voicebank_recorder_page', 
                                    'wordlist_editor_page', 'dialect_visual_editor_page', 'audio_manager_page',
@@ -672,6 +688,7 @@ class SettingsPage(QWidget):
                 page = getattr(self.parent_window, page_attr_name, None)
                 if page and hasattr(page, 'apply_layout_settings'):
                     page.apply_layout_settings()
+
             QMessageBox.information(self, "成功", "所有设置已成功保存并应用！")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"保存设置失败: {e}")
@@ -685,7 +702,6 @@ class SettingsPage(QWidget):
         cache_path = os.path.join(THEMES_DIR, "_splash_progressbar.qss")
 
         if not os.path.exists(theme_path):
-            # 如果主题文件不存在，可以考虑删除缓存或什么都不做
             if os.path.exists(cache_path):
                 try: os.remove(cache_path)
                 except Exception as e: print(f"无法删除缓存的进度条样式: {e}")
@@ -694,18 +710,12 @@ class SettingsPage(QWidget):
         try:
             with open(theme_path, 'r', encoding='utf-8') as f:
                 full_qss = f.read()
-
-            # 使用正则表达式提取 QProgressBar { ... } 和 QProgressBar::chunk { ... } 的内容
-            # 这个正则表达式会匹配 "QProgressBar" 开头，直到遇到第一个未配对的 "}"
-            # 它能处理嵌套，但对于非常复杂的QSS可能不够完美，但对我们的情况足够了
             progressbar_styles = re.findall(r'(QProgressBar[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', full_qss)
             
             final_style_to_cache = ""
             if progressbar_styles:
-                # 只获取第一个匹配项，通常就是我们需要的那个
                 final_style_to_cache = progressbar_styles[0]
                 
-            # 也需要找到 ::chunk 的样式
             chunk_styles = re.findall(r'(QProgressBar::chunk[^{]*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', full_qss)
             if chunk_styles:
                 final_style_to_cache += "\n" + chunk_styles[0]
@@ -716,7 +726,6 @@ class SettingsPage(QWidget):
                     f_cache.write(final_style_to_cache)
                 print(f"启动进度条样式已缓存至: {cache_path}")
             else:
-                # 如果在主题中找不到进度条样式，则删除缓存文件，以便下次启动使用默认样式
                 if os.path.exists(cache_path):
                     os.remove(cache_path)
         except Exception as e:
@@ -728,7 +737,6 @@ if __name__ == "__main__":
     BASE_PATH = get_base_path() 
     assets_path = os.path.join(BASE_PATH, "assets")
     
-    # --- 启动画面图片加载逻辑 ---
     splash_dir = os.path.join(assets_path, "splashes")
     splash_pix = None
     if os.path.exists(splash_dir) and os.path.isdir(splash_dir):
@@ -752,7 +760,6 @@ if __name__ == "__main__":
     splash.progressBar.setRange(0, 100); splash.progressBar.setValue(0); splash.progressBar.setTextVisible(False)
     splash.setFont(QFont("Microsoft YaHei", 10))
     
-    # ===== 修改/MODIFIED: 启动画面样式加载逻辑 =====
     splash_progressbar_style_cache = os.path.join(get_base_path(), "themes", "_splash_progressbar.qss")
     
     splash_style = ""
@@ -763,9 +770,8 @@ if __name__ == "__main__":
             print("从缓存加载启动进度条样式。")
         except Exception as e:
             print(f"读取缓存样式失败: {e}")
-            splash_style = "" # 出错则回退
+            splash_style = ""
 
-    # 如果没有缓存或读取失败，则使用硬编码的默认样式
     if not splash_style:
         print("使用默认启动进度条样式。")
         splash_style = """
@@ -776,7 +782,6 @@ if __name__ == "__main__":
             QProgressBar::chunk { background-color: white; border-radius: 12px; }
         """
         
-    # 为 QLabel 设置通用样式
     splash_style += """
         QSplashScreen > QLabel { 
             background-color: rgba(0, 0, 0, 100); color: white; 
@@ -793,12 +798,17 @@ if __name__ == "__main__":
     # --- 主程序执行流程 ---
     splash.showMessage("加载核心组件...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(10); app.processEvents()
     main_config = setup_and_load_config()
+    
+    tooltips_config = load_tooltips_config()
+    
     splash.showMessage("加载用户配置...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(20); app.processEvents()
     ensure_directories_exist()
     splash.showMessage("准备文件目录...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(30); app.processEvents()
     load_modules(splash, progress_offset=30, progress_scale=0.4)
     splash.progressBar.setValue(70) 
-    window = MainWindow(splash_ref=splash)
+    
+    window = MainWindow(splash_ref=splash, tooltips_ref=tooltips_config)
+    
     window.show()
     splash.finish(window)
     sys.exit(app.exec_())

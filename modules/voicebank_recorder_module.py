@@ -294,12 +294,17 @@ class VoicebankRecorderPage(QWidget):
         if current_row == -1 and self.current_word_list: current_row = 0
 
         self.list_widget.clear()
+        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+        
         for item_data in self.current_word_list:
             display_text = self._format_list_item_text(item_data['word'], item_data['ipa'])
             item = QListWidgetItem(display_text)
             
-            filepath=os.path.join(self.audio_folder,f"{item_data['word']}.mp3")
-            if os.path.exists(filepath): item.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
+            main_filepath = os.path.join(self.audio_folder, f"{item_data['word']}.{recording_format}")
+            fallback_filepath = os.path.join(self.audio_folder, f"{item_data['word']}.wav")
+
+            if os.path.exists(main_filepath) or (recording_format == 'mp3' and os.path.exists(fallback_filepath)):
+                item.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
             
             self.list_widget.addItem(item)
             
@@ -307,6 +312,14 @@ class VoicebankRecorderPage(QWidget):
              self.list_widget.setCurrentRow(current_row)
              
     def on_recording_saved(self, result):
+        if result == "save_failed_mp3_encoder":
+            QMessageBox.critical(self, "MP3 编码器缺失", 
+                "无法将录音保存为 MP3 格式。\n\n"
+                "这通常是因为您的系统中缺少 LAME MP3 编码器库 (例如 libmp3lame)。\n\n"
+                "建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
+            self.log("MP3保存失败！请检查编码器或设置。")
+            return
+
         self.log("录音已保存。")
         self.update_list_widget() 
         
@@ -315,10 +328,13 @@ class VoicebankRecorderPage(QWidget):
             self.list_widget.setCurrentRow(self.current_word_index)
         else: 
             all_done = True
+            recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             for item_data in self.current_word_list:
-                audio_filename = f"{item_data.get('word')}.mp3"
-                if not os.path.exists(os.path.join(self.audio_folder, audio_filename)):
-                    all_done = False; break
+                main_filepath = os.path.join(self.audio_folder, f"{item_data.get('word')}.{recording_format}")
+                fallback_filepath = os.path.join(self.audio_folder, f"{item_data.get('word')}.wav")
+                if not os.path.exists(main_filepath) and not (recording_format == 'mp3' and os.path.exists(fallback_filepath)):
+                    all_done = False
+                    break
             if all_done:
                 QMessageBox.information(self,"完成","所有词条已录制完毕！")
                 if self.session_active: self.end_session()
@@ -350,20 +366,41 @@ class VoicebankRecorderPage(QWidget):
         if self.is_recording:
             self.audio_queue.put(indata.copy())
 
-    def save_recording_task(self,worker_instance):
-        if self.audio_queue.empty():return
-        data=[self.audio_queue.get() for _ in range(self.audio_queue.qsize())];rec=np.concatenate(data,axis=0)
-        gain=self.config['audio_settings'].get('recording_gain',1.0)
-        if gain!=1.0: rec=np.clip(rec*gain,-1.0,1.0)
-        word=self.current_word_list[self.current_word_index]['word']
-        filepath=os.path.join(self.audio_folder,f"{word}.mp3")
-        try: sf.write(filepath,rec,self.config['audio_settings']['sample_rate'],format='MP3')
-        except Exception as e:
-            self.log(f"保存MP3失败: {e}")
+    def save_recording_task(self, worker_instance):
+        if self.audio_queue.empty(): return
+        
+        data_chunks = []
+        while not self.audio_queue.empty():
             try:
-                wav_path=os.path.splitext(filepath)[0]+".wav"
-                sf.write(wav_path,rec,self.config['audio_settings']['sample_rate']); self.log(f"已保存为WAV格式: {os.path.basename(wav_path)}")
-            except Exception as e_wav: self.log(f"保存WAV也失败: {e_wav}")
+                data_chunks.append(self.audio_queue.get_nowait())
+            except queue.Empty:
+                break
+        
+        if not data_chunks: return
+
+        rec = np.concatenate(data_chunks, axis=0)
+        gain = self.config['audio_settings'].get('recording_gain', 1.0)
+        if gain != 1.0: rec = np.clip(rec * gain, -1.0, 1.0)
+        
+        word = self.current_word_list[self.current_word_index]['word']
+        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+        filename = f"{word}.{recording_format}"
+        filepath = os.path.join(self.audio_folder, filename)
+        
+        try:
+            sf.write(filepath, rec, self.config['audio_settings']['sample_rate'])
+        except Exception as e:
+            self.log(f"保存 {recording_format.upper()} 失败: {e}")
+            if recording_format == 'mp3' and 'format not understood' in str(e).lower():
+                return "save_failed_mp3_encoder"
+
+            if recording_format != 'wav':
+                try:
+                    wav_path = os.path.splitext(filepath)[0] + ".wav"
+                    sf.write(wav_path, rec, self.config['audio_settings']['sample_rate'])
+                    self.log(f"已尝试回退保存为WAV格式: {os.path.basename(wav_path)}")
+                except Exception as e_wav:
+                    self.log(f"回退保存WAV也失败: {e_wav}")
             
     def run_task_in_thread(self,task_func,*args):
         self.thread=QThread();self.worker=self.Worker(task_func,*args);self.worker.moveToThread(self.thread)
