@@ -1,0 +1,54 @@
+# --- japanese_culture.py ---
+# 主题: 日本文化 (Japanese Culture)
+# 格式: 图文词表
+
+ITEMS = [
+    {
+        'id': 'torii_gate',
+        'image_path': 'japanese_culture/torii_gate.jpg',
+        'prompt_text': 'This archway typically marks the entrance to a Shinto shrine. What is it called?\n这种通常标志着神社入口的牌坊叫什么？',
+        'notes': '鸟居 (Torii)。是神域（神的居所）与人世（俗世）的界标，代表着神域的入口。',
+    },
+    {
+        'id': 'maneki_neko',
+        'image_path': 'japanese_culture/maneki_neko.jpg',
+        'prompt_text': 'This cat figure is a common Japanese talisman, often believed to bring good luck to the owner. What is it?\n这种猫的形象是日本常见的吉祥物，被认为能给主人带来好运。它是什么？',
+        'notes': '招财猫 (Maneki-neko)。通常一只手高举，做出招揽客人的手势。举左手代表招福，举右手代表招财。',
+    },
+    {
+        'id': 'koinobori',
+        'image_path': 'japanese_culture/koinobori.jpg',
+        'prompt_text': 'These carp-shaped windsocks are traditionally flown in Japan to celebrate Children\'s Day. What are they called?\n这些鲤鱼形状的风向袋是日本庆祝儿童节的传统装饰。它们叫什么？',
+        'notes': '鲤鱼旗 (Koinobori)。象征着父母希望孩子能像鲤鱼一样充满活力、逆流而上、健康成长。',
+    },
+    {
+        'id': 'daruma_doll',
+        'image_path': 'japanese_culture/daruma_doll.jpg',
+        'prompt_text': 'This is a hollow, round, Japanese traditional doll modeled after Bodhidharma. It is a symbol of perseverance. What is it?\n这是一种模仿菩提达摩的中空圆形传统人偶，是毅力和好运的象征。它是什么？',
+        'notes': '达摩不倒翁 (Daruma doll)。许愿时先画上左眼，愿望实现后再画上右眼。其不倒翁的特性象征着百折不挠的精神。',
+    },
+    {
+        'id': 'omamori',
+        'image_path': 'japanese_culture/omamori.jpg',
+        'prompt_text': 'These are Japanese amulets (charms, talismans) commonly sold at religious sites. What are they called?\n这些是在宗教场所出售的日本护身符。它们被称为什么？',
+        'notes': '御守 (Omamori)。是平安、幸运的象征，有各种类型，如交通安全、学业有成、身体健康等。',
+    },
+    {
+        'id': 'matcha',
+        'image_path': 'japanese_culture/matcha.jpg',
+        'prompt_text': 'This is a finely ground powder of specially grown and processed green tea leaves, central to the Japanese tea ceremony. What is it?\n这是一种由特殊种植和加工的绿茶叶制成的细粉，是日本茶道的核心。它是什么？',
+        'notes': '抹茶 (Matcha)。与普通绿茶不同，抹茶在种植的最后几周会进行遮光处理，以增加叶绿素和茶氨酸含量，使其色泽更翠绿，味道更甘甜。',
+    },
+    {
+        'id': 'origami_crane',
+        'image_path': 'japanese_culture/origami_crane.jpg',
+        'prompt_text': 'This is perhaps the most classic of all Japanese paper folding designs. What is this paper bird?\n这可能是所有日本折纸设计中最经典的一个。这是什么纸鸟？',
+        'notes': '纸鹤 (Origami crane / Orizuru)。在日本文化中，鹤是吉祥和长寿的象征。传说折满一千只纸鹤可以实现一个愿望。',
+    },
+    {
+        'id': 'kintsugi',
+        'image_path': 'japanese_culture/kintsugi.jpg',
+        'prompt_text': 'This is the Japanese art of repairing broken pottery by mending the areas of breakage with lacquer dusted with powdered gold. What is this art form called?\n这是一种用漆和金粉修复破碎陶器的日本艺术。这种艺术形式叫什么？',
+        'notes': '金继 (Kintsugi)。这种修复方法不仅不试图隐藏破损，反而将裂痕用金色突出，体现了接受不完美和瞬变的哲学思想（侘寂 Wabi-sabi）。',
+    },
+]
