@@ -27,8 +27,8 @@ except ImportError as e:
     MISSING_ERROR_MESSAGE = str(e)
 
 
-# ===== 标准化模块入口函数 =====
-def create_page(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass):
+# ===== [修改] 标准化模块入口函数，接收LoggerClass =====
+def create_page(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass):
     """模块的入口函数，用于创建页面。"""
     if DEPENDENCIES_MISSING:
         error_page = QWidget()
@@ -39,26 +39,29 @@ def create_page(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClas
         layout.addWidget(label)
         return error_page
 
-    return VoicebankRecorderPage(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass)
+    return VoicebankRecorderPage(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass)
 
 
 class VoicebankRecorderPage(QWidget):
     LINE_WIDTH_THRESHOLD = 90
     recording_device_error_signal = pyqtSignal(str)
 
-    def __init__(self, parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass):
+    # [修改] 更新 __init__ 以接收 LoggerClass
+    def __init__(self, parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass):
         super().__init__()
         self.parent_window = parent_window
         self.WORD_LIST_DIR = WORD_LIST_DIR
         self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR
         self.ToggleSwitch = ToggleSwitchClass
         self.Worker = WorkerClass
+        self.LoggerClass = LoggerClass # [新增] 保存Logger类
         self.config = self.parent_window.config
 
         self.session_active = False
         self.is_recording = False
         self.current_word_list = []
         self.current_word_index = -1
+        self.logger = None # [新增] 初始化logger实例为None
         
         # 分别初始化两个队列
         self.audio_queue = queue.Queue()
@@ -134,7 +137,9 @@ class VoicebankRecorderPage(QWidget):
             
     def show_recording_device_error(self, error_message):
         QMessageBox.critical(self, "录音设备错误", error_message)
-        self.log(f"录音设备错误，请检查设置。")
+        log_message = f"录音设备错误，请检查设置。"
+        self.log(log_message)
+        if self.logger: self.logger.log(f"[FATAL] {log_message} Details: {error_message}")
         self.record_btn.setEnabled(False)
         if self.session_active:
             self.end_session(force=True)
@@ -201,7 +206,11 @@ class VoicebankRecorderPage(QWidget):
         self.is_recording = True
         self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;")
         self.record_btn.setText("正在录音..."); self.record_btn.setStyleSheet("background-color: #f44336; color: white;")
-        self.log(f"录制 '{self.current_word_list[self.current_word_index]['word']}'")
+        
+        word_to_record = self.current_word_list[self.current_word_index]['word']
+        self.log(f"录制 '{word_to_record}'")
+        if self.logger:
+            self.logger.log(f"[RECORD_START] Word: '{word_to_record}'")
         
     def stop_recording(self):
         if not self.session_active or not self.is_recording:
@@ -238,6 +247,9 @@ class VoicebankRecorderPage(QWidget):
             if reply != QMessageBox.Yes:
                 return
 
+        if self.logger:
+            self.logger.log("[SESSION_END] Session ended by user.")
+
         self.update_timer.stop()
         self.volume_meter.setValue(0)
 
@@ -249,6 +261,7 @@ class VoicebankRecorderPage(QWidget):
         self.session_active = False
         self.current_word_list = []
         self.current_word_index = -1
+        self.logger = None
         self.reset_ui()
 
     def start_session(self):
@@ -257,6 +270,10 @@ class VoicebankRecorderPage(QWidget):
         wordlist_name,_=os.path.splitext(wordlist_file)
         self.audio_folder=os.path.join(self.AUDIO_RECORD_DIR,wordlist_name)
         if not os.path.exists(self.audio_folder): os.makedirs(self.audio_folder)
+        
+        self.logger = None
+        if self.config.get("app_settings", {}).get("enable_logging", True):
+            self.logger = self.LoggerClass(os.path.join(self.audio_folder, "log.txt"))
         
         try:
             word_groups=self.load_word_list_logic(wordlist_file)
@@ -267,6 +284,10 @@ class VoicebankRecorderPage(QWidget):
                     self.current_word_list.append({'word':word,'ipa':ipa})
             self.current_word_index=0
             
+            if self.logger:
+                self.logger.log(f"[SESSION_START] Voicebank recording for wordlist: '{wordlist_file}'")
+                self.logger.log(f"[SESSION_CONFIG] Output folder: '{self.audio_folder}'")
+
             self.session_stop_event.clear()
             self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
             self.recording_thread.start()
@@ -286,6 +307,8 @@ class VoicebankRecorderPage(QWidget):
             self.session_active = True
 
         except Exception as e: 
+            if self.logger:
+                self.logger.log(f"[ERROR] Failed to start session: {e}")
             QMessageBox.critical(self,"错误",f"加载单词表失败: {e}")
             self.session_active = False
         
@@ -336,6 +359,7 @@ class VoicebankRecorderPage(QWidget):
                     all_done = False
                     break
             if all_done:
+                if self.logger: self.logger.log("[INFO] All items in the list have been recorded.")
                 QMessageBox.information(self,"完成","所有词条已录制完毕！")
                 if self.session_active: self.end_session()
         
@@ -387,10 +411,19 @@ class VoicebankRecorderPage(QWidget):
         filename = f"{word}.{recording_format}"
         filepath = os.path.join(self.audio_folder, filename)
         
+        if self.logger:
+            self.logger.log(f"[RECORDING_SAVE_ATTEMPT] Word: '{word}', Format: '{recording_format}', Path: '{filepath}'")
+        
         try:
             sf.write(filepath, rec, self.config['audio_settings']['sample_rate'])
+            if self.logger:
+                self.logger.log("[RECORDING_SAVE_SUCCESS] File saved successfully.")
         except Exception as e:
-            self.log(f"保存 {recording_format.upper()} 失败: {e}")
+            log_msg = f"保存 {recording_format.upper()} 失败: {e}"
+            self.log(log_msg)
+            if self.logger:
+                self.logger.log(f"[ERROR] {log_msg}")
+
             if recording_format == 'mp3' and 'format not understood' in str(e).lower():
                 return "save_failed_mp3_encoder"
 
@@ -398,9 +431,15 @@ class VoicebankRecorderPage(QWidget):
                 try:
                     wav_path = os.path.splitext(filepath)[0] + ".wav"
                     sf.write(wav_path, rec, self.config['audio_settings']['sample_rate'])
-                    self.log(f"已尝试回退保存为WAV格式: {os.path.basename(wav_path)}")
+                    fallback_log_msg = f"已尝试回退保存为WAV格式: {os.path.basename(wav_path)}"
+                    self.log(fallback_log_msg)
+                    if self.logger:
+                        self.logger.log(f"[INFO] {fallback_log_msg}")
                 except Exception as e_wav:
-                    self.log(f"回退保存WAV也失败: {e_wav}")
+                    fallback_err_msg = f"回退保存WAV也失败: {e_wav}"
+                    self.log(fallback_err_msg)
+                    if self.logger:
+                        self.logger.log(f"[ERROR] {fallback_err_msg}")
             
     def run_task_in_thread(self,task_func,*args):
         self.thread=QThread();self.worker=self.Worker(task_func,*args);self.worker.moveToThread(self.thread)

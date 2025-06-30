@@ -280,3 +280,47 @@ QTextEdit#NotesTextEdit {
     padding: 8px;
     color: #5A4E42; /* 比主文字稍浅 */
 }
+/* ================== 单选按钮样式 (Radio Button as Carved Stone) ================== */
+QRadioButton {
+    spacing: 12px;
+    padding: 8px 0;
+    font-size: 18px;
+    font-weight: normal;
+    color: #788C67; /* 未选中时为柔和的森林绿 */
+}
+
+QRadioButton:hover {
+    color: #4A4034; /* 悬停时为深褐色 */
+}
+
+QRadioButton:checked {
+    color: #4A4034; /* 选中时为深褐色 */
+    font-weight: bold;
+}
+
+/* --- 指示器 (Indicator) --- */
+QRadioButton::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px; /* 轻微圆角，像打磨过的石块 */
+    border: 1px solid #DCD0C0; /* 默认边框: 浅卡其色 */
+    background-color: #FFFFFF; /* 默认背景: 纯白 */
+}
+
+QRadioButton::indicator:hover {
+    border: 1px solid #B8A990; /* 悬停边框: 深卡其色 */
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid #5A6B4F; /* 选中边框: 深森林绿 */
+    background-color: #C9A870; /* 选中时用古金色填充 */
+}
+
+QRadioButton::indicator:disabled {
+    border: 1px solid #EAE0D6;
+    background-color: #F9F7F0;
+}
+
+QRadioButton:disabled {
+    color: #9E9382;
+}

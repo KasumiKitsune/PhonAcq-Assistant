@@ -401,3 +401,10 @@ QTextEdit#NotesTextEdit {
     padding: 8px;
     color: #4A4034;
 }
+QToolTip {
+    border: 1px solid #767676; /* 可选：给气泡一个边框 */
+    background-color: #f8f8f8; /* 可选：气泡背景色 */
+    color: #333333;           /* 可选：文字颜色 */
+    padding: 5px;             /* 可选：内边距 */
+    border-radius: 4px;       /* 可选：圆角 */
+}

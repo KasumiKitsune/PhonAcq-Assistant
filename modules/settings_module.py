@@ -11,7 +11,6 @@ import json
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
                              QFileDialog, QMessageBox, QComboBox, QFormLayout, 
                              QGroupBox, QLineEdit, QSlider)
-# [修正] QIntValidator 来自 QtGui 而不是 QtCore
 from PyQt5.QtGui import QIntValidator
 from PyQt5.QtCore import Qt
 
@@ -65,6 +64,9 @@ class SettingsPage(QWidget):
         editor_width_layout = QHBoxLayout(); editor_width_layout.addWidget(self.editor_width_input); editor_width_layout.addWidget(self.editor_width_label)
         ui_appearance_form_layout.addRow("管理/编辑类页面侧边栏宽度:", editor_width_layout)
         self.theme_combo = QComboBox(); ui_appearance_form_layout.addRow("主题皮肤:", self.theme_combo)
+        self.hide_tooltips_switch = self.ToggleSwitch()
+        hide_tooltips_layout = QHBoxLayout(); hide_tooltips_layout.addWidget(self.hide_tooltips_switch); hide_tooltips_layout.addStretch()
+        ui_appearance_form_layout.addRow("隐藏所有文字提示(Tooltip):", hide_tooltips_layout)
         
         file_group = QGroupBox("文件与路径")
         file_layout = QFormLayout(file_group)
@@ -72,6 +74,12 @@ class SettingsPage(QWidget):
         results_dir_layout = QHBoxLayout(); results_dir_layout.addWidget(self.results_dir_input); results_dir_layout.addWidget(self.results_dir_btn)
         self.word_list_combo = QComboBox(); self.participant_name_input = QLineEdit()
         file_layout.addRow("结果文件夹:", results_dir_layout); file_layout.addRow("默认单词表 (口音采集):", self.word_list_combo); file_layout.addRow("默认被试者名称:", self.participant_name_input)
+        
+        # --- [新增] 日志开关 ---
+        self.enable_logging_switch = self.ToggleSwitch()
+        enable_logging_layout = QHBoxLayout(); enable_logging_layout.addWidget(self.enable_logging_switch); enable_logging_layout.addStretch()
+        file_layout.addRow("启用详细日志记录:", enable_logging_layout)
+        # --- 结束新增 ---
         
         gtts_group = QGroupBox("gTTS (在线) 设置"); gtts_layout = QFormLayout(gtts_group)
         self.gtts_lang_combo = QComboBox(); self.gtts_lang_combo.addItems(['en-us','en-uk','en-au','en-in','zh-cn','ja','fr-fr','de-de','es-es','ru','ko'])
@@ -134,8 +142,14 @@ class SettingsPage(QWidget):
         
         ui_settings = config.get("ui_settings", {})
         self.collector_width_input.setText(str(ui_settings.get("collector_sidebar_width", 320))); self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
+        self.hide_tooltips_switch.setChecked(ui_settings.get("hide_all_tooltips", False))
         self.theme_combo.setCurrentText(config.get("theme", "Modern_light_tab.qss"))
         file_settings = config.get("file_settings", {}); gtts_settings = config.get("gtts_settings", {}); audio_settings = config.get("audio_settings", {})
+        
+        # --- [修改] 加载日志开关设置 ---
+        app_settings = config.get("app_settings", {})
+        self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True))
+        
         self.word_list_combo.setCurrentText(file_settings.get('word_list_file', '')); self.participant_name_input.setText(file_settings.get('participant_base_name', ''))
         base_path = get_base_path_for_module()
         self.results_dir_input.setText(file_settings.get("results_dir", os.path.join(base_path, "Results")))
@@ -173,9 +187,14 @@ class SettingsPage(QWidget):
         config = self.parent_window.config
         config.setdefault("ui_settings", {})["collector_sidebar_width"] = collector_width
         config.setdefault("ui_settings", {})["editor_sidebar_width"] = editor_width
+        config.setdefault("ui_settings", {})["hide_all_tooltips"] = self.hide_tooltips_switch.isChecked()
         config['theme'] = self.theme_combo.currentText()
         config['file_settings'] = {"word_list_file": self.word_list_combo.currentText(), "participant_base_name": self.participant_name_input.text(), "results_dir": self.results_dir_input.text()}
         config['gtts_settings'] = {"default_lang": self.gtts_lang_combo.currentText(), "auto_detect": self.gtts_auto_detect_switch.isChecked()}
+        
+        # --- [修改] 保存日志开关设置 ---
+        config.setdefault("app_settings", {})["enable_logging"] = self.enable_logging_switch.isChecked()
+        
         audio_settings = config.setdefault("audio_settings", {})
         audio_settings["sample_rate"] = int(self.sample_rate_combo.currentText().split(' ')[0])
         audio_settings["channels"] = int(self.channels_combo.currentText().split(' ')[0])

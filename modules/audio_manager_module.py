@@ -14,7 +14,7 @@ import subprocess
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QAbstractItemView, QMenu, QSplitter, QInputDialog, QLineEdit,
-                             QSlider, QComboBox)
+                             QSlider, QComboBox, QApplication)
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -233,9 +233,28 @@ class AudioManagerPage(QWidget):
         count = len(items)
         reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除选中的 {count} 个项目及其所有内容吗？\n此操作不可撤销！", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
+            # [新增] 操作开始时，在状态栏显示持久消息 (0表示不超时)
+            self.parent_window.statusBar().showMessage(f"正在删除 {count} 个项目...", 0)
+            QApplication.processEvents() # 强制UI更新
+
+            error_occurred = False
             for item in items:
-                try: shutil.rmtree(os.path.join(base_dir, item.text()))
-                except Exception as e: QMessageBox.critical(self, "删除失败", f"删除文件夹 '{item.text()}' 时出错: {e}"); break
+                try:
+                    # [新增] 状态栏实时更新当前操作项
+                    self.parent_window.statusBar().showMessage(f"正在删除: {item.text()}...", 0)
+                    QApplication.processEvents()
+                    shutil.rmtree(os.path.join(base_dir, item.text()))
+                except Exception as e:
+                    # [新增] 发生错误时，在状态栏显示错误信息
+                    self.parent_window.statusBar().showMessage(f"删除 '{item.text()}' 时出错。", 5000)
+                    QMessageBox.critical(self, "删除失败", f"删除文件夹 '{item.text()}' 时出错: {e}")
+                    error_occurred = True
+                    break
+            
+            # [新增] 操作结束后，根据结果更新状态栏
+            if not error_occurred:
+                self.parent_window.statusBar().showMessage(f"成功删除 {count} 个项目。", 4000)
+            
             self.populate_session_list()
 
     def open_file_context_menu(self, position):

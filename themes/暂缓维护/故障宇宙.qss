@@ -1,0 +1,254 @@
+/*
+ * Cosmic Glitch Theme v1.0 (DATA CORRUPTION IMMINENT)
+ * Author: AI Assistant & Sager
+ * Description: An intentionally chaotic, wild, and absurd theme simulating a catastrophic
+ *              system failure. Prioritizes visual shock over usability. USE AT YOUR OWN RISK.
+ */
+
+/* ================== 全局样式 (TERMINAL FAILURE) ================== */
+QWidget {
+    /* 如果系统中没有这些字体，会回退到 monospace */
+    font-family: "Perfect DOS VGA 437 Win", "Fixedsys", "Terminal", monospace;
+    color: #39FF14; /* Glitch Green */
+    background-color: #000000; /* Pure Black */
+    font-size: 18px; /* 像素字体通常需要整数倍缩放，18px可能需要调整 */
+    font-weight: normal;
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
+    background-color: #000000;
+}
+
+QMessageBox, QDialog { 
+    background-color: #000000;
+    border-image: url(themes/images/glitch_border_1.png) 4 4 4 4 stretch stretch;
+    border-width: 4px;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 18px; 
+    color: #39FF14;
+}
+
+/* ================== 一级标签页 (MEMORY SECTOR ERROR) ================== */
+QTabWidget#MainTabWidget::pane { 
+    border: 2px solid #39FF14;
+    border-top: none; 
+    background-color: #000000;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+    left: 5px; /* 整个标签栏向右偏移 */
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: #000000; 
+    color: #39FF14; 
+    border: 1px solid #39FF14;
+    font-size: 20px;
+    margin-right: 0px; 
+    min-width: 160px;
+    padding: 8px 15px;
+    text-transform: uppercase; /* 全部大写 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    background-color: #39FF14;
+    color: #000000;
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #39FF14; 
+    color: #000000; 
+    border-color: #39FF14;
+    /* 选中的标签稍微向上偏移，模拟一个物理按下的感觉 */
+    margin-top: -3px;
+    margin-bottom: 3px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    background-color: #111111; color: #333333; border-color: #333333;
+}
+
+/* ================== 二级标签页 (SUB-ROUTINE CORRUPTED) ================== */
+QTabWidget#SubTabWidget::pane { border: none; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 2px dashed #39FF14; }
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; color: #bbbbbb; border: none;
+    padding: 8px 18px; 
+    font-size: 17px;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #FFFFFF;
+    font-style: italic;
+    background-color: #222222;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #000000; font-weight: bold; background-color: #39FF14; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #555555; }
+
+/* ================== 按钮样式 (SYSTEM CALL) ================== */
+QPushButton {
+    border: none;
+    border-image: url(themes/images/glitch_border_2.png) 4 repeat;
+    border-width: 4px;
+    padding: 10px 20px; 
+    font-size: 18px; 
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #111, stop:1 #000); 
+    color: #39FF14; 
+    text-transform: uppercase;
+}
+QPushButton:hover { 
+    /* 颜色反转 */
+    background-color: #39FF14; 
+    color: #000000; 
+    border-image: none; /* 移除图片边框 */
+    border: 4px solid #000000; /* 用纯色边框代替 */
+}
+QPushButton:pressed { 
+    /* 位置偏移，模拟点击故障 */
+    padding-left: 25px;
+    padding-top: 13px;
+    background-color: #FF00FF;
+    color: #FFFFFF;
+}
+QPushButton:disabled { 
+    border-image: none;
+    border: 4px dashed #333333;
+    background-color: #000000; 
+    color: #333333; 
+}
+
+QPushButton#AccentButton { 
+    background-color: #39FF14; color: #000000; 
+    border-image: none; border: 2px solid #FFFFFF;
+}
+QPushButton#AccentButton:hover { background-color: #FFFFFF; color: #39FF14; border-color: #39FF14;}
+QPushButton#AccentButton:pressed { background-color: #FF00FF; color: #39FF14; border-color: #000000;}
+
+QPushButton#LinkButton {
+    background-color: transparent; color: #FF2D2D; border: none;
+    text-decoration: none; font-size: 16px; min-height: 0px;
+    font-family: "Wingdings"; /* 使用奇怪的符号字体 */
+}
+QPushButton#LinkButton:hover { color: #FFFFFF; }
+
+QPushButton#ActionButton_Delete {
+    background-color: #FF2D2D; color: #FFFFFF; border-image: none; border: 2px solid #FFFFFF;
+}
+QPushButton#ActionButton_Delete:hover { background-color: #000000; color: #FF2D2D; border: 2px solid #FF2D2D; }
+
+/* ================== 其他常用控件 ================== */
+QLabel { color: #39FF14; background-color: transparent; }
+
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #000000; 
+    border: 1px solid #39FF14; 
+    border-radius: 0px; 
+    padding: 8px; color: #39FF14; 
+    selection-background-color: #39FF14; selection-color: #000000; 
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border: 2px solid #FF00FF; }
+QTextBrowser a { color: #FF00FF; text-decoration: underline; }
+
+QComboBox { 
+    background-color: #000000; border: 1px solid #39FF14; border-radius: 0px; 
+    padding: 7px; color: #39FF14;
+}
+QComboBox::drop-down { border: none; background-color: #39FF14; width: 20px;}
+QComboBox QAbstractItemView { 
+    border: 1px solid #FF00FF; background-color: #000000; 
+    selection-background-color: #FF00FF; selection-color: #000000; 
+    outline: 0px; color: #39FF14;
+}
+QComboBox QAbstractItemView::item { padding: 5px; }
+
+QGroupBox { 
+    border: 1px solid #39FF14;
+    margin-top: 15px; 
+    padding: 20px 10px 10px 10px;
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #000, stop:0.4 #111, stop:0.41 #000, stop:1 #000); /* 模拟扫描线 */
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; subcontrol-position: top center; 
+    padding: 0px 10px; 
+    background-color: #39FF14; color: #000000; 
+    font-weight: bold;
+}
+
+QListWidget, QTableWidget { 
+    background-color: #000000; border: 1px solid #39FF14; 
+    border-radius: 0px; outline: 0px;
+    alternate-background-color: #111111; gridline-color: #222222; 
+}
+QTableCornerButton::section { background-color: #000000; border: 1px solid #39FF14; }
+QListWidget::item, QTableWidget::item { 
+    padding: 8px; border-bottom: 1px solid #222222; color: #bbbbbb;
+}
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #39FF14; color: #000000; 
+}
+QTableWidget QLineEdit { border: 1px solid #39FF14; background-color: #111111; color: #39FF14; }
+
+QHeaderView::section { 
+    background-color: #000000; padding: 8px; border: none;
+    border-bottom: 2px solid #39FF14; font-weight: bold; color: #39FF14;
+    text-transform: uppercase;
+}
+
+QProgressBar { 
+    border: 1px solid #FF2D2D; border-radius: 0px; text-align: center; 
+    color: #FF2D2D; height: 22px; background-color: #000000;
+}
+QProgressBar::chunk { 
+    background-color: #39FF14;
+    /* 不规则的进度块 */
+    margin-top: 5px; margin-bottom: 5px; margin-left:1px; margin-right:1px;
+}
+
+QSlider::groove:horizontal { 
+    border: none; height: 2px; background: #39FF14; margin: 2px 0;
+}
+QSlider::handle:horizontal { 
+    background: #FF00FF; border: 1px solid #39FF14; width: 4px; 
+    height: 20px; margin: -9px 0; 
+}
+
+QScrollBar { border: 1px solid #333; background: #111; }
+QScrollBar::handle { background: #39FF14; }
+QScrollBar::add-line, QScrollBar::sub-line { border: 1px solid #333; background: #222; }
+
+QMenu {
+    background-color: #000000; color: #39FF14; border: 1px solid #39FF14; 
+    padding: 0px; border-radius: 0px;
+}
+QMenu::item { padding: 10px 25px; }
+QMenu::item:selected { background-color: #39FF14; color: #000000; }
+QMenu::item:disabled { color: #333333; }
+QMenu::separator { height: 1px; background: #39FF14; margin: 2px 0px; }
+
+/* ================== ToggleSwitch 样式 (Glitch Switch) ================== */
+ToggleSwitch {
+    qproperty-trackColorOff: #222222; 
+    qproperty-trackColorOn: #39FF14; 
+    qproperty-knobColor: #FF00FF; 
+    qproperty-trackBorderRadius: 0;
+    qproperty-borderWidth: 1;              
+    qproperty-borderColor: #39FF14;
+    qproperty-knobMargin: 2;               
+    qproperty-knobShape: 'rectangle';      
+}
+ToggleSwitch:hover {
+    qproperty-trackColorOff: #FF00FF;
+    qproperty-knobColor: #39FF14;
+}
+
+/* --- 其他特定页面的控件 --- */
+QLabel#ScalableImageLabel {
+    background-color: repeating-linear-gradient(45deg, #000, #000 10px, #111 10px, #111 20px); /* 模拟扫描线 */
+    border: 1px solid #39FF14;
+}
+QTextEdit#NotesTextEdit {
+    color: #FF00FF;
+    background-color: #0a0a0a;
+    border: 1px dashed #FF00FF;
+}

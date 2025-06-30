@@ -1,12 +1,12 @@
 # --- START OF FILE dialect_visual_collector_module.py ---
 
 # --- 模块元数据 ---
-MODULE_NAME = "方言图文采集"
+MODULE_NAME = "看图说话采集"
 MODULE_DESCRIPTION = "展示图片并录制方言描述，支持文字备注显隐及图片缩放。"
 # ---
 
 import os
-import sys # 确保 sys 被导入
+import sys 
 import importlib.util
 import threading
 import queue
@@ -125,18 +125,16 @@ class DialectVisualCollectorPage(QWidget):
         self.current_items_list = []
         self.current_item_index = -1; self.current_wordlist_path = None; self.current_wordlist_name = None
         
-        # 分别初始化两个队列
         self.current_audio_folder = None
-        self.audio_queue = queue.Queue() # 用于录音数据
-        self.volume_meter_queue = queue.Queue(maxsize=2) # 用于音量计，maxsize确保不积压
+        self.audio_queue = queue.Queue()
+        self.volume_meter_queue = queue.Queue(maxsize=2)
         
         self.recording_thread = None
         self.session_stop_event = threading.Event()
-        self.logger_instance = None
+        self.logger = None
         
         self._init_ui()
 
-        # 连接信号
         self.start_btn.clicked.connect(self.start_session)
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.pressed.connect(self.handle_record_pressed)
@@ -218,7 +216,7 @@ class DialectVisualCollectorPage(QWidget):
     def apply_layout_settings(self):
         config = self.parent_window.config 
         ui_settings = config.get("ui_settings", {})
-        width = ui_settings.get("editor_sidebar_width", 300) 
+        width = ui_settings.get("collector_sidebar_width", 320) 
         self.left_panel.setFixedWidth(width)
 
 
@@ -265,7 +263,11 @@ class DialectVisualCollectorPage(QWidget):
         self.is_recording = True
         self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;")
         self.record_btn.setText("正在录音..."); self.record_btn.setStyleSheet("background-color: #f44336; color: white;")
-        self.log(f"录制项目: '{self.current_items_list[self.current_item_index].get('id', '未知项目')}'")
+        
+        item_id = self.current_items_list[self.current_item_index].get('id', '未知项目')
+        self.log(f"录制项目: '{item_id}'")
+        if self.logger:
+            self.logger.log(f"[RECORD_START] Item ID: '{item_id}'")
 
     def _stop_recording_logic(self):
         self.is_recording = False
@@ -285,11 +287,17 @@ class DialectVisualCollectorPage(QWidget):
         current_id = None
         if 0 <= self.current_item_index < len(self.current_items_list):
             current_id = self.current_items_list[self.current_item_index].get('id')
+        
+        mode_text = "随机" if state == Qt.Checked else "顺序"
+        self.log(f"项目顺序已切换为: {mode_text}")
+        if self.logger:
+            self.logger.log(f"[SESSION_CONFIG_CHANGE] Order changed to: {mode_text}")
+            
         if state == Qt.Checked:
-            self.current_items_list = list(self.original_items_list); random.shuffle(self.current_items_list)
-            self.log("项目顺序已切换为: 随机")
+            random.shuffle(self.current_items_list)
         else:
-            self.current_items_list = list(self.original_items_list); self.log("项目顺序已切换为: 顺序")
+            self.current_items_list = list(self.original_items_list)
+            
         new_row_index = -1
         if current_id:
             for i, item_data in enumerate(self.current_items_list):
@@ -342,10 +350,8 @@ class DialectVisualCollectorPage(QWidget):
 
     def reset_ui(self):
         self.word_list_combo.show(); self.start_btn.show()
-        for i in range(self.control_layout.rowCount()):
-            item_widget = self.control_layout.itemAt(i, QFormLayout.FieldRole).widget() if self.control_layout.itemAt(i, QFormLayout.FieldRole) else None
-            if item_widget == self.end_session_btn:
-                self.control_layout.removeRow(i); break
+        if self.end_session_btn.parent() is not None:
+            self.control_layout.removeRow(self.end_session_btn)
         self.item_list_widget.clear(); self.image_viewer.set_pixmap(None); self.image_viewer.setText("请加载图文词表")
         self.prompt_text_label.setText(""); self.notes_text_edit.setPlainText(""); self.notes_text_edit.setVisible(False)
         self.show_notes_switch.setChecked(False); self.record_btn.setEnabled(False); self.log("请选择图文词表开始采集。")
@@ -353,8 +359,9 @@ class DialectVisualCollectorPage(QWidget):
     def end_session(self, force=False):
         if not force:
             reply = QMessageBox.question(self, '结束会话', '您确定要结束当前的图文采集会话吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply != QMessageBox.Yes:
-                return
+            if reply != QMessageBox.Yes: return
+
+        if self.logger: self.logger.log("[SESSION_END] Session ended by user.")
         
         self.update_timer.stop()
         self.volume_meter.setValue(0)
@@ -366,7 +373,7 @@ class DialectVisualCollectorPage(QWidget):
 
         self.session_active = False; self.current_items_list = []; self.original_items_list = []; self.current_item_index = -1
         self.current_wordlist_path = None; self.current_wordlist_name = None; self.current_audio_folder = None
-        self.logger_instance = None; self.reset_ui(); self.populate_word_lists()
+        self.logger = None; self.reset_ui(); self.populate_word_lists()
 
     def start_session(self):
         wordlist_file = self.word_list_combo.currentText()
@@ -377,14 +384,22 @@ class DialectVisualCollectorPage(QWidget):
             if not self.original_items_list: QMessageBox.warning(self, "错误", f"词表 '{wordlist_file}' 为空或加载失败。"); return
             self.current_items_list = list(self.original_items_list)
             if self.random_order_switch.isChecked(): random.shuffle(self.current_items_list)
+            
             self.current_item_index = 0
             wordlist_name_no_ext, _ = os.path.splitext(self.current_wordlist_name)
             self.current_audio_folder = os.path.join(AUDIO_RECORD_DIR_FOR_DIALECT_VISUAL, wordlist_name_no_ext)
             if not os.path.exists(self.current_audio_folder): os.makedirs(self.current_audio_folder)
-            log_file_path = os.path.join(self.current_audio_folder, "collection_log.txt")
-            self.logger_instance = self.Logger(log_file_path)
-            self.logger_instance.log(f"Dialect visual collection session started for wordlist: {self.current_wordlist_name}")
             
+            self.logger = None
+            if self.config.get("app_settings", {}).get("enable_logging", True):
+                log_file_path = os.path.join(self.current_audio_folder, "log.txt")
+                self.logger = self.Logger(log_file_path)
+            
+            if self.logger:
+                mode = "Random" if self.random_order_switch.isChecked() else "Sequential"
+                self.logger.log(f"[SESSION_START] Dialect visual collection for wordlist: {self.current_wordlist_name}")
+                self.logger.log(f"[SESSION_CONFIG] Mode: {mode}")
+
             self.session_stop_event.clear()
             self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
             self.recording_thread.start()
@@ -399,18 +414,25 @@ class DialectVisualCollectorPage(QWidget):
             self.record_btn.setEnabled(True); self.log("准备就绪，请选择项目并开始录音。"); self.session_active = True
         except Exception as e:
             QMessageBox.critical(self, "错误", f"启动会话失败: {e}"); self.session_active = False
-            if hasattr(self, 'logger_instance') and self.logger_instance: self.logger_instance.log(f"ERROR starting session: {e}")
+            if hasattr(self, 'logger') and self.logger: self.logger.log(f"[ERROR] Failed to start session: {e}")
 
     def update_list_widget(self):
         current_row = self.item_list_widget.currentRow() if self.item_list_widget.count() > 0 else 0
         self.item_list_widget.clear()
+        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+        
         for index, item_data in enumerate(self.current_items_list):
             display_text = self._format_list_item_text(item_data.get('id', f"项目_{index+1}"), item_data.get('prompt_text', ''))
             list_item = QListWidgetItem(display_text)
-            audio_filename = f"{item_data.get('id', f'item_{index+1}')}.mp3"
-            if self.current_audio_folder and os.path.exists(os.path.join(self.current_audio_folder, audio_filename)):
+            
+            main_audio_filename = f"{item_data.get('id')}.{recording_format}"
+            wav_fallback_filename = f"{item_data.get('id')}.wav"
+            
+            if self.current_audio_folder and (os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) or os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename))):
                 list_item.setIcon(QApplication.style().standardIcon(QStyle.SP_DialogOkButton))
+            
             self.item_list_widget.addItem(list_item)
+            
         if self.current_items_list:
              new_row_to_select = self.current_item_index if self.current_item_index != -1 and self.current_item_index < len(self.current_items_list) else 0
              if new_row_to_select < self.item_list_widget.count():
@@ -419,14 +441,12 @@ class DialectVisualCollectorPage(QWidget):
                 if selected_item_to_display: self.on_item_selected(selected_item_to_display, None)
 
     def on_recording_saved(self, result):
-        # [新增] 专门处理 MP3 编码器缺失的错误
         if result == "save_failed_mp3_encoder":
             QMessageBox.critical(self, "MP3 编码器缺失", 
                 "无法将录音保存为 MP3 格式。\n\n"
                 "这通常是因为您的系统中缺少 LAME MP3 编码器库 (例如 libmp3lame)。\n\n"
                 "建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
             self.log("MP3保存失败！请检查编码器或设置。")
-            # 即使失败也应该让UI恢复
             return
 
         self.log("录音已保存。")
@@ -437,7 +457,6 @@ class DialectVisualCollectorPage(QWidget):
             all_done = True
             recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             for item_data in self.current_items_list:
-                # 检查主要格式和回退的WAV格式
                 main_audio_filename = f"{item_data.get('id')}.{recording_format}"
                 wav_fallback_filename = f"{item_data.get('id')}.wav"
                 if not os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) and \
@@ -449,91 +468,67 @@ class DialectVisualCollectorPage(QWidget):
                 if self.session_active: self.end_session()
                 
     def _persistent_recorder_task(self):
-        """此线程在整个会话期间运行，保持音频流打开以实现即时录音。"""
         try:
             device_index = self.config['audio_settings'].get('input_device_index', None)
             sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
             ch = self.config.get('audio_settings', {}).get('channels', 1)
-            with sd.InputStream(
-                device=device_index, 
-                samplerate=sr, 
-                channels=ch, 
-                callback=self._audio_callback
-            ): 
+            with sd.InputStream(device=device_index, samplerate=sr, channels=ch, callback=self._audio_callback): 
                 self.session_stop_event.wait()
         except Exception as e: 
             error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"
             print(f"持久化录音线程错误: {error_msg}")
+            if self.logger: self.logger.log(f"[FATAL_ERROR] Cannot start audio stream: {e}")
             self.recording_device_error_signal.emit(error_msg)
 
     def _audio_callback(self, indata, frames, time, status):
-        """此函数由 sounddevice 在后台高频调用。"""
         if status:
             print(f"录音状态警告: {status}", file=sys.stderr)
+            if self.logger: self.logger.log(f"[WARNING] Audio callback status: {status}")
         
-        try:
-            self.volume_meter_queue.put_nowait(indata.copy())
-        except queue.Full:
-            pass
-
-        if self.is_recording:
-            self.audio_queue.put(indata.copy())
+        try: self.volume_meter_queue.put_nowait(indata.copy())
+        except queue.Full: pass
+        if self.is_recording: self.audio_queue.put(indata.copy())
 
     def _save_recording_task(self, worker_instance):
-        if self.audio_queue.empty():
-            return None # 没有数据可保存
+        if self.audio_queue.empty(): return None
 
         data_chunks = []
         while not self.audio_queue.empty():
-            try:
-                data_chunks.append(self.audio_queue.get_nowait())
-            except queue.Empty:
-                break
+            try: data_chunks.append(self.audio_queue.get_nowait())
+            except queue.Empty: break
         
-        if not data_chunks:
-            return None
+        if not data_chunks: return None
 
         rec = np.concatenate(data_chunks, axis=0)
         gain = self.config.get('audio_settings', {}).get('recording_gain', 1.0)
-        if gain != 1.0:
-            rec = np.clip(rec * gain, -1.0, 1.0)
+        if gain != 1.0: rec = np.clip(rec * gain, -1.0, 1.0)
 
-        # 1. 获取用户选择的录音格式，默认为 'wav'
         recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
-
-        # 2. 根据格式确定文件名
         item_id = self.current_items_list[self.current_item_index].get('id', f"item_{self.current_item_index + 1}")
         filename = f"{item_id}.{recording_format}"
         filepath = os.path.join(self.current_audio_folder, filename)
         
+        if self.logger: self.logger.log(f"[RECORDING_SAVE_ATTEMPT] Item ID: '{item_id}', Format: '{recording_format}', Path: '{filepath}'")
+        
         try:
-            # 3. soundfile 会根据文件扩展名自动选择编码格式
             sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
-            sf.write(filepath, rec, sr) # soundfile > 0.10.0 can use format directly
-            self.log(f"文件 '{filename}' 已保存。")
-            if self.logger_instance:
-                self.logger_instance.log(f"Recording saved: {filepath}")
+            sf.write(filepath, rec, sr)
+            if self.logger: self.logger.log(f"[RECORDING_SAVE_SUCCESS] File saved successfully.")
         except Exception as e:
-            self.log(f"保存 {recording_format.upper()} 失败: {e}")
-            if self.logger_instance:
-                self.logger_instance.log(f"ERROR saving {recording_format.upper()}: {e}")
+            if self.logger: self.logger.log(f"[ERROR] Failed to save {recording_format.upper()}: {e}")
             
-            # 4. 对 MP3 写入失败提供特殊处理
             if recording_format == 'mp3' and 'format not understood' in str(e).lower():
                 return "save_failed_mp3_encoder"
             
-            # 尝试回退到 WAV
             if recording_format != 'wav':
                 try:
                     wav_path = os.path.splitext(filepath)[0] + ".wav"
                     sf.write(wav_path, rec, sr)
                     self.log(f"已尝试回退保存为WAV: {os.path.basename(wav_path)}")
-                    if self.logger_instance:
-                        self.logger_instance.log(f"Fallback WAV saved: {wav_path}")
+                    if self.logger: self.logger.log(f"[RECORDING_SAVE_FALLBACK] Fallback WAV saved: {wav_path}")
                 except Exception as e_wav:
                     self.log(f"回退保存WAV也失败: {e_wav}")
-                    if self.logger_instance:
-                        self.logger_instance.log(f"ERROR saving fallback WAV: {e_wav}")
+                    if self.logger: self.logger.log(f"[ERROR] Fallback WAV save also failed: {e_wav}")
         return None
 
     def _run_task_in_thread(self, task_func, *args):

@@ -182,14 +182,25 @@ class TtsUtilityPage(QWidget):
         timestamp = datetime.now().strftime("%H:%M:%S"); self.log_output.appendPlainText(f"[{timestamp}] {message}"); self.log_output.ensureCursorVisible()
 
     def update_progress(self, value, text_format): 
-        self.progress_bar.setValue(value); self.progress_bar.setFormat(text_format)
+        self.progress_bar.setValue(value)
+        self.progress_bar.setFormat(text_format)
+        # [新增] 在主窗口状态栏显示实时进度，超时2秒
+        self.parent_window.statusBar().showMessage(text_format, 2000)
 
     def on_tts_task_finished(self, message):
         self.log_message(message)
-        is_error = "错误" in message or "中断" in message; self.progress_bar.setValue(100 if not is_error else self.progress_bar.value())
-        self.progress_bar.setFormat(message if is_error else "任务完成!"); self.start_tts_btn.setEnabled(True); self.submit_edited_btn.setEnabled(True)
-        self.load_wordlist_btn.setEnabled(True); self.stop_tts_btn.setEnabled(False)
-        if self.tts_thread and self.tts_thread.isRunning(): self.tts_thread.quit(); self.tts_thread.wait()
+        is_error = "错误" in message or "中断" in message
+        self.progress_bar.setValue(100 if not is_error else self.progress_bar.value())
+        self.progress_bar.setFormat(message if is_error else "任务完成!")
+        # [新增] 在主窗口状态栏显示最终结果，超时5秒
+        self.parent_window.statusBar().showMessage(message, 5000)
+        self.start_tts_btn.setEnabled(True)
+        self.submit_edited_btn.setEnabled(True)
+        self.load_wordlist_btn.setEnabled(True)
+        self.stop_tts_btn.setEnabled(False)
+        if self.tts_thread and self.tts_thread.isRunning(): 
+            self.tts_thread.quit()
+            self.tts_thread.wait()
 
     def add_table_row(self, word="", lang_code=""):
         row_pos = self.editor_table.rowCount(); self.editor_table.insertRow(row_pos); self.editor_table.setItem(row_pos, 0, QTableWidgetItem(word))

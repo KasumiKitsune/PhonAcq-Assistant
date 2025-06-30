@@ -15,9 +15,9 @@ from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,
-                             QStyle, QListWidgetItem, QApplication, QSpacerItem, QSizePolicy)
+                             QStyle, QListWidgetItem, QApplication, QSpacerItem, QSizePolicy, QShortcut)
 from PyQt5.QtCore import Qt, QTimer, QUrl
-from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QTextDocument, QColor
+from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QTextDocument, QColor, QKeySequence
 
 try:
     import sounddevice as sd
@@ -105,7 +105,7 @@ class FlashcardPage(QWidget):
         self.random_radio = QRadioButton("完全随机"); self.sequential_radio = QRadioButton("按列表顺序")
         order_layout.addWidget(self.smart_random_radio); order_layout.addWidget(self.random_radio); order_layout.addWidget(self.sequential_radio); self.order_mode_group.setLayout(order_layout)
         autoplay_layout = QHBoxLayout(); autoplay_layout.addWidget(QLabel("自动播放音频:")); self.autoplay_audio_switch = self.ToggleSwitch(); self.autoplay_audio_switch.setChecked(True); autoplay_layout.addWidget(self.autoplay_audio_switch); autoplay_layout.addStretch()
-        hide_list_layout = QHBoxLayout(); hide_list_layout.addWidget(QLabel("学习时隐藏列表:")); self.hide_list_switch = self.ToggleSwitch(); self.hide_list_switch.setChecked(True); hide_list_layout.addWidget(self.hide_list_switch); hide_list_layout.addStretch()
+        hide_list_layout = QHBoxLayout(); hide_list_layout.addWidget(QLabel("隐藏项目列表:")); self.hide_list_switch = self.ToggleSwitch(); self.hide_list_switch.setChecked(True); hide_list_layout.addWidget(self.hide_list_switch); hide_list_layout.addStretch()
         options_layout.addWidget(self.order_mode_group); options_layout.addLayout(autoplay_layout); options_layout.addLayout(hide_list_layout)
         self.clear_progress_btn = QPushButton("清空当前词表学习记录"); self.clear_progress_btn.setObjectName("ActionButton_Delete")
         self.start_reset_btn = QPushButton("加载词表并开始学习"); self.start_reset_btn.setObjectName("AccentButton"); self.start_reset_btn.setFixedHeight(40)
@@ -127,6 +127,9 @@ class FlashcardPage(QWidget):
         self.clear_progress_btn.clicked.connect(self.clear_current_progress)
         self.answer_submit_btn.clicked.connect(self.check_answer)
         self.answer_input.returnPressed.connect(self.check_answer)
+        QShortcut(QKeySequence(Qt.Key_Left), self, self.show_prev_card)
+        QShortcut(QKeySequence(Qt.Key_Right), self, self.show_next_card)
+        QShortcut(QKeySequence(Qt.Key_P), self, self.play_current_audio)
 
     def populate_wordlists(self):
         self.wordlist_combo.clear(); self.wordlist_combo.addItem("--- 请选择一个词表 ---", userData=None)

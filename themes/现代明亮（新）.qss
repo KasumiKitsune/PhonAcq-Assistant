@@ -1,0 +1,227 @@
+/*
+ * Modern Elegance Theme v2.0
+ * Author: AI Assistant & Sager
+ * Description: A refined, modern light theme with a warm palette, focusing on clarity,
+ *              breathing room, and subtle interactions.
+ */
+
+/* ================== 全局样式 (Parchment & Ink) ================== */
+QWidget {
+    font-family: "Microsoft YaHei", sans-serif;
+    color: #4A4034; /* Dark Sepia - 更柔和的深色 */
+    background-color: transparent; 
+    font-size: 17px; /* 稍微减小默认字号，让UI更精致 */
+    font-weight: normal; /* 全局使用正常粗细，仅在需要强调时加粗 */
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget {
+    background-color: #FDFBF8; /* 更温暖、更亮的米白背景 */
+}
+
+QMessageBox, QDialog { 
+    background-color: #FDFBF8; 
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 17px; 
+}
+
+/* ================== 一级标签页 (Clean & Focused) ================== */
+QTabWidget#MainTabWidget::pane { 
+    border: none;
+    background-color: #FDFBF8;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+    left: 20px; /* 整体向右偏移，留出左边距 */
+    bottom: -1px; /* 微调以与pane无缝连接 */
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background: transparent;
+    color: #8A7E72; /* 未选中时为柔和的灰褐色 */
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 20px; /* [修改] 增加标签页之间的间距 */
+    min-width: 120px;   /* [修改] 设置一个最小宽度，防止被裁切 */
+    padding: 12px 10px; /* [修改] 调整内边距，使其更平衡 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    color: #4A4034;
+    border-bottom-color: #EAE0D6; /* 悬停时显示柔和的下划线 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    color: #8F4C33; /* 主题棕色 */
+    border-bottom-color: #8F4C33;
+}
+
+/* ================== 二级标签页 (Subtle Dividers) ================== */
+QTabWidget#SubTabWidget::pane { border: none; background-color: transparent; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 1px solid #EAE0D6; }
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; color: #8A7E72; border: none;
+    border-bottom: 3px solid transparent; 
+    padding: 8px 18px; 
+    font-size: 17px;
+    font-weight: bold;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #4A4034;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #8F4C33; border-bottom: 3px solid #8F4C33; 
+}
+
+/* ================== 按钮样式 (Pill-shaped & Tactile) ================== */
+QPushButton {
+    border: 1px solid #DCD0C0; 
+    padding: 9px 22px; 
+    /* [核心修改] 将按钮高度的一半作为圆角半径，形成药丸形状 */
+    border-radius: 19px; /* (min-height(28) + padding(9*2)) / 2 = 23, but we use a fixed value */
+    font-size: 17px; 
+    background-color: #FFFFFF; 
+    color: #4A4034;
+    font-weight: bold;
+    min-height: 28px;
+}
+QPushButton:hover { background-color: #F9F5F0; border-color: #C9A870; }
+QPushButton:pressed { background-color: #EAE0D6; }
+QPushButton:disabled { background-color: #F5F5F5; color: #B0B0B0; border-color: #E0E0E0;}
+
+QPushButton#AccentButton { 
+    background-color: #8F4C33; color: #FFFFFF; border: none; 
+    padding: 11px 26px;
+    border-radius: 22px; /* 按钮高度 (22+padding(11*2))/2 = 22 */
+}
+QPushButton#AccentButton:hover { background-color: #a45f43; }
+QPushButton#AccentButton:pressed { background-color: #7a3f23; }
+
+QPushButton#LinkButton {
+    background-color: transparent; color: #8F4C33; border: none;
+    text-decoration: none; padding: 5px; font-size: 16px;
+    border-bottom: 1px dashed #B8A990; min-height: 0px; font-weight: normal;
+    border-radius: 0px; /* 链接按钮不需要圆角 */
+}
+QPushButton#LinkButton:hover { color: #4A4034; border-bottom-color: #4A4034; }
+QPushButton#LinkButton:pressed { color: #2C160D; }
+
+QPushButton#ActionButton_Delete {
+    background-color: #E57373; color: #FFFFFF; border: none;
+    border-radius: 22px;
+    padding: 11px 26px;
+}
+QPushButton#ActionButton_Delete:hover { background-color: #EF5350; }
+QPushButton#ActionButton_Delete:pressed { background-color: #D32F2F; }
+
+/* ================== 其他常用控件 ================== */
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; border: 1px solid #DCD0C0; border-radius: 8px; 
+    padding: 8px 10px; color: #4A4034; font-size: 16px; font-weight: normal;
+    selection-background-color: #FFDBCF; selection-color: #4A4034; 
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border: 1px solid #8F4C33; }
+QTextBrowser a { color: #8F4C33; text-decoration: none; font-weight: bold; }
+QTextBrowser a:hover { text-decoration: underline; }
+
+QComboBox { 
+    background-color: #FFFFFF; border: 1px solid #DCD0C0; border-radius: 8px; 
+    padding: 7px 10px; min-height: 28px; font-weight: normal;
+}
+QComboBox:focus { border-color: #8F4C33; }
+QComboBox::drop-down { border: none; }
+QComboBox QAbstractItemView { 
+    border: 1px solid #DCD0C0; background-color: #FDFBF8; 
+    selection-background-color: #F5EDE2; selection-color: #4A4034; 
+    outline: 0px; border-radius: 6px;
+}
+
+QGroupBox { 
+    border: 1px solid #EAE0D6; border-radius: 12px; 
+    margin-top: 12px; padding: 25px 15px 15px 15px;
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; subcontrol-position: top left; 
+    padding: 2px 12px; margin-left: 15px; 
+    background-color: #FDFBF8; color: #8A7E72; 
+    font-weight: bold;
+}
+
+QListWidget, QTableWidget { 
+    background-color: #FFFFFF; border: 1px solid #EAE0D6; 
+    border-radius: 8px; outline: 0px;
+    alternate-background-color: #FCF9F6; gridline-color: #F5EDE2; 
+}
+QTableCornerButton::section { background-color: #F5EDE2; border: none; border-bottom: 1px solid #EAE0D6; }
+QListWidget::item { padding: 10px 12px; border: none; }
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #8F4C33; color: #FFFFFF; border-radius: 4px;
+}
+QTableWidget QLineEdit { border: 1px solid #8F4C33; }
+
+QHeaderView::section { 
+    background-color: transparent; padding: 10px; border: none;
+    border-bottom: 2px solid #EAE0D6; font-weight: bold; color: #8A7E72;
+}
+
+QProgressBar { 
+    border: none; border-radius: 8px; text-align: center; 
+    color: #4A4034; height: 24px; background-color: #EAE0D6;
+}
+QProgressBar::chunk { 
+    background-color: #8F4C33; border-radius: 8px; 
+}
+
+QSlider::groove:horizontal { 
+    border: none; height: 6px; background: #EAE0D6; margin: 2px 0; border-radius: 3px; 
+}
+QSlider::handle:horizontal { 
+    background: #FFFFFF; border: 2px solid #8F4C33; width: 16px; 
+    height: 16px; margin: -7px 0; border-radius: 10px; 
+}
+
+QScrollBar:vertical { border: none; background: transparent; width: 12px; }
+QScrollBar::handle:vertical { background: #DCD0C0; min-height: 30px; border-radius: 6px; }
+QScrollBar:horizontal { border: none; background: transparent; height: 12px; }
+QScrollBar::handle:horizontal { background: #DCD0C0; min-width: 30px; border-radius: 6px; }
+QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page { border: none; background: none; }
+
+QMenu {
+    background-color: #FFFFFF; border: 1px solid #EAE0D6; 
+    padding: 6px; border-radius: 8px;
+}
+QMenu::item {
+    padding: 8px 25px; margin: 2px; border-radius: 6px;
+}
+QMenu::item:selected { background-color: #F5EDE2; }
+QMenu::separator { height: 1px; background: #EAE0D6; margin: 6px 5px; }
+
+/* ================== 自定义控件 ================== */
+ToggleSwitch {
+    qproperty-trackColorOff: #DCD0C0;
+    qproperty-trackColorOn: #8F4C33;
+    qproperty-knobColor: #FFFFFF;
+    qproperty-trackBorderRadius: 15;
+    qproperty-knobMargin: 3;
+    qproperty-knobShape: 'ellipse';
+    qproperty-borderWidth: 0;
+    min-width: 60px; max-width: 60px;                       
+    min-height: 30px; max-height: 30px;                      
+}
+
+QRadioButton::indicator {
+    width: 20px; height: 20px; border-radius: 10px;
+    border: 2px solid #DCD0C0; background-color: #FFFFFF;
+}
+QRadioButton::indicator:hover { border-color: #B8A990; }
+QRadioButton::indicator:checked {
+    border: 2px solid #8F4C33;
+    background-color: qradialgradient(cx:0.5, cy:0.5, radius: 0.6, fx:0.5, fy:0.5, stop:0 #8F4C33, stop:0.5 #8F4C33, stop:0.51 #FFFFFF, stop:1 #FFFFFF);
+}
+QRadioButton:checked { color: #4A4034; font-weight: bold; }
+
+/* ================== 特殊页面/控件 ================== */
+QLabel#ScalableImageLabel { border: 1px solid #EAE0D6; background-color: #FFFFFF; color: #B8A990; border-radius: 8px; }
+QLabel#PromptTextLabel { padding: 8px; font-size: 20px; font-weight: bold; background-color: #FAF6F4; border-radius: 8px; }
+QTextEdit#NotesTextEdit { background-color: #FAF6F4; border: 1px solid #EAE0D6; border-radius: 6px; padding: 8px; color: #5A4E42; }

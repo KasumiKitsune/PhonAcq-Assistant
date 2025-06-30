@@ -240,3 +240,47 @@ QTextEdit#NotesTextEdit {
     padding: 8px;
     color: #9080A8; /* Muted Lavender */
 }
+/* ================== 单选按钮样式 (Radio Button as Neon Square) ================== */
+QRadioButton {
+    spacing: 12px; /* 指示器和文本之间的距离 */
+    padding: 8px 0;
+    font-size: 17px;
+    font-weight: normal; /* 未选中时为正常粗细 */
+    color: #9080A8; /* 未选中时为柔和的薰衣草色 */
+}
+
+QRadioButton:hover {
+    color: #E0D8F0; /* 悬停时为月光白 */
+}
+
+QRadioButton:checked {
+    color: #FF00FF; /* 选中时为霓虹洋红，与二级标签页匹配 */
+    font-weight: bold; /* 选中时加粗 */
+}
+
+/* --- 指示器 (Indicator) --- */
+QRadioButton::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 0px; /* 方形 */
+    border: 1px solid #60507F; /* 默认边框: 紫色 */
+    background-color: #1A1423; /* 默认背景: 深色 */
+}
+
+QRadioButton::indicator:hover {
+    border: 1px solid #00FFFF; /* 悬停边框: 霓虹青色 */
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid #FF00FF; /* 选中边框: 霓虹洋红 */
+    background-color: #330033; /* 选中时用深洋红色填充，产生辉光感 */
+}
+
+QRadioButton::indicator:disabled {
+    border: 1px solid #302840;
+    background-color: #1F1829;
+}
+
+QRadioButton:disabled {
+    color: #504068;
+}

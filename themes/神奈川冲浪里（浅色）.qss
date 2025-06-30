@@ -242,3 +242,47 @@ QTextEdit#NotesTextEdit {
     background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px;
     padding: 8px; color: #A79B82;
 }
+/* ================== 单选按钮样式 (Radio Button as Square Toggle) ================== */
+QRadioButton {
+    spacing: 12px; /* 指示器和文本之间的距离 */
+    padding: 8px 0;
+    font-size: 18px;
+    font-weight: normal; /* 未选中时为正常粗细 */
+    color: #8AB2D6; /* 未选中时为柔和的波浪蓝 */
+}
+
+QRadioButton:hover {
+    color: #3B6894; /* 悬停时为深波浪蓝 */
+}
+
+QRadioButton:checked {
+    color: #1C2A40; /* 选中时为深普鲁士蓝 (墨色) */
+    font-weight: bold; /* 选中时加粗 */
+}
+
+/* --- 指示器 (Indicator) --- */
+QRadioButton::indicator {
+    width: 22px; /* 调整为方形尺寸 */
+    height: 22px;
+    border-radius: 0px; /* [核心修改] 方形 */
+    border: 1px solid #C5D9E8; /* 默认边框: 浅天蓝 */
+    background-color: #FFFFFF; /* 默认背景: 纯白 */
+}
+
+QRadioButton::indicator:hover {
+    border: 1px solid #8AB2D6; /* 悬停边框: 柔和波浪蓝 */
+}
+
+QRadioButton::indicator:checked {
+    image: none; /* [新增] 确保不显示任何意外的默认图像 */
+    border: 1px solid #1C2A40; /* 选中边框: 深普鲁士蓝 (墨色) */
+    background-color: #3B6894; }
+
+QRadioButton::indicator:disabled {
+    border: 1px solid #E8EEF4;
+    background-color: #F5F8FA;
+}
+
+QRadioButton:disabled {
+    color: #A8B8C8;
+}

@@ -40,7 +40,7 @@ class HelpPage(QWidget):
         self.toc_list_widget = QListWidget()
         self.toc_list_widget.setFixedWidth(250)
         self.toc_list_widget.setObjectName("HelpTOC")
-        self.populate_toc() # 现在是自动生成
+        self.populate_toc()
 
         self.text_browser = QTextBrowser()
         self.text_browser.setOpenExternalLinks(True)
@@ -57,7 +57,9 @@ class HelpPage(QWidget):
         main_splitter.setStretchFactor(1, 3)
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10) # 统一边距
+        # [修改] 为整个页面布局增加左右外边距，上下边距保持较小
+        # (左, 上, 右, 下)
+        layout.setContentsMargins(100, 10, 100, 10) 
         layout.addWidget(main_splitter)
 
         self.toc_list_widget.currentItemChanged.connect(self.on_toc_item_selected)
@@ -77,10 +79,8 @@ class HelpPage(QWidget):
             if anchor: self.text_browser.scrollToAnchor(anchor)
 
     def populate_toc(self):
-        """[修改] 从 Markdown 文件自动生成目录。"""
         self.toc_list_widget.clear()
         
-        # 添加固定的欢迎页
         welcome_item = QListWidgetItem("欢迎使用")
         welcome_item.setData(Qt.UserRole, "welcome")
         self.toc_list_widget.addItem(welcome_item)
@@ -90,11 +90,10 @@ class HelpPage(QWidget):
                 h2_counter = 0
                 h3_counter = 0
                 for line in f:
-                    # 匹配 H2 标题 (## ...)
                     match_h2 = re.match(r'^\s*##\s+(.+)', line)
                     if match_h2:
                         h2_counter += 1
-                        h3_counter = 0 # 重置 H3 计数器
+                        h3_counter = 0
                         title = match_h2.group(1).strip()
                         anchor = f"h2-{h2_counter}"
                         item = QListWidgetItem(title)
@@ -103,13 +102,12 @@ class HelpPage(QWidget):
                         self.toc_list_widget.addItem(item)
                         continue
 
-                    # 匹配 H3 标题 (### ...)
                     match_h3 = re.match(r'^\s*###\s+(.+)', line)
                     if match_h3:
                         h3_counter += 1
                         title = match_h3.group(1).strip()
                         anchor = f"h2-{h2_counter}-h3-{h3_counter}"
-                        item = QListWidgetItem("    " + title) # 添加缩进
+                        item = QListWidgetItem("    " + title)
                         item.setData(Qt.UserRole, anchor)
                         self.toc_list_widget.addItem(item)
 
@@ -119,7 +117,6 @@ class HelpPage(QWidget):
             self.toc_list_widget.addItem(QListWidgetItem(f"解析目录出错: {e}"))
 
     def _preprocess_markdown(self, md_text):
-        """预处理Markdown文本，为H2和H3标题自动注入锚点。"""
         lines = md_text.split('\n')
         processed_lines = []
         h2_counter = 0
@@ -130,7 +127,6 @@ class HelpPage(QWidget):
                 h2_counter += 1
                 h3_counter = 0
                 anchor = f"h2-{h2_counter}"
-                # 注入锚点HTML
                 processed_lines.append(f'<a id="{anchor}"></a>')
                 processed_lines.append(line)
                 continue
@@ -143,7 +139,6 @@ class HelpPage(QWidget):
                 processed_lines.append(line)
                 continue
             
-            # 为固定的欢迎页注入锚点
             if re.match(r'^#\s+欢迎使用', line):
                  processed_lines.append('<a id="welcome"></a>')
             
@@ -190,7 +185,6 @@ class HelpPage(QWidget):
                 with open(self.help_file_path, 'r', encoding='utf-8') as f:
                     md_text = f.read()
                 
-                # [修改] 预处理 Markdown，注入锚点
                 preprocessed_md = self._preprocess_markdown(md_text)
                 
                 html_body = markdown.markdown(preprocessed_md, extensions=['extra', 'attr_list', 'md_in_html', 'fenced_code'])
@@ -206,6 +200,5 @@ class HelpPage(QWidget):
 
     def update_help_content(self):
         """当主题或其他可能影响帮助内容显示的设置更改时调用。"""
-        # 重新生成目录和内容
         self.populate_toc()
         self.load_and_display_help()
