@@ -3,7 +3,7 @@
  * Author: AI Assistant & Sager
  * Description: A dark, futuristic theme with bold geometric shapes and neon accents.
  */
-
+/* @icon-path: "icons/" */
 /* ... (全局样式, 一级标签页, 二级标签页, 按钮样式保持不变) ... */
 
 /* ================== 全局样式 ================== */
@@ -127,7 +127,7 @@ QListWidget, QTableWidget {
     gridline-color: #3A2F4D; 
 }
 QListWidget::item, QTableWidget::item { 
-    padding: 10px; 
+    padding: 5px; 
     border-bottom: 1px solid #3A2F4D; 
     color: #E0D8F0;
 }

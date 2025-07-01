@@ -143,7 +143,7 @@ def load_tooltips_config():
     default_tooltips = {
         "数据采集": { "description": "包含所有用于实时录制和收集语音数据的功能模块。", "sub_tabs": { "口音采集会话": "适用于标准的文本到语音朗读任务。", "语音包录制": "用于为标准词表录制高质量的真人提示音。" }},
         "方言研究": { "description": "专为方言学田野调查设计的工具集。", "sub_tabs": { "图文采集": "展示图片并录制方言描述。", "图文词表编辑": "在程序内直接创建、编辑和保存用于“图文采集”的词表。" }},
-        "语料管理": { "description": "提供对项目所使用的词表和已生成的音频数据进行管理的工具。", "sub_tabs": { "词表编辑器": "可视化地创建和编辑标准词表。", "Excel 转换器": "支持标准词表与图文词表的双向转换。", "数据管理器": "浏览、试听、重命名和删除所有已录制的音频数据。" }},
+        "语料管理": { "description": "提供对项目所使用的词表和已生成的音频数据进行管理的工具。", "sub_tabs": { "词表编辑器": "可视化地创建和编辑标准词表。", "Excel转换器": "支持标准词表与图文词表的双向转换。", "数据管理器": "浏览、试听、重命名和删除所有已录制的音频数据。" }},
         "实用工具": { "description": "提供一系列辅助性的语言学工具。", "sub_tabs": { "拼音转IPA": "将汉字实时转换为国际音标。", "TTS 工具": "批量或即时将文本列表转换为语音文件。" }},
         "系统与帮助": { "description": "配置应用程序的行为、外观，并获取使用帮助。", "sub_tabs": { "程序设置": "调整应用的各项参数，包括UI布局、音频设备和主题皮肤等。", "帮助文档": "提供详细的程序使用指南和常见问题解答。" }}
     }
@@ -293,123 +293,150 @@ class MainWindow(QMainWindow):
         self.main_tabs = QTabWidget(); self.main_tabs.setObjectName("MainTabWidget"); self.setCentralWidget(self.main_tabs)
         if self.splash_ref: self.splash_ref.showMessage("创建核心页面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(80); QApplication.processEvents()
 
-        self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '口音采集会话', 
+        self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '标准朗读采集', 
             lambda m, ts, w, l: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH))
-        self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '语音包录制', 
-            lambda m, ts, w: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w))
-        self.audio_manager_page = self.create_module_or_placeholder('audio_manager_module', '数据管理器', 
+        self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '提示音录制', 
+            lambda m, ts, w, l: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w, l))
+        self.audio_manager_page = self.create_module_or_placeholder('audio_manager_module', '音频数据管理器', 
             lambda m: m.create_page(self, self.config, BASE_PATH, self.config['file_settings'].get("results_dir"), AUDIO_RECORD_DIR))
-        self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_module', '词表编辑器', 
+        self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_module', '通用词表编辑器', 
             lambda m: m.create_page(self, WORD_LIST_DIR))
-        self.converter_page = self.create_module_or_placeholder('excel_converter_module', 'Excel 转换器', 
+        self.converter_page = self.create_module_or_placeholder('excel_converter_module', 'Excel转换器', 
             lambda m: m.create_page(self, WORD_LIST_DIR, MODULES))
         self.help_page = self.create_module_or_placeholder('help_module', '帮助文档', 
             lambda m: m.create_page(self))
         DIALECT_VISUAL_WORDLIST_DIR = os.path.join(BASE_PATH, "dialect_visual_wordlists"); os.makedirs(DIALECT_VISUAL_WORDLIST_DIR, exist_ok=True)
-        self.dialect_visual_page = self.create_module_or_placeholder('dialect_visual_collector_module', '方言图文采集', 
+        self.dialect_visual_page = self.create_module_or_placeholder('dialect_visual_collector_module', '看图说话采集', 
             lambda m, ts, w, l: m.create_page(self, self.config, BASE_PATH, DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l))
         self.dialect_visual_editor_page = self.create_module_or_placeholder('dialect_visual_editor_module', '图文词表编辑器', 
-            lambda m, ts: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR, ts) # [修改] lambda现在接收并传递ts (ToggleSwitch)
-        )
+            lambda m, ts: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR, ts))
         self.pinyin_to_ipa_page = self.create_module_or_placeholder('pinyin_to_ipa_module', '拼音转IPA', 
             lambda m, ts: m.create_page(self, ts))
         self.tts_utility_page = self.create_module_or_placeholder('tts_utility_module', 'TTS 工具',
-            lambda m, ts, w, dl, std_wld: m.create_page(self, self.config, AUDIO_TTS_DIR, ts, w, dl, std_wld)
-        )
+            lambda m, ts, w, dl, std_wld: m.create_page(self, self.config, AUDIO_TTS_DIR, ts, w, dl, std_wld))
         self.flashcard_page = self.create_module_or_placeholder('flashcard_module', '速记卡',
-            lambda m, ts, sil: m.create_page(self, ts, sil, BASE_PATH, AUDIO_TTS_DIR, AUDIO_RECORD_DIR)
-        )
+            lambda m, ts, sil: m.create_page(self, ts, sil, BASE_PATH, AUDIO_TTS_DIR, AUDIO_RECORD_DIR))
         self.settings_page = self.create_module_or_placeholder('settings_module', '程序设置',
-            lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir)
-        )
+            lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir))
+        # --- [修复] lambda现在接收并传递ts (ToggleSwitch) ---
+        self.log_viewer_page = self.create_module_or_placeholder('log_viewer_module', '日志查看器',
+            lambda m, ts: m.create_page(self, self.config, ts))
         
         if self.splash_ref: self.splash_ref.showMessage("构建用户界面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(90); QApplication.processEvents()
-        collection_tabs = QTabWidget(); collection_tabs.setObjectName("SubTabWidget"); collection_tabs.addTab(self.accent_collection_page, "口音采集会话"); collection_tabs.addTab(self.voicebank_recorder_page, "语音包录制")
-        dialect_study_tabs = QTabWidget(); dialect_study_tabs.setObjectName("SubTabWidget"); dialect_study_tabs.addTab(self.dialect_visual_page, "图文采集"); dialect_study_tabs.addTab(self.dialect_visual_editor_page, "图文词表编辑")
-        corpus_tabs = QTabWidget(); corpus_tabs.setObjectName("SubTabWidget"); corpus_tabs.addTab(self.wordlist_editor_page, "词表编辑器"); corpus_tabs.addTab(self.converter_page, "Excel 转换器"); corpus_tabs.addTab(self.audio_manager_page, "数据管理器")
-        utilities_tabs = QTabWidget(); utilities_tabs.setObjectName("SubTabWidget"); utilities_tabs.addTab(self.pinyin_to_ipa_page, "拼音转IPA"); utilities_tabs.addTab(self.tts_utility_page, "TTS 工具"); utilities_tabs.addTab(self.flashcard_page, "速记卡")
-        settings_and_help_tabs = QTabWidget(); settings_and_help_tabs.setObjectName("SubTabWidget"); settings_and_help_tabs.addTab(self.settings_page, "程序设置"); settings_and_help_tabs.addTab(self.help_page, "帮助文档")
-        self.main_tabs.addTab(collection_tabs, "数据采集"); self.main_tabs.addTab(dialect_study_tabs, "方言研究"); self.main_tabs.addTab(corpus_tabs, "语料管理"); self.main_tabs.addTab(utilities_tabs, "实用工具"); self.main_tabs.addTab(settings_and_help_tabs, "系统与帮助")
-        self.main_tabs.currentChanged.connect(self.on_main_tab_changed); collection_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据采集", i)); corpus_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("语料管理", i)); dialect_study_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("方言研究", i)); utilities_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("实用工具", i)); settings_and_help_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("系统与帮助", i))
+        
+        collection_tabs = QTabWidget(); collection_tabs.setObjectName("SubTabWidget")
+        collection_tabs.addTab(self.accent_collection_page, "标准朗读采集")
+        collection_tabs.addTab(self.dialect_visual_page, "看图说话采集")
+        collection_tabs.addTab(self.voicebank_recorder_page, "提示音录制")
+
+        preparation_tabs = QTabWidget(); preparation_tabs.setObjectName("SubTabWidget")
+        preparation_tabs.addTab(self.wordlist_editor_page, "通用词表编辑器")
+        preparation_tabs.addTab(self.dialect_visual_editor_page, "图文词表编辑器")
+        preparation_tabs.addTab(self.converter_page, "Excel转换器")
+        
+        management_tabs = QTabWidget(); management_tabs.setObjectName("SubTabWidget")
+        management_tabs.addTab(self.audio_manager_page, "音频数据管理器")
+        management_tabs.addTab(self.log_viewer_page, "日志查看器")
+        
+        utilities_tabs = QTabWidget(); utilities_tabs.setObjectName("SubTabWidget")
+        utilities_tabs.addTab(self.pinyin_to_ipa_page, "拼音转IPA")
+        utilities_tabs.addTab(self.tts_utility_page, "TTS 工具")
+        utilities_tabs.addTab(self.flashcard_page, "速记卡")
+        
+        system_tabs = QTabWidget(); system_tabs.setObjectName("SubTabWidget")
+        system_tabs.addTab(self.settings_page, "程序设置")
+        system_tabs.addTab(self.help_page, "帮助文档")
+        
+        self.main_tabs.addTab(collection_tabs, "数据采集")
+        self.main_tabs.addTab(preparation_tabs, "数据准备")
+        self.main_tabs.addTab(management_tabs, "语料管理")
+        self.main_tabs.addTab(utilities_tabs, "实用工具")
+        self.main_tabs.addTab(system_tabs, "系统与帮助")
+
+        self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
+        collection_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据采集", i))
+        preparation_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据准备", i))
+        management_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("语料管理", i))
+        utilities_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("实用工具", i))
+        system_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("系统与帮助", i))
         
         self.apply_tooltips()
         
         if self.splash_ref: self.splash_ref.showMessage("准备完成!", Qt.AlignBottom | Qt.AlignLeft, Qt.white); self.splash_ref.progressBar.setValue(100); QApplication.processEvents()
-        self.apply_theme(); self.on_main_tab_changed(0)
+        self.apply_theme()
+        self.on_main_tab_changed(0)
         
     def apply_tooltips(self):
-        if not self.tooltips_config: return
+        hide_tooltips = self.config.get("ui_settings", {}).get("hide_all_tooltips", False)
         for i in range(self.main_tabs.count()):
-            main_tab_text = self.main_tabs.tabText(i); main_tab_data = self.tooltips_config.get(main_tab_text, {})
-            self.main_tabs.setTabToolTip(i, main_tab_data.get('description', f"{main_tab_text} 功能模块"))
+            main_tab_text = self.main_tabs.tabText(i)
+            if hide_tooltips:
+                self.main_tabs.setTabToolTip(i, "")
+            else:
+                main_tab_data = self.tooltips_config.get(main_tab_text, {})
+                self.main_tabs.setTabToolTip(i, main_tab_data.get('description', f"{main_tab_text} 功能模块"))
             sub_tab_widget = self.main_tabs.widget(i)
             if isinstance(sub_tab_widget, QTabWidget):
-                sub_tabs_data = main_tab_data.get('sub_tabs', {});
                 for j in range(sub_tab_widget.count()):
-                    sub_tab_text = sub_tab_widget.tabText(j)
-                    sub_tab_widget.setTabToolTip(j, sub_tabs_data.get(sub_tab_text, "无详细描述。"))
+                    if hide_tooltips:
+                        sub_tab_widget.setTabToolTip(j, "")
+                    else:
+                        sub_tabs_data = self.tooltips_config.get(main_tab_text, {}).get('sub_tabs', {})
+                        sub_tab_text = sub_tab_widget.tabText(j)
+                        sub_tab_widget.setTabToolTip(j, sub_tabs_data.get(sub_tab_text, "无详细描述。"))
 
     def create_module_or_placeholder(self, module_key, name, page_factory):
         if module_key in MODULES:
             try:
                 module = MODULES[module_key]['module']
                 
-                # --- 根据模块的 key 注入不同的依赖项 ---
-
                 if module_key == 'settings_module':
-                    # 设置模块需要 ToggleSwitch 和两个路径
                     return page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR)
                 
                 elif module_key == 'flashcard_module':
-                    # 速记卡模块需要 ToggleSwitch 和 ScalableImageLabel
-                    # 我们从已加载的 dialect_visual_collector_module 中获取 ScalableImageLabel
-                    from PyQt5.QtWidgets import QLabel # 作为备用
+                    from PyQt5.QtWidgets import QLabel
                     ScalableImageLabelClass = QLabel
                     if 'dialect_visual_collector_module' in MODULES:
                         ScalableImageLabelClass = getattr(MODULES['dialect_visual_collector_module']['module'], 'ScalableImageLabel', QLabel)
                     return page_factory(module, ToggleSwitch, ScalableImageLabelClass)
 
                 elif module_key in ['accent_collection_module', 'dialect_visual_collector_module']:
-                    # 这两个采集模块需要 ToggleSwitch, Worker, 和 Logger
                     return page_factory(module, ToggleSwitch, Worker, Logger)
 
                 elif module_key == 'voicebank_recorder_module':
-                     # 语音包录制模块需要 ToggleSwitch 和 Worker
-                    return page_factory(module, ToggleSwitch, Worker)
+                    return page_factory(module, ToggleSwitch, Worker, Logger)
                 
                 elif module_key == 'pinyin_to_ipa_module':
-                    # 拼音转换模块只需要 ToggleSwitch
                     return page_factory(module, ToggleSwitch)
                 
                 elif module_key == 'dialect_visual_editor_module':
-                    # 图文词表编辑器模块只需要 ToggleSwitch
                     return page_factory(module, ToggleSwitch)
                     
                 elif module_key == 'tts_utility_module':
-                    # TTS 工具模块需要多个依赖
                     return page_factory(module, ToggleSwitch, Worker, detect_language, WORD_LIST_DIR) 
 
+                # --- [修复] 为 log_viewer_module 添加 ToggleSwitch 依赖 ---
+                elif module_key == 'log_viewer_module':
+                    return page_factory(module, ToggleSwitch)
+
                 else:
-                    # 对于没有特殊依赖的模块 (如 help_module, excel_converter_module 等)
                     return page_factory(module)
 
             except Exception as e:
                 print(f"创建模块 '{name}' 页面时出错: {e}", file=sys.stderr)
         
-        # --- 如果模块加载失败，则创建占位符页面 ---
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignCenter)
-        
         if module_key == 'settings_module':
             label_text = f"设置模块 ('{name}') 加载失败。\n请检查 'modules/settings_module.py' 文件是否存在且无误。"
         else:
             label_text = f"模块 '{name}' 未加载或创建失败。"
-            
         label = QLabel(label_text)
         label.setWordWrap(True)
         layout.addWidget(label)
         return page
+        
     def on_main_tab_changed(self, index):
         current_main_tab_text = self.main_tabs.tabText(index)
         current_main_widget = self.main_tabs.widget(index)
@@ -422,22 +449,44 @@ class MainWindow(QMainWindow):
             for i in range(self.main_tabs.count()):
                 if self.main_tabs.tabText(i) == group_name:
                     main_tab_content_widget = self.main_tabs.widget(i); break
-            if not main_tab_content_widget or not isinstance(main_tab_content_widget, QTabWidget): return
+            
+            if not main_tab_content_widget or not isinstance(main_tab_content_widget, QTabWidget): 
+                return
+                
             active_sub_tab_widget = main_tab_content_widget.widget(index)
-        except Exception: active_sub_tab_widget = None
+        except Exception: 
+            active_sub_tab_widget = None
 
         if group_name == "数据采集":
-            if index == 0 and 'accent_collection_module' in MODULES and hasattr(self, 'accent_collection_page') and self.accent_collection_page == active_sub_tab_widget: self.accent_collection_page.load_config_and_prepare()
-            elif index == 1 and 'voicebank_recorder_module' in MODULES and hasattr(self, 'voicebank_recorder_page') and self.voicebank_recorder_page == active_sub_tab_widget: self.voicebank_recorder_page.load_config_and_prepare()
-        elif group_name == "方言研究":
-            if index == 0 and 'dialect_visual_collector_module' in MODULES and hasattr(self, 'dialect_visual_page') and self.dialect_visual_page == active_sub_tab_widget: self.dialect_visual_page.load_config_and_prepare()
-            elif index == 1 and 'dialect_visual_editor_module' in MODULES and hasattr(self, 'dialect_visual_editor_page') and self.dialect_visual_editor_page == active_sub_tab_widget: self.dialect_visual_editor_page.refresh_file_list()
+            if index == 0 and 'accent_collection_module' in MODULES and hasattr(self, 'accent_collection_page') and self.accent_collection_page == active_sub_tab_widget: 
+                self.accent_collection_page.load_config_and_prepare()
+            elif index == 1 and 'dialect_visual_collector_module' in MODULES and hasattr(self, 'dialect_visual_page') and self.dialect_visual_page == active_sub_tab_widget:
+                self.dialect_visual_page.load_config_and_prepare()
+            elif index == 2 and 'voicebank_recorder_module' in MODULES and hasattr(self, 'voicebank_recorder_page') and self.voicebank_recorder_page == active_sub_tab_widget:
+                self.voicebank_recorder_page.load_config_and_prepare()
+                
+        elif group_name == "数据准备":
+            if index == 0 and 'wordlist_editor_module' in MODULES and hasattr(self, 'wordlist_editor_page') and self.wordlist_editor_page == active_sub_tab_widget:
+                self.wordlist_editor_page.refresh_file_list()
+            elif index == 1 and 'dialect_visual_editor_module' in MODULES and hasattr(self, 'dialect_visual_editor_page') and self.dialect_visual_editor_page == active_sub_tab_widget:
+                self.dialect_visual_editor_page.refresh_file_list()
+            
         elif group_name == "语料管理":
-            if index == 0 and 'wordlist_editor_module' in MODULES and hasattr(self, 'wordlist_editor_page') and self.wordlist_editor_page == active_sub_tab_widget: self.wordlist_editor_page.refresh_file_list()
-            elif index == 2 and 'audio_manager_module' in MODULES and hasattr(self, 'audio_manager_page') and self.audio_manager_page == active_sub_tab_widget: self.audio_manager_page.load_and_refresh()
+            if index == 0 and 'audio_manager_module' in MODULES and hasattr(self, 'audio_manager_page') and self.audio_manager_page == active_sub_tab_widget:
+                self.audio_manager_page.load_and_refresh()
+            elif index == 1 and 'log_viewer_module' in MODULES and hasattr(self, 'log_viewer_page') and self.log_viewer_page == active_sub_tab_widget:
+                self.log_viewer_page.load_and_refresh()
+
+        elif group_name == "实用工具":
+             if index == 2 and 'flashcard_module' in MODULES and hasattr(self, 'flashcard_page') and self.flashcard_page == active_sub_tab_widget:
+                if not self.flashcard_page.session_active:
+                    self.flashcard_page.populate_wordlists()
+
         elif group_name == "系统与帮助":
-            if index == 0 and hasattr(self, 'settings_page') and self.settings_page == active_sub_tab_widget: self.settings_page.load_settings()
-            elif index == 1 and hasattr(self, 'help_page') and self.help_page == active_sub_tab_widget and hasattr(self.help_page, 'update_help_content'): self.help_page.update_help_content()
+            if index == 0 and hasattr(self, 'settings_page') and self.settings_page == active_sub_tab_widget: 
+                self.settings_page.load_settings()
+            elif index == 1 and hasattr(self, 'help_page') and self.help_page == active_sub_tab_widget and hasattr(self.help_page, 'update_help_content'):
+                self.help_page.update_help_content()
             
     def apply_theme(self):
         theme_path = os.path.join(THEMES_DIR, self.config.get("theme", "Modern_light_tab.qss"))
@@ -448,7 +497,6 @@ class MainWindow(QMainWindow):
             self.setStyleSheet("") 
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
-
 # --- 主程序执行块 ---
 if __name__ == "__main__":
     splash.showMessage("加载核心组件...", Qt.AlignBottom | Qt.AlignLeft, Qt.white); splash.progressBar.setValue(10); app.processEvents()

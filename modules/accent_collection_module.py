@@ -1,7 +1,7 @@
-# --- START OF FILE accent_collection_module.py ---
+# --- START OF FILE modules/accent_collection_module.py ---
 
 # --- 模块元数据 ---
-MODULE_NAME = "口音采集会话"
+MODULE_NAME = "标准朗读采集"
 MODULE_DESCRIPTION = "进行标准的文本到语音实验，适用于朗读任务、最小音对测试、句子复述等场景。"
 # ---
 
@@ -16,7 +16,7 @@ import sys
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QLineEdit)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
 
 # 模块级别的依赖检查
 try:
@@ -33,19 +33,19 @@ except ImportError as e:
 
 # ===== 标准化模块入口函数 =====
 def create_page(parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH):
+                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager):
     """模块的入口函数，用于创建页面。"""
     if DEPENDENCIES_MISSING:
         error_page = QWidget()
         layout = QVBoxLayout(error_page)
-        label = QLabel(f"口音采集模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy gtts")
+        label = QLabel(f"标准朗读采集模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy gtts")
         label.setAlignment(Qt.AlignCenter)
         label.setWordWrap(True)
         layout.addWidget(label)
         return error_page
 
     return AccentCollectionPage(parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH)
+                                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager)
 
 
 class AccentCollectionPage(QWidget):
@@ -53,13 +53,14 @@ class AccentCollectionPage(QWidget):
     recording_device_error_signal = pyqtSignal(str)
 
     def __init__(self, parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                 detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH):
+                 detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager):
         super().__init__()
         self.parent_window = parent_window
         self.config = config
         self.ToggleSwitch = ToggleSwitchClass
         self.Worker = WorkerClass
         self.Logger = LoggerClass
+        self.icon_manager = icon_manager
         self.detect_language = detect_language_func
         self.WORD_LIST_DIR = WORD_LIST_DIR
         self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR
@@ -71,27 +72,18 @@ class AccentCollectionPage(QWidget):
         self.current_word_list = []
         self.current_word_index = -1
         
-        # 分别初始化两个队列
-        self.audio_queue = queue.Queue() # 用于录音数据
-        self.volume_meter_queue = queue.Queue(maxsize=2) # 用于音量计，确保不积压
+        self.audio_queue = queue.Queue()
+        self.volume_meter_queue = queue.Queue(maxsize=2)
 
         self.recording_thread = None
         self.session_stop_event = threading.Event()
         self.logger = None
         
         self._init_ui()
-
-        # 连接信号
-        self.start_session_btn.clicked.connect(self.start_session)
-        self.end_session_btn.clicked.connect(self.end_session)
-        self.record_btn.clicked.connect(self.handle_record_button)
-        self.replay_btn.clicked.connect(self.replay_audio)
-        self.list_widget.currentRowChanged.connect(self.on_list_item_changed)
-        self.list_widget.itemDoubleClicked.connect(self.replay_audio)
-        self.random_switch.stateChanged.connect(self.on_session_mode_changed)
-        self.full_list_switch.stateChanged.connect(self.on_session_mode_changed)
-        self.recording_device_error_signal.connect(self.show_recording_device_error)
-
+        self._connect_signals()
+        
+        self.update_icons()
+        
         self.reset_ui()
         self.apply_layout_settings()
 
@@ -103,6 +95,7 @@ class AccentCollectionPage(QWidget):
         right_layout = QVBoxLayout(self.right_panel)
 
         self.list_widget = QListWidget()
+        self.list_widget.setToolTip("当前会话需要录制的所有词语。\n绿色对勾表示已录制。\n双击可重听提示音。")
         self.status_label = QLabel("状态：准备就绪")
         self.progress_bar = QProgressBar(); self.progress_bar.setVisible(False)
         left_layout.addWidget(QLabel("测试词语列表:"))
@@ -117,9 +110,12 @@ class AccentCollectionPage(QWidget):
         pre_session_layout = QFormLayout(self.pre_session_widget)
         pre_session_layout.setContentsMargins(11, 0, 11, 0)
         self.word_list_combo = QComboBox()
+        self.word_list_combo.setToolTip("选择一个用于本次采集任务的单词表文件。")
         self.participant_input = QLineEdit()
+        self.participant_input.setToolTip("输入被试者的唯一标识符。\n此名称将用于创建结果文件夹，例如 'participant_1'。")
         self.start_session_btn = QPushButton("开始新会话")
         self.start_session_btn.setObjectName("AccentButton")
+        self.start_session_btn.setToolTip("加载选定的单词表，检查/生成提示音，并开始一个新的采集会话。")
         pre_session_layout.addRow("选择单词表:", self.word_list_combo)
         pre_session_layout.addRow("被试者名称:", self.participant_input)
         pre_session_layout.addRow(self.start_session_btn)
@@ -128,12 +124,14 @@ class AccentCollectionPage(QWidget):
         in_session_layout = QVBoxLayout(self.in_session_widget)
         mode_group = QGroupBox("会话模式")
         mode_layout = QFormLayout(mode_group)
-        self.random_switch = self.ToggleSwitch(); self.full_list_switch = self.ToggleSwitch()
+        self.random_switch = self.ToggleSwitch(); self.random_switch.setToolTip("开启后，将打乱词表中所有词语的顺序进行呈现。")
+        self.full_list_switch = self.ToggleSwitch(); self.full_list_switch.setToolTip("开启后，将使用词表中的所有词语。\n关闭后，将只从每个组别中随机抽取一个词语。")
         random_layout = QHBoxLayout(); random_layout.addWidget(QLabel("顺序")); random_layout.addWidget(self.random_switch); random_layout.addWidget(QLabel("随机"))
         full_list_layout = QHBoxLayout(); full_list_layout.addWidget(QLabel("部分")); full_list_layout.addWidget(self.full_list_switch); full_list_layout.addWidget(QLabel("完整"))
         mode_layout.addRow(random_layout); mode_layout.addRow(full_list_layout)
         self.end_session_btn = QPushButton("结束当前会话")
         self.end_session_btn.setObjectName("ActionButton_Delete")
+        self.end_session_btn.setToolTip("提前结束当前的采集会话。")
         in_session_layout.addWidget(mode_group)
         in_session_layout.addWidget(self.end_session_btn)
         
@@ -148,7 +146,9 @@ class AccentCollectionPage(QWidget):
         status_panel_layout.addWidget(self.recording_indicator); status_panel_layout.addWidget(self.volume_label); status_panel_layout.addWidget(self.volume_meter)
         self.update_timer = QTimer(); self.update_timer.timeout.connect(self.update_volume_meter)
         
-        self.record_btn = QPushButton("开始录制下一个"); self.replay_btn = QPushButton("重听当前音频")
+        self.record_btn = QPushButton("开始录制下一个")
+        self.replay_btn = QPushButton("重听当前音频")
+        self.replay_btn.setToolTip("重新播放当前选中词语的提示音 (可双击列表项触发)。")
         
         right_layout.addWidget(right_panel_group)
         right_layout.addStretch()
@@ -158,6 +158,35 @@ class AccentCollectionPage(QWidget):
         
         main_layout.addLayout(left_layout, 2)
         main_layout.addWidget(self.right_panel, 1)
+
+    def _connect_signals(self):
+        self.start_session_btn.clicked.connect(self.start_session)
+        self.end_session_btn.clicked.connect(self.end_session)
+        self.record_btn.clicked.connect(self.handle_record_button)
+        self.replay_btn.clicked.connect(self.replay_audio)
+        self.list_widget.currentRowChanged.connect(self.on_list_item_changed)
+        self.list_widget.itemDoubleClicked.connect(self.replay_audio)
+        self.random_switch.stateChanged.connect(self.on_session_mode_changed)
+        self.full_list_switch.stateChanged.connect(self.on_session_mode_changed)
+        self.recording_device_error_signal.connect(self.show_recording_device_error)
+
+    def update_icons(self):
+        """从IconManager获取并设置所有图标。"""
+        self.start_session_btn.setIcon(self.icon_manager.get_icon("start_session"))
+        self.end_session_btn.setIcon(self.icon_manager.get_icon("end_session"))
+        self.replay_btn.setIcon(self.icon_manager.get_icon("play_audio"))
+        
+        if self.is_recording:
+            self.record_btn.setIcon(self.icon_manager.get_icon("stop"))
+        else:
+            self.record_btn.setIcon(self.icon_manager.get_icon("record"))
+            
+        if self.session_active:
+            for i, item_data in enumerate(self.current_word_list):
+                if item_data.get('recorded', False):
+                    list_item = self.list_widget.item(i)
+                    if list_item:
+                        list_item.setIcon(self.icon_manager.get_icon("success"))
 
     def apply_layout_settings(self):
         ui_settings = self.config.get("ui_settings", {})
@@ -189,9 +218,7 @@ class AccentCollectionPage(QWidget):
     def _get_weighted_length(self, text):
         length = 0
         for char in text:
-            if '\u4e00' <= char <= '\u9fff' or \
-               '\u3040' <= char <= '\u30ff' or \
-               '\uff00' <= char <= '\uffef':
+            if '\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' or '\uff00' <= char <= '\uffef':
                 length += 2
             else:
                 length += 1
@@ -381,7 +408,11 @@ class AccentCollectionPage(QWidget):
             word_to_record = self.current_word_list[self.current_word_index]['word']
             if self.logger: self.logger.log(f"[RECORDING_START] Word: '{word_to_record}'")
 
-            self.is_recording=True;self.record_btn.setText("停止录制");self.list_widget.setEnabled(False)
+            self.is_recording=True
+            self.record_btn.setText("停止录制")
+            self.record_btn.setIcon(self.icon_manager.get_icon("stop"))
+            self.record_btn.setToolTip("点击停止当前录音。")
+            self.list_widget.setEnabled(False)
             self.random_switch.setEnabled(False);self.full_list_switch.setEnabled(False)
             self.status_label.setText(f"状态：正在录制 '{word_to_record}'...")
             self.play_audio_logic()
@@ -389,26 +420,22 @@ class AccentCollectionPage(QWidget):
         else:
             self.is_recording=False
             self._stop_recording_logic()
-            self.record_btn.setText("准备就绪");self.record_btn.setEnabled(False)
+            self.record_btn.setText("准备就绪")
+            self.record_btn.setIcon(self.icon_manager.get_icon("record"))
+            self.record_btn.setToolTip("点击开始录制当前选中的词语。")
+            self.record_btn.setEnabled(False)
             self.status_label.setText("状态：正在保存录音...")
             
     def on_recording_saved(self, result):
-        if result == "save_failed_mp3_encoder":
-            QMessageBox.critical(self, "MP3 编码器缺失", 
-                "无法将录音保存为 MP3 格式。\n\n"
-                "这通常是因为您的系统中缺少 LAME MP3 编码器库 (例如 libmp3lame)。\n\n"
-                "建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
-            self.status_label.setText("状态：MP3保存失败！");
-            self.list_widget.setEnabled(True)
-            self.replay_btn.setEnabled(True)
-            self.record_btn.setEnabled(True)
-            recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
-            self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
-            return
-
         self.status_label.setText("状态：录音已保存。");self.list_widget.setEnabled(True);self.replay_btn.setEnabled(True)
         self.random_switch.setEnabled(True);self.full_list_switch.setEnabled(True)
         
+        if result == "save_failed_mp3_encoder":
+            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。...")
+            self.status_label.setText("状态：MP3保存失败！")
+            # ...
+            return
+
         if self.current_word_index < 0 or self.current_word_index >= len(self.current_word_list):
              if self.logger: self.logger.log(f"[ERROR] current_word_index ({self.current_word_index}) out of bounds in on_recording_saved.")
              self.record_btn.setEnabled(True)
@@ -419,7 +446,7 @@ class AccentCollectionPage(QWidget):
         if list_item:
             display_text = self._format_list_item_text(item_data['word'], item_data['ipa'])
             list_item.setText(display_text)
-            list_item.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
+            list_item.setIcon(self.icon_manager.get_icon("success"))
         
         all_recorded=all(item['recorded'] for item in self.current_word_list)
         if all_recorded:self.handle_session_completion();return
@@ -431,6 +458,7 @@ class AccentCollectionPage(QWidget):
         if next_index!=-1:
             self.list_widget.setCurrentRow(next_index)
             self.record_btn.setEnabled(True)
+            self.record_btn.setToolTip("点击开始录制当前选中的词语。")
             recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
             self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
         else:
@@ -498,84 +526,57 @@ class AccentCollectionPage(QWidget):
             self.audio_queue.put(indata.copy())
         
     def save_recording_task(self, worker):
-        if self.audio_queue.empty():
-            return None 
-
+        if self.audio_queue.empty(): return None 
         data_frames = []
         while not self.audio_queue.empty():
-            try:
-                data_frames.append(self.audio_queue.get_nowait())
-            except queue.Empty:
-                break
-        
-        if not data_frames:
-            return None
-
+            try: data_frames.append(self.audio_queue.get_nowait())
+            except queue.Empty: break
+        if not data_frames: return None
         rec = np.concatenate(data_frames, axis=0)
         gain = self.config['audio_settings'].get('recording_gain', 1.0)
-        if gain != 1.0:
-            rec = np.clip(rec * gain, -1.0, 1.0)
-        
+        if gain != 1.0: rec = np.clip(rec * gain, -1.0, 1.0)
         if self.current_word_index < 0 or self.current_word_index >= len(self.current_word_list):
-            if self.logger:
-                self.logger.log(f"[ERROR] Invalid current_word_index ({self.current_word_index}) in save_recording_task.")
+            if self.logger: self.logger.log(f"[ERROR] Invalid current_word_index ({self.current_word_index}) in save_recording_task.")
             return "save_failed_invalid_index"
-
         recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
         word = self.current_word_list[self.current_word_index]['word']
         filename = f"{word}.{recording_format}"
         filepath = os.path.join(self.recordings_folder, filename)
-        
-        if self.logger:
-             self.logger.log(f"[RECORDING_SAVE_ATTEMPT] Word: '{word}', Format: '{recording_format}', Path: '{filepath}'")
-        
+        if self.logger: self.logger.log(f"[RECORDING_SAVE_ATTEMPT] Word: '{word}', Format: '{recording_format}', Path: '{filepath}'")
         try:
             sf.write(filepath, rec, self.config['audio_settings']['sample_rate'])
-            if self.logger:
-                self.logger.log(f"[RECORDING_SAVE_SUCCESS] File saved successfully.")
+            if self.logger: self.logger.log(f"[RECORDING_SAVE_SUCCESS] File saved successfully.")
             return "save_successful"
         except Exception as e:
-            if self.logger:
-                self.logger.log(f"[ERROR] Failed to save recording '{filepath}': {e}")
-            
+            if self.logger: self.logger.log(f"[ERROR] Failed to save recording '{filepath}': {e}")
             if recording_format == 'mp3' and 'format not understood' in str(e).lower():
                  error_msg = "MP3 save failed: LAME encoder is likely missing."
                  if self.logger: self.logger.log(f"[FATAL] {error_msg}")
                  return f"save_failed_mp3_encoder"
-
             return f"save_failed_exception: {e}"
 
     def run_task_in_thread(self,task_func,*args):
         self.thread=QThread();self.worker=self.Worker(task_func,*args);self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run);self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater) 
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.worker.progress.connect(self.update_tts_progress)
-        self.worker.error.connect(lambda msg:QMessageBox.critical(self,"后台错误",msg))
+        self.thread.started.connect(self.worker.run);self.worker.finished.connect(self.thread.quit); self.worker.finished.connect(self.worker.deleteLater); self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.progress.connect(self.update_tts_progress); self.worker.error.connect(lambda msg:QMessageBox.critical(self,"后台错误",msg))
         if task_func==self.check_and_generate_audio_logic:self.worker.finished.connect(self.on_tts_finished)
         elif task_func==self.save_recording_task:self.worker.finished.connect(self.on_recording_saved)
         self.thread.start()
         
     def load_word_list_logic(self):
-        filename = self.current_wordlist_name
-        filepath = os.path.join(self.WORD_LIST_DIR, filename)
+        filename = self.current_wordlist_name; filepath = os.path.join(self.WORD_LIST_DIR, filename)
         if not os.path.exists(filepath): raise FileNotFoundError(f"找不到单词表文件: {filename}")
         module_name = f"wordlist_{os.path.splitext(filename)[0].replace('-', '_')}"
         spec = importlib.util.spec_from_file_location(module_name, filepath)
         if spec is None: raise ImportError(f"无法为 '{filename}' 创建模块规范。")
         module = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(module)
-        except Exception as e:
-            raise ImportError(f"执行模块 '{filename}' 失败: {e}")
-        
-        if not hasattr(module, 'WORD_GROUPS') or not isinstance(module.WORD_GROUPS, list):
-            raise ValueError(f"词表 '{filename}' 必须包含一个名为 'WORD_GROUPS' 的列表。")
+        try: spec.loader.exec_module(module)
+        except Exception as e: raise ImportError(f"执行模块 '{filename}' 失败: {e}")
+        if not hasattr(module, 'WORD_GROUPS') or not isinstance(module.WORD_GROUPS, list): raise ValueError(f"词表 '{filename}' 必须包含一个名为 'WORD_GROUPS' 的列表。")
         return module.WORD_GROUPS
         
     def check_and_generate_audio_logic(self,worker,word_groups):
-        wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
-        gtts_settings=self.config.get("gtts_settings",{});gtts_default_lang=gtts_settings.get("default_lang","en-us");gtts_auto_detect=gtts_settings.get("auto_detect",True)
+        wordlist_name, _ = os.path.splitext(self.current_wordlist_name); gtts_settings=self.config.get("gtts_settings",{});gtts_default_lang=gtts_settings.get("default_lang","en-us");gtts_auto_detect=gtts_settings.get("auto_detect",True)
         all_words_with_lang={};
         for group_idx, group in enumerate(word_groups):
             if not isinstance(group, dict):
@@ -586,35 +587,23 @@ class AccentCollectionPage(QWidget):
                 if not lang and gtts_auto_detect:lang=self.detect_language(word)
                 if not lang:lang=gtts_default_lang
                 all_words_with_lang[word]=lang
-        
-        record_audio_folder = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name)
-        tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
+        record_audio_folder = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name); tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
         if not os.path.exists(tts_audio_folder):
             try: os.makedirs(tts_audio_folder)
             except Exception as e: return f"创建TTS音频目录失败: {e}"
-        
         missing = [w for w in all_words_with_lang if not os.path.exists(os.path.join(record_audio_folder, f"{w}.mp3")) and not os.path.exists(os.path.join(tts_audio_folder, f"{w}.mp3"))]
         if not missing:
-            if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")
-            return None
-        
+            if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate."); return None
         if self.logger: self.logger.log(f"[INFO] Found {len(missing)} missing TTS files. Starting generation...")
-        
-        total_missing=len(missing)
-        errors_occurred = []
+        total_missing=len(missing); errors_occurred = []
         for i,word in enumerate(missing):
-            percentage=int((i+1)/total_missing*100)
-            progress_text=f"正在生成TTS ({i+1}/{total_missing}): {word}...";worker.progress.emit(percentage,progress_text)
+            percentage=int((i+1)/total_missing*100); progress_text=f"正在生成TTS ({i+1}/{total_missing}): {word}...";worker.progress.emit(percentage,progress_text)
             filepath=os.path.join(tts_audio_folder, f"{word}.mp3")
             try:
                 gTTS(text=word,lang=all_words_with_lang[word],slow=False).save(filepath)
-                if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{all_words_with_lang[word]}'.")
-                time.sleep(0.3)
+                if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{all_words_with_lang[word]}'."); time.sleep(0.3)
             except Exception as e:
-                error_detail = f"for '{word}': {e}"
-                errors_occurred.append(error_detail)
+                error_detail = f"for '{word}': {e}"; errors_occurred.append(error_detail)
                 if self.logger: self.logger.log(f"[TTS_ERROR] Failed to generate TTS {error_detail}")
-        
-        if errors_occurred:
-            return "部分TTS音频生成失败，请检查日志和网络连接。\n" + "\n".join(errors_occurred[:3])
+        if errors_occurred: return "部分TTS音频生成失败，请检查日志和网络连接。\n" + "\n".join(errors_occurred[:3])
         return None

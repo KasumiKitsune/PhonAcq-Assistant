@@ -2,7 +2,7 @@
     "audio_settings": {
         "sample_rate": 44100,
         "channels": 1,
-        "recording_gain": 1.0,
+        "recording_gain": 2.5,
         "input_device_index": null,
         "recording_format": "wav"
     },
@@ -15,7 +15,7 @@
         "default_lang": "en-us",
         "auto_detect": true
     },
-    "theme": "Whispering_Woods.qss",
+    "theme": "\u795e\u5948\u5ddd\u51b2\u6d6a\u91cc/\u795e\u5948\u5ddd\u51b2\u6d6a\u91cc.qss",
     "splash_settings": {
         "enabled": true,
         "random": true
@@ -30,7 +30,8 @@
     },
     "app_settings": {
         "show_splash_screen": true,
-        "random_splash": true
+        "random_splash": true,
+        "enable_logging": true
     },
     "dialect_visual_settings": {
         "notes_area_height": 120
@@ -38,6 +39,13 @@
     "ui_settings": {
         "sidebar_width": 300,
         "collector_sidebar_width": 350,
-        "editor_sidebar_width": 350
+        "editor_sidebar_width": 350,
+        "hide_all_tooltips": false,
+        "wordlist_editor_col_widths": [
+            80,
+            340,
+            339,
+            100
+        ]
     }
 }

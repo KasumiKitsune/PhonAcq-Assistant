@@ -4,6 +4,7 @@
  * Description: A bold, high-contrast theme inspired by the ukiyo-e "The Great Wave off Kanagawa".
  *              Features sharp angles, dynamic asymmetry, and a dramatic color palette.
  */
+/* @icon-path: "icons/" */
 
 /* ================== 全局样式 (Night Sea & Moonlight) ================== */
 QWidget {
@@ -165,8 +166,30 @@ QListWidget, QTableWidget {
 }
 QTableCornerButton::section { background-color: #4A5B78; border: 1px solid #4A5B78; }
 QListWidget::item { padding: 10px; border-bottom: 1px solid #2A3C58; color: #E8EAF6; }
+QListWidget, QTableWidget { 
+    background-color: #1C2A40; /* Darker Sea */
+    border: 1px solid #4A5B78; 
+    border-radius: 0px; outline: 0px;
+    alternate-background-color: #223048; /* Slightly darker */
+    gridline-color: #2A3C58; 
+}
+QTableCornerButton::section { background-color: #4A5B78; border: 1px solid #4A5B78; }
+
+/* --- 优化：确保列表和表格项都有正确的背景色 --- */
+QListWidget::item, QTableWidget::item { 
+    border-bottom: 1px solid #2A3C58; 
+    color: #E8EAF6; /* Moonlight White */
+    background-color: #1C2A40; /* <--- 新增：确保未选中项的背景色为主题的深色 */
+}
 QListWidget::item:selected, QTableWidget::item:selected { 
-    background-color: #FFFFFF; color: #0F1A2C; 
+    background-color: #75AADB; /* 浪花蓝 */
+    color: #0F1A2C; /* 深普鲁士蓝 */
+}
+QTableWidget QLineEdit { 
+    border-radius: 0px;
+    border: 1px solid #FFFFFF; 
+    background-color: #2A3C58; 
+    color: #E8EAF6; /* 确保输入时的文字颜色在深色背景上可见 */
 }
 QTableWidget QLineEdit { border-radius: 0px; border: 1px solid #FFFFFF; background-color: #2A3C58; color: #FFFFFF; }
 
