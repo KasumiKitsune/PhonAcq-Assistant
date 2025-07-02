@@ -38,15 +38,35 @@ def get_base_path_for_module():
     else: return os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 LANGUAGE_MAP_TTS = {
-    "自动检测": "", "美式英语 (en-us)": "en-us", "英式英语 (en-uk)": "en-uk", 
-    "澳洲英语 (en-au)": "en-au", "印度英语 (en-in)": "en-in", "中文普通话 (zh-cn)": "zh-cn", 
-    "日语 (ja)": "ja", "韩语 (ko)": "ko", "法语 (fr-fr)": "fr-fr", 
-    "德语 (de-de)": "de-de", "西班牙语 (es-es)": "es-es", "俄语 (ru)": "ru",
+    "自动检测": "", 
+    "英语 (美国)": "en-us", 
+    "英语 (英国)": "en-uk", 
+    "中文 (普通话)": "zh-cn",
+    "日语": "ja",
+    "韩语": "ko",
+    "法语 (法国)": "fr", # fr-fr, fr-ca 等映射到 fr
+    "德语": "de",
+    "西班牙语": "es",
+    "葡萄牙语": "pt",
+    "意大利语": "it",
+    "俄语": "ru",
+    "荷兰语": "nl",
+    "波兰语": "pl",
+    "土耳其语": "tr",
+    "越南语": "vi",
+    "印地语": "hi",
+    "阿拉伯语": "ar",
+    "泰语": "th",
+    "印尼语": "id",
+    # ...可以继续添加更多gTTS支持的语言...
 }
+
+# [修复] 对应的旗帜代码映射
 FLAG_CODE_MAP_TTS = {
-    "": "auto", "en-us": "us", "en-uk": "gb", "en-au": "au", "en-in": "in",
-    "zh-cn": "cn", "ja": "jp", "ko": "kr", "fr-fr": "fr", "de-de": "de", 
-    "es-es": "es", "ru": "ru"
+    "": "auto", "en-us": "us", "en-uk": "gb", "zh-cn": "cn", 
+    "ja": "jp", "ko": "kr", "fr": "fr", "de": "de", "es": "es", "pt": "pt",
+    "it": "it", "ru": "ru", "nl": "nl", "pl": "pl", "tr": "tr",
+    "vi": "vn", "hi": "in", "ar": "sa", "th": "th", "id": "id",
 }
 
 # [修改] 接收 icon_manager
