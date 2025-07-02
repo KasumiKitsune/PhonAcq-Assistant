@@ -243,34 +243,107 @@ class Logger:
         with open(self.fp, 'a', encoding='utf-8') as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] - {msg}\n")
 
+# --- 建议放在 Dev.py 或一个专门的 aLgorithm_utils.py 中 ---
+
 def detect_language(text):
-    """根据文本中的字符范围简单检测语言。"""
-    if not text: return None
-    ranges = { 'han': (0x4e00, 0x9fff), 'kana': (0x3040, 0x30ff), 'hangul_syllables': (0xac00, 0xd7a3), 'hangul_jamo': (0x1100, 0x11ff), 'hangul_compat_jamo': (0x3130, 0x318f), 'cyrillic': (0x0400, 0x04ff), 'latin_basic': (0x0041, 0x005a), 'latin_basic_lower': (0x0061, 0x007a) }
-    counts = {key: 0 for key in ranges}
-    counts['other'] = 0
-    total_meaningful_chars = 0
+    """
+    根据文本中的字符范围、特征字母和高频词智能检测语言。
+    (最终优化版：引入“杀手级特征”和权重调整，提升精准度)
+    返回一个 gTTS 兼容的语言代码 (e.g., 'zh-cn', 'fr', 'en')。
+    """
+    if not text:
+        return None
+
+    text_lower = text.lower()
+    text_length = len(text_lower)
+    if text_length == 0:
+        return None
+
+    # --- 数据定义 (gTTS兼容) ---
+    # [优化] 提升了非拉丁语系的权重
+    RANGES = {
+        'ja': (((0x3040, 0x309F), (0x30A0, 0x30FF)), 15.0, 1, 0.01), # 日语假名权重极高
+        'ko': (((0xAC00, 0xD7A3), (0x1100, 0x11FF)), 10.0, 1, 0.1),
+        'zh-cn': (((0x4E00, 0x9FFF),), 2.0, 1, 0.4),
+        'ru': (((0x0400, 0x04FF),), 8.0, 2, 0.3),
+        'hi': (((0x0900, 0x097F),), 10.0, 1, 0.1), # 提高印地语权重和降低阈值
+        'ar': (((0x0600, 0x06FF),), 10.0, 1, 0.1), # 提高阿拉伯语权重
+        'he': (((0x0590, 0x05FF),), 10.0, 1, 0.1), # 提高希伯来语权重
+        'th': (((0x0E00, 0x0E7F),), 10.0, 1, 0.1), # 提高泰语权重
+    }
+    # [优化] 越南语的声调标记现在作为“杀手级特征”处理
+    KILLER_FEATURES = {
+        'de': 'ß',
+        'es': '¿¡',
+        'vi': 'ăâđêôơư' # 越南语基础变音字母，出现即是强证据
+    }
+    FEATURES = {
+        'fr': "àâæçéèêëîïôœùûü", 'de': "äöü", 'es': "áéíóúüñ", # ß ñ 已移走
+        'pt': "áàâãéêíóôõúç", 'it': "àèéìòù", 'pl': "ąćęłńóśźż",
+        'tr': "çğıöşü", 'nl': "äëïöü"
+    }
+    STOP_WORDS = {
+        'en': {'the', 'a', 'is', 'to', 'in', 'it', 'of', 'and', 'for', 'on'},
+        'fr': {'le', 'la', 'de', 'et', 'est', 'un', 'une', 'je', 'tu'},
+        'de': {'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'ich', 'sie'},
+        'es': {'el', 'la', 'de', 'y', 'es', 'un', 'una', 'en', 'que'},
+        'pt': {'o', 'a', 'de', 'e', 'é', 'um', 'uma', 'em', 'que'},
+        'it': {'il', 'la', 'di', 'e', 'è', 'un', 'una', 'che', 'in'},
+        'nl': {'de', 'het', 'een', 'en', 'van', 'is', 'ik', 'in', 'op'}
+    }
+
+    scores = {}
+
+    # 0. “杀手级特征”检测，一旦命中，直接返回
+    for lang, chars in KILLER_FEATURES.items():
+        if any(c in text_lower for c in chars):
+            return lang
+
+    # 1. 一级检测: 基于Unicode字符块
+    meaningful_chars = 0; char_counts = {lang: 0 for lang in RANGES}
     for char in text:
-        code = ord(char)
-        is_meaningful = False
-        if ranges['kana'][0] <= code <= ranges['kana'][1]: counts['kana'] += 1; is_meaningful = True
-        elif ranges['hangul_syllables'][0] <= code <= ranges['hangul_syllables'][1] or \
-             ranges['hangul_jamo'][0] <= code <= ranges['hangul_jamo'][1] or \
-             ranges['hangul_compat_jamo'][0] <= code <= ranges['hangul_compat_jamo'][1]:
-            counts['hangul_syllables'] += 1; is_meaningful = True
-        elif ranges['han'][0] <= code <= ranges['han'][1]: counts['han'] += 1; is_meaningful = True
-        elif ranges['cyrillic'][0] <= code <= ranges['cyrillic'][1]: counts['cyrillic'] += 1; is_meaningful = True
-        elif ranges['latin_basic'][0] <= code <= ranges['latin_basic'][1] or \
-             ranges['latin_basic_lower'][0] <= code <= ranges['latin_basic_lower'][1]:
-            counts['latin_basic'] += 1; is_meaningful = True
-        else: counts['other'] += 1
-        if is_meaningful: total_meaningful_chars +=1
-    if total_meaningful_chars == 0: return None
-    if counts['hangul_syllables'] / total_meaningful_chars > 0.3: return 'ko'
-    if counts['kana'] / total_meaningful_chars > 0.05 or counts['kana'] > 1 : return 'ja'
-    if counts['cyrillic'] / total_meaningful_chars > 0.3: return 'ru'
-    if counts['han'] / total_meaningful_chars > 0.4 : return 'zh-cn'
-    if counts['latin_basic'] / total_meaningful_chars > 0.5: return 'en-us'
+        code = ord(char); is_meaningful = False
+        for lang, (blocks, _, _, _) in RANGES.items():
+            for start, end in blocks:
+                if start <= code <= end:
+                    char_counts[lang] += 1; is_meaningful = True; break
+        if is_meaningful: meaningful_chars += 1
+    
+    if meaningful_chars > 0:
+        for lang, count in char_counts.items():
+            if count > 0:
+                _, weight, min_chars, threshold = RANGES[lang]
+                ratio = count / meaningful_chars
+                if count >= min_chars and ratio >= threshold: scores[lang] = scores.get(lang, 0) + ratio * weight
+    
+    if scores: return max(scores, key=scores.get)
+
+    # 2. 二级检测: 基于特征字母
+    feature_counts = {lang: 0 for lang in FEATURES}
+    for char in text_lower:
+        for lang, letters in FEATURES.items():
+            if char in letters: feature_counts[lang] += 1
+    
+    for lang, count in feature_counts.items():
+        if count > 0: scores[lang] = scores.get(lang, 0) + count * 5.0
+
+    if scores: return max(scores, key=scores.get)
+
+    # 3. 三级检测: 基于高频词
+    words = set(text_lower.split())
+    # 英语优先检查
+    if words.intersection(STOP_WORDS['en']): return 'en'
+    # 其他语言检查
+    for lang, stop_words in STOP_WORDS.items():
+        if lang == 'en': continue
+        if words.intersection(stop_words): scores[lang] = scores.get(lang, 0) + len(words.intersection(stop_words))
+    
+    if scores: return max(scores, key=scores.get)
+
+    # 4. 最终回退
+    is_basic_latin = all('a' <= char <= 'z' or char.isspace() or char in "'-.?!,;" for char in text_lower)
+    if is_basic_latin and text_length > 0: return 'en'
+
     return None
 
 class Worker(QObject):
@@ -432,9 +505,9 @@ class MainWindow(QMainWindow):
         self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '提示音录制', 
             lambda m, ts, w, l, im: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im))
         self.audio_manager_page = self.create_module_or_placeholder('audio_manager_module', '音频数据管理器', 
-            lambda m, im: m.create_page(self, self.config, BASE_PATH, self.config['file_settings'].get("results_dir"), AUDIO_RECORD_DIR, im))
+            lambda m, ts, im: m.create_page(self, self.config, BASE_PATH, self.config['file_settings'].get("results_dir"), AUDIO_RECORD_DIR, im, ts))
         self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_module', '通用词表编辑器', 
-            lambda m, im: m.create_page(self, WORD_LIST_DIR, im))
+            lambda m, im, dl: m.create_page(self, WORD_LIST_DIR, im, dl))
         self.converter_page = self.create_module_or_placeholder('excel_converter_module', 'Excel转换器', 
             lambda m, im: m.create_page(self, WORD_LIST_DIR, MODULES, im))
         self.help_page = self.create_module_or_placeholder('help_module', '帮助文档', 
@@ -586,14 +659,14 @@ class MainWindow(QMainWindow):
                 
                 elif module_key == 'audio_manager_module':
                     # 现在它需要 icon_manager
-                    return page_factory(module, icon_manager)
+                    return page_factory(module, ToggleSwitch, icon_manager)
                 
                 elif module_key in ['pinyin_to_ipa_module', 'dialect_visual_editor_module']:
                     return page_factory(module, ToggleSwitch)
                 
                 elif module_key == 'wordlist_editor_module':
                     # 现在它需要 icon_manager
-                    return page_factory(module, icon_manager)
+                    return page_factory(module, icon_manager, detect_language)
 
                 elif module_key == 'excel_converter_module':
                     # 现在它需要 icon_manager
@@ -625,7 +698,7 @@ class MainWindow(QMainWindow):
         
         label = QLabel(label_text) # 现在 QLabel 是已定义的
         label.setWordWrap(True)
-        label.setStyleSheet("color: #D32F2F; font-size: 14px;") # Give it a distinct error style
+        label.setStyleSheet("color: #D32F2F; font-size: 24px;") # Give it a distinct error style
         layout.addWidget(label)
         return page
         
