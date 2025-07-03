@@ -1,7 +1,7 @@
 # PhonAcq Assistant (风纳客)
 
 <p align="center">
-  <img src="assets/Splash.png" width="300" alt="PhonAcq Assistant Logo">
+  <img src="assets/Splash.png" width="600" alt="PhonAcq Assistant Logo">
 </p>
 
 <p align="center">
