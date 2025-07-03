@@ -10,6 +10,8 @@ import sys
 import importlib.util
 from datetime import datetime
 import json
+import shutil # [新增] 用于文件复制
+import subprocess # [新增] 用于打开文件浏览器
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QCheckBox, QShortcut, QUndoStack, 
@@ -84,7 +86,8 @@ class DialectVisualEditorPage(QWidget):
         self.table_widget.setToolTip("在此表格中编辑图文词表内容。\n- 项目ID必须唯一，重复的ID将以红色高亮显示。\n- 双击“图片文件”列可打开文件选择对话框。")
         self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive); self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive); self.table_widget.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch); self.table_widget.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table_widget.setColumnWidth(0, 200); self.table_widget.setColumnWidth(1, 200)
-        
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list_widget.setToolTip("所有可编辑的图文词表文件。\n右键单击可进行更多操作。")        
         table_btn_layout = QHBoxLayout()
         # [新增] Undo/Redo 按钮
         self.undo_btn = QPushButton("撤销"); self.undo_btn.setToolTip("撤销上一步操作 (快捷键: Ctrl+Z)。")
@@ -120,12 +123,93 @@ class DialectVisualEditorPage(QWidget):
     def refresh_file_list(self):
         if hasattr(self, 'parent_window'): self.apply_layout_settings()
         current_selection = self.file_list_widget.currentItem().text() if self.file_list_widget.currentItem() else ""
-        self.file_list_widget.clear();
+        self.file_list_widget.clear()
         if WORD_LIST_DIR_FOR_DIALECT_VISUAL and os.path.exists(WORD_LIST_DIR_FOR_DIALECT_VISUAL):
-            files = sorted([f for f in os.listdir(WORD_LIST_DIR_FOR_DIALECT_VISUAL) if f.endswith('.py')]); self.file_list_widget.addItems(files)
+            # [修改] 只查找 .json 文件
+            files = sorted([f for f in os.listdir(WORD_LIST_DIR_FOR_DIALECT_VISUAL) if f.endswith('.json')])
+            self.file_list_widget.addItems(files)
             for i in range(len(files)):
                 if files[i] == current_selection: self.file_list_widget.setCurrentRow(i); break
+    def on_file_double_clicked(self, item):
+        self._show_in_explorer(item)
+
+    def show_file_context_menu(self, position):
+        item = self.file_list_widget.itemAt(position)
+        if not item: return
+
+        menu = QMenu()
+        show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
+        menu.addSeparator()
+        duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
+        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
+        
+        action = menu.exec_(self.file_list_widget.mapToGlobal(position))
+
+        if action == show_action:
+            self._show_in_explorer(item)
+        elif action == duplicate_action:
+            self._duplicate_file(item)
+        elif action == delete_action:
+            self._delete_file(item)
+
+    def _show_in_explorer(self, item):
+        if not item: return
+        filepath = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, item.text())
+        if not os.path.exists(filepath):
+            QMessageBox.warning(self, "文件不存在", "该文件可能已被移动或删除。")
+            self.refresh_file_list()
+            return
+        
+        try:
+            if sys.platform == 'win32':
+                subprocess.run(['explorer', '/select,', os.path.normpath(filepath)])
+            elif sys.platform == 'darwin':
+                subprocess.check_call(['open', '-R', filepath])
+            else: # Linux
+                subprocess.check_call(['xdg-open', os.path.dirname(filepath)])
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法打开文件所在位置: {e}")
+
+    def _duplicate_file(self, item):
+        if not item: return
+        src_path = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, item.text())
+        if not os.path.exists(src_path):
+            QMessageBox.warning(self, "文件不存在", "无法创建副本，源文件可能已被移动或删除。"); self.refresh_file_list(); return
+
+        base, ext = os.path.splitext(item.text())
+        dest_path = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, f"{base}_copy{ext}")
+        i = 1
+        while os.path.exists(dest_path):
+            dest_path = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, f"{base}_copy_{i}{ext}")
+            i += 1
+        
+        try:
+            shutil.copy2(src_path, dest_path)
+            self.refresh_file_list()
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法创建副本: {e}")
+
+    def _delete_file(self, item):
+        if not item: return
+        filepath = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, item.text())
+        
+        reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除文件 '{item.text()}' 吗？\n此操作不可撤销。",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                os.remove(filepath)
+                if filepath == self.current_wordlist_path:
+                    self.current_wordlist_path = None
+                    self.table_widget.setRowCount(0)
+                    self.undo_stack.clear()
+                self.refresh_file_list()
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"无法删除文件: {e}")
+
     def setup_connections_and_shortcuts(self):
+        self.file_list_widget.itemDoubleClicked.connect(self.on_file_double_clicked)
+        self.file_list_widget.customContextMenuRequested.connect(self.show_file_context_menu)
         self.file_list_widget.currentItemChanged.connect(self.on_file_selected); self.new_btn.clicked.connect(self.new_wordlist); self.save_btn.clicked.connect(self.save_wordlist); self.save_as_btn.clicked.connect(self.save_wordlist_as)
         self.add_row_btn.clicked.connect(lambda: self.add_row()); self.remove_row_btn.clicked.connect(self.remove_row); self.auto_detect_btn.clicked.connect(self.auto_detect_images); self.table_widget.itemPressed.connect(self.on_item_pressed); self.table_widget.itemChanged.connect(self.on_item_changed_for_undo)
         self.table_widget.cellDoubleClicked.connect(self.on_cell_double_clicked); self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu); self.table_widget.customContextMenuRequested.connect(self.show_context_menu); self.undo_stack.cleanChanged.connect(self.on_clean_changed)
@@ -314,16 +398,42 @@ class DialectVisualEditorPage(QWidget):
         if current: self.current_wordlist_path = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, current.text()); self.load_file_to_table()
         else: self.current_wordlist_path = None; self.table_widget.setRowCount(0); self.undo_stack.clear()
     def load_file_to_table(self):
-        self.table_widget.blockSignals(True); self.table_widget.setRowCount(0)
-        if not self.current_wordlist_path: self.table_widget.blockSignals(False); return
+        # [修复] 增加文件存在性检查
+        if not self.current_wordlist_path or not os.path.exists(self.current_wordlist_path):
+            QMessageBox.information(self, "文件不存在", f"词表文件 '{os.path.basename(str(self.current_wordlist_path))}' 不存在，可能已被删除或移动。")
+            self.current_wordlist_path = None
+            self.table_widget.setRowCount(0)
+            self.undo_stack.clear()
+            self.refresh_file_list() # 刷新列表以移除不存在的文件
+            return
+
+        self.table_widget.blockSignals(True)
+        self.table_widget.setRowCount(0)
+        
         try:
-            module_name = f"temp_dialect_data_{os.path.splitext(os.path.basename(self.current_wordlist_path))[0]}"; spec = importlib.util.spec_from_file_location(module_name, self.current_wordlist_path)
-            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); items_list = getattr(module, 'ITEMS', [])
+            with open(self.current_wordlist_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            if "meta" not in data or "items" not in data or not isinstance(data["items"], list):
+                raise ValueError("JSON文件格式无效，缺少 'meta' 或 'items' 键。")
+
+            items_list = data.get('items', [])
             for row, item_data in enumerate(items_list):
-                self.table_widget.insertRow(row); self.populate_row(row, [item_data.get('id', ''), item_data.get('image_path', ''), item_data.get('prompt_text', ''), item_data.get('notes', '')])
-            self.table_widget.resizeRowsToContents(); self.undo_stack.clear(); self.validate_all_ids()
-        except Exception as e: QMessageBox.critical(self, "加载失败", f"无法解析图文词表文件 '{os.path.basename(self.current_wordlist_path)}':\n{e}")
-        finally: self.table_widget.blockSignals(False)
+                self.table_widget.insertRow(row)
+                self.populate_row(row, [
+                    item_data.get('id', ''),
+                    item_data.get('image_path', ''),
+                    item_data.get('prompt_text', ''),
+                    item_data.get('notes', '')
+                ])
+            
+            self.table_widget.resizeRowsToContents()
+            self.undo_stack.clear()
+            self.validate_all_ids()
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            QMessageBox.critical(self, "加载失败", f"无法解析JSON图文词表文件 '{os.path.basename(self.current_wordlist_path)}':\n{e}")
+        finally:
+            self.table_widget.blockSignals(False)
     def populate_row(self, row, data):
         self.table_widget.setItem(row, 0, QTableWidgetItem(data[0]))
         image_path_item = QTableWidgetItem(); full_path = data[1]
@@ -339,31 +449,58 @@ class DialectVisualEditorPage(QWidget):
         if self.current_wordlist_path: self._write_to_file(self.current_wordlist_path)
         else: self.save_wordlist_as()
     def save_wordlist_as(self):
-        if any(len(widgets) > 1 for widgets in self.id_widgets.values()): QMessageBox.warning(self, "保存失败", "存在重复的项目ID (已用红色高亮显示)。\n请修正后再保存。"); return
-        filepath, _ = QFileDialog.getSaveFileName(self, "另存为图文词表", WORD_LIST_DIR_FOR_DIALECT_VISUAL, "Python 文件 (*.py)")
+        if any(len(widgets) > 1 for widgets in self.id_widgets.values()):
+            QMessageBox.warning(self, "保存失败", "存在重复的项目ID (已用红色高亮显示)。\n请修正后再保存。")
+            return
+        
+        # [修改] 文件过滤器和默认扩展名
+        filepath, _ = QFileDialog.getSaveFileName(self, "另存为图文词表", WORD_LIST_DIR_FOR_DIALECT_VISUAL, "JSON 文件 (*.json)")
         if filepath:
-            if not filepath.endswith('.py'): filepath += '.py'
-            self._write_to_file(filepath); self.current_wordlist_path = filepath; self.refresh_file_list()
+            if not filepath.lower().endswith('.json'):
+                filepath += '.json'
+            self._write_to_file(filepath)
+            self.current_wordlist_path = filepath
+            self.refresh_file_list()
             for i in range(self.file_list_widget.count()):
-                if self.file_list_widget.item(i).text() == os.path.basename(filepath): self.file_list_widget.setCurrentRow(i); break
+                if self.file_list_widget.item(i).text() == os.path.basename(filepath):
+                    self.file_list_widget.setCurrentRow(i)
+                    break
     def _write_to_file(self, filepath):
         items_list = []
         for row in range(self.table_widget.rowCount()):
-            item_data = {}; id_item = self.table_widget.item(row, 0)
-            if not id_item or not id_item.text().strip(): continue
-            image_item = self.table_widget.item(row, 1); image_path = image_item.data(Qt.EditRole) if image_item else ''
-            item_data['id'] = id_item.text().strip(); item_data['image_path'] = image_path.strip()
+            item_data = {}
+            id_item = self.table_widget.item(row, 0)
+            
+            # 跳过没有ID的行
+            if not id_item or not id_item.text().strip():
+                continue
+
+            image_item = self.table_widget.item(row, 1)
+            image_path = image_item.data(Qt.EditRole) if image_item else ''
+
+            item_data['id'] = id_item.text().strip()
+            item_data['image_path'] = image_path.strip() if image_path else ""
             item_data['prompt_text'] = self.table_widget.item(row, 2).text().strip() if self.table_widget.item(row, 2) else ''
             item_data['notes'] = self.table_widget.item(row, 3).text().strip() if self.table_widget.item(row, 3) else ''
             items_list.append(item_data)
-        py_code = f"# Auto-generated by PhonAcq Assistant Dialect Visual Editor\n# Save date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nITEMS = [\n"
-        for item in items_list:
-            py_code += "    {\n";
-            for key, value in item.items():
-                py_code += f"        '{key}': '''{value}''',\n"
-            py_code += "    },\n"
-        py_code += "]\n"
+        
+        # 构建最终的 JSON 结构
+        final_data_structure = {
+            "meta": {
+                "format": "visual_wordlist",
+                "version": "1.0",
+                "author": "PhonAcq Assistant",
+                "save_date": datetime.now().isoformat()
+            },
+            "items": items_list
+        }
+
         try:
-            with open(filepath, 'w', encoding='utf-8') as f: f.write(py_code)
-            self.undo_stack.setClean(); QMessageBox.information(self, "成功", f"图文词表已成功保存至:\n{filepath}")
-        except Exception as e: QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")
+            # 使用 json.dump 写入文件
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(final_data_structure, f, indent=4, ensure_ascii=False)
+            
+            self.undo_stack.setClean()
+            QMessageBox.information(self, "成功", f"图文词表已成功保存至:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")

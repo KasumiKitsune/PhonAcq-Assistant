@@ -225,3 +225,27 @@ QRadioButton:checked { color: #4A4034; font-weight: bold; }
 QLabel#ScalableImageLabel { border: 1px solid #EAE0D6; background-color: #FFFFFF; color: #B8A990; border-radius: 8px; }
 QLabel#PromptTextLabel { padding: 8px; font-size: 20px; font-weight: bold; background-color: #FAF6F4; border-radius: 8px; }
 QTextEdit#NotesTextEdit { background-color: #FAF6F4; border: 1px solid #EAE0D6; border-radius: 6px; padding: 8px; color: #5A4E42; }
+/* ================== Waveform Widget (Modern Elegance) ================== */
+/*
+ * 通过 qproperty- 语法设置我们在 WaveformWidget 中定义的自定义属性
+ * 这使得主题可以完全控制波形图的颜色
+ */
+WaveformWidget {
+    /* 波形颜色: 使用主题的主强调色，温暖而清晰 */
+    qproperty-waveformColor: #8F4C33;       
+    /* 播放头光标颜色: 使用更深的棕色，确保在选区上依然醒目 */
+    qproperty-cursorColor: #7a3f23;         
+    /* 选区颜色: 与文本选区颜色一致的暖色调，轻盈且和谐 */
+    qproperty-selectionColor: rgba(255, 219, 207, 120); 
+    /* 边框: 与主题中其他输入控件保持一致 */
+    border: 1px solid #DCD0C0;
+    /* 圆角: 采用主题的标准圆角，融入整体设计 */
+    border-radius: 8px;
+}
+
+WaveformWidget:disabled {
+    /* 当被禁用时，使用柔和的边框/背景色作为波形色 */
+    qproperty-waveformColor: #DCD0C0; 
+    /* 降低不透明度以提供清晰的禁用反馈 */
+    opacity: 0.6;
+}

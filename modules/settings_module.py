@@ -120,8 +120,8 @@ class SettingsPage(QWidget):
         audio_layout.addRow("录音设备:", self.input_device_combo)
         
         self.recording_format_switch = self.ToggleSwitch()
-        self.recording_format_switch.setToolTip("选择录音文件的保存格式。WAV提供最佳质量但文件大，MP3压缩率高但可能需要额外编码器。")
-        format_layout = QHBoxLayout(); format_layout.addWidget(QLabel("WAV (高质量)")); format_layout.addWidget(self.recording_format_switch); format_layout.addWidget(QLabel("MP3 (高压缩)"))
+        self.recording_format_switch.setToolTip("选择录音文件的保存格式。\nWAV提供最佳质量但文件大，MP3压缩率高但可能需要额外编码器。\n警告：软件的音频文件管理器在播放MP3文件时体验不佳。")
+        format_layout = QHBoxLayout(); format_layout.addWidget(QLabel("WAV (高质量，推荐)")); format_layout.addWidget(self.recording_format_switch); format_layout.addWidget(QLabel("MP3 (高压缩)"))
         audio_layout.addRow("录音保存格式:", format_layout)
         
         self.sample_rate_combo = QComboBox()
@@ -231,8 +231,11 @@ class SettingsPage(QWidget):
     def populate_word_lists(self):
         self.word_list_combo.clear()
         if os.path.exists(self.WORD_LIST_DIR):
-            try: self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.py')])
-            except Exception as e: print(f"无法读取单词表目录: {e}")
+            try:
+                # [修改] 扫描 .json 文件
+                self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
+            except Exception as e:
+                print(f"无法读取单词表目录: {e}")
 
     def populate_themes(self):
         self.theme_combo.clear()
@@ -269,7 +272,19 @@ class SettingsPage(QWidget):
                     if self.theme_combo.count() > 0: self.theme_combo.setCurrentIndex(0)
         elif self.theme_combo.count() > 0: self.theme_combo.setCurrentIndex(0)
         file_settings = config.get("file_settings", {}); gtts_settings = config.get("gtts_settings", {}); audio_settings = config.get("audio_settings", {}); app_settings = config.get("app_settings", {})
-        self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True)); self.word_list_combo.setCurrentText(file_settings.get('word_list_file', '')); self.participant_name_input.setText(file_settings.get('participant_base_name', ''))
+        default_wordlist = file_settings.get('word_list_file', '')
+        if default_wordlist.endswith('.py'):
+            # 如果配置里存的是旧的.py文件，尝试寻找同名的.json文件
+            json_equivalent = os.path.splitext(default_wordlist)[0] + '.json'
+            if self.word_list_combo.findText(json_equivalent) != -1:
+                self.word_list_combo.setCurrentText(json_equivalent)
+            else:
+                self.word_list_combo.setCurrentText(default_wordlist) # 如果找不到，还是显示旧的
+        else:
+            self.word_list_combo.setCurrentText(default_wordlist)
+
+        self.participant_name_input.setText(file_settings.get('participant_base_name', ''))        
+        self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True)); self.participant_name_input.setText(file_settings.get('participant_base_name', ''))
         base_path = get_base_path_for_module(); self.results_dir_input.setText(file_settings.get("results_dir", os.path.join(base_path, "Results")))
         self.gtts_lang_combo.setCurrentText(gtts_settings.get('default_lang', 'en-us')); self.gtts_auto_detect_switch.setChecked(gtts_settings.get('auto_detect', True))
         self.recording_format_switch.setChecked(audio_settings.get("recording_format", "wav") == "mp3"); saved_device_idx = audio_settings.get("input_device_index", None)

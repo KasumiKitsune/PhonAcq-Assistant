@@ -145,7 +145,26 @@ class AudioManagerPage(QWidget):
         super().__init__()
         self.parent_window = parent_window; self.config = config; self.BASE_PATH = base_path
         self.icon_manager = icon_manager; self.ToggleSwitch = ToggleSwitchClass
-        self.DATA_SOURCES = {"口音采集会话": {"path": results_dir, "filter": lambda d, p: os.path.exists(os.path.join(p, d, 'log.txt'))}, "语音包/图文采集": {"path": audio_record_dir, "filter": lambda d, p: True}, "TTS 语音": {"path": audio_tts_dir, "filter": lambda d, p: True}}
+        results_dir_base = config.get('file_settings', {}).get('results_dir', os.path.join(base_path, "Results"))
+        self.DATA_SOURCES = {
+            "标准朗读采集": {
+                "path": os.path.join(results_dir_base, "common"), 
+                "filter": lambda d, p: os.path.isdir(os.path.join(p, d)) # 任何文件夹都显示
+            },
+            "看图说话采集": {
+                "path": os.path.join(results_dir_base, "visual"), 
+                "filter": lambda d, p: os.path.isdir(os.path.join(p, d))
+            },
+            "语音包录制": { # 重命名以更清晰
+                "path": audio_record_dir, 
+                "filter": lambda d, p: True
+            }, 
+            "TTS 工具语音": { # 重命名以更清晰
+                "path": audio_tts_dir, 
+                "filter": lambda d, p: True
+            }
+        }
+
         self.current_session_path = None; self.current_data_type = None; self.current_displayed_duration = 0
         self.player = QMediaPlayer(); self.player.setNotifyInterval(50) 
         self.trim_start_ms = None; self.trim_end_ms = None; self.temp_preview_file = None
@@ -393,12 +412,35 @@ class AudioManagerPage(QWidget):
     def apply_layout_settings(self):
         config = self.parent_window.config; ui_settings = config.get("ui_settings", {}); width = ui_settings.get("editor_sidebar_width", 350); self.left_panel.setFixedWidth(width)
     def load_and_refresh(self):
-        self.config = self.parent_window.config; self.apply_layout_settings(); self.update_icons()
-        self.DATA_SOURCES["口音采集会话"]["path"] = self.config['file_settings'].get("results_dir", os.path.join(self.BASE_PATH, "Results"))
-        self.DATA_SOURCES["语音包/图文采集"]["path"] = os.path.join(self.BASE_PATH, "audio_record"); self.DATA_SOURCES["TTS 语音"]["path"] = os.path.join(self.BASE_PATH, "audio_tts")
-        self.populate_session_list()
-        if self.session_list_widget.currentItem(): self.on_session_selection_changed()
-        else: self.audio_table_widget.clearContents(); self.audio_table_widget.setRowCount(0); self.table_label.setText("请从左侧选择一个项目以查看文件"); self.reset_player()
+        self.config = self.parent_window.config
+        self.apply_layout_settings()
+        self.update_icons()
+        
+        # [修改] 动态更新所有基于 settings.json 的路径
+        results_dir_base = self.config.get('file_settings', {}).get('results_dir', os.path.join(self.BASE_PATH, "Results"))
+        self.DATA_SOURCES["标准朗读采集"]["path"] = os.path.join(results_dir_base, "common")
+        self.DATA_SOURCES["看图说话采集"]["path"] = os.path.join(results_dir_base, "visual")
+        
+        # 其他路径通常是固定的，但为了稳健性，也一并更新
+        self.DATA_SOURCES["语音包录制"]["path"] = os.path.join(self.BASE_PATH, "audio_record")
+        self.DATA_SOURCES["TTS 工具语音"]["path"] = os.path.join(self.BASE_PATH, "audio_tts")
+        
+        # 刷新UI
+        current_source = self.source_combo.currentText()
+        self.source_combo.blockSignals(True)
+        self.source_combo.clear()
+        self.source_combo.addItems(self.DATA_SOURCES.keys())
+        self.source_combo.setCurrentText(current_source)
+        self.source_combo.blockSignals(False)
+
+        # 如果当前选择的源依然存在，则刷新列表，否则清空
+        if self.source_combo.findText(current_source) != -1:
+            self.populate_session_list()
+        else:
+            self.session_list_widget.clear()
+            self.audio_table_widget.setRowCount(0)
+            self.table_label.setText("请从左侧选择一个项目以查看文件")
+            self.reset_player()
     def populate_session_list(self):
         source_name = self.source_combo.currentText(); source_info = self.DATA_SOURCES.get(source_name)
         if not source_info: return

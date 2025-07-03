@@ -327,3 +327,34 @@ QRadioButton::indicator:disabled {
 QRadioButton:disabled {
     color: #5A6B88;
 }
+/* ================== Waveform Widget (The Great Wave) ================== */
+/*
+ * Ukiyo-e-inspired style for the waveform widget.
+ * High contrast colors and sharp edges to match the theme's dramatic aesthetic.
+ */
+WaveformWidget {
+    /* 波形颜色: 鲜明的浪花蓝，在深色背景上清晰可见 */
+    qproperty-waveformColor: #75AADB;
+    /* 播放头光标颜色: 使用戏剧性的红色，提供最高的视觉焦点 */
+    qproperty-cursorColor: #E53935;
+    /* 选区颜色: 半透明的浪花蓝，如同水面上的反光 */
+    qproperty-selectionColor: rgba(117, 170, 219, 100);
+    /* 边框: 与主题中其他控件的默认边框一致 */
+    border: 1px solid #4A5B78;
+    /* 圆角: 必须为0，保持主题的锐利、几何感 */
+    border-radius: 0px;
+    /* 背景色: 确保与输入框等控件的背景一致 */
+    background-color: #1C2A40;
+}
+
+/* 聚焦时，边框变为高亮的浪花蓝 */
+WaveformWidget:focus {
+    border-color: #75AADB;
+}
+
+WaveformWidget:disabled {
+    /* 当被禁用时，波形颜色变为暗淡的灰色，如同平静的深海 */
+    qproperty-waveformColor: #5A6B88;
+    /* 降低不透明度以提供清晰的禁用反馈 */
+    opacity: 0.6;
+}

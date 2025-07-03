@@ -169,13 +169,16 @@ class FlashcardPage(QWidget):
 
 
     def populate_wordlists(self):
-        self.wordlist_combo.clear(); self.wordlist_combo.addItem("--- 请选择一个词表 ---", userData=None)
+        self.wordlist_combo.clear()
+        self.wordlist_combo.addItem("--- 请选择一个词表 ---", userData=None)
+        
+        # [修改] 扫描 .json 文件
         if os.path.exists(self.COMMON_DIR):
             for f in sorted(os.listdir(self.COMMON_DIR)):
-                 if f.endswith('.py'): self.wordlist_combo.addItem(f"[标准] {f}", userData=("common", f))
+                 if f.endswith('.json'): self.wordlist_combo.addItem(f"[标准] {f}", userData=("common", f))
         if os.path.exists(self.VISUAL_DIR):
             for f in sorted(os.listdir(self.VISUAL_DIR)):
-                if f.endswith('.py'): self.wordlist_combo.addItem(f"[图文] {f}", userData=("visual", f))
+                if f.endswith('.json'): self.wordlist_combo.addItem(f"[图文] {f}", userData=("visual", f))
 
     def update_mode_options(self, index=0):
         while self.mode_layout.count():
@@ -234,15 +237,47 @@ class FlashcardPage(QWidget):
         self.auto_show_answer_switch.setEnabled(True); self.answer_input_widget.hide()
 
     def load_and_adapt_data(self, filename):
-        self.all_loaded_cards.clear(); base_dir = self.VISUAL_DIR if self.current_wordlist_type == "visual" else self.COMMON_DIR
-        self.current_wordlist_path = os.path.join(base_dir, filename); spec = importlib.util.spec_from_file_location("flashcard_data", self.current_wordlist_path)
-        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-        if self.current_wordlist_type == "visual":
-            for item in module.ITEMS: self.all_loaded_cards.append({'id': item.get('id', ''), 'image_path': item.get('image_path', ''), 'text': item.get('prompt_text', ''), 'notes': item.get('notes', ''), 'correct_answer': item.get('id', '')})
-        else:
-            for group in module.WORD_GROUPS:
-                for word, value in group.items(): ipa = value[0] if isinstance(value, tuple) else str(value); self.all_loaded_cards.append({'id': word, 'text': word, 'notes': ipa, 'correct_answer': word})
-    
+        self.all_loaded_cards.clear()
+        base_dir = self.VISUAL_DIR if self.current_wordlist_type == "visual" else self.COMMON_DIR
+        self.current_wordlist_path = os.path.join(base_dir, filename)
+
+        try:
+            # [修改] 使用 json.load()
+            with open(self.current_wordlist_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            meta = data.get("meta", {})
+            file_format = meta.get("format")
+
+            if self.current_wordlist_type == "visual" and file_format == "visual_wordlist":
+                items = data.get("items", [])
+                for item in items:
+                    self.all_loaded_cards.append({
+                        'id': item.get('id', ''), 
+                        'image_path': item.get('image_path', ''), 
+                        'text': item.get('prompt_text', ''), 
+                        'notes': item.get('notes', ''), 
+                        'correct_answer': item.get('id', '')
+                    })
+            elif self.current_wordlist_type == "common" and file_format == "standard_wordlist":
+                groups = data.get("groups", [])
+                for group in groups:
+                    for item in group.get("items", []):
+                        word = item.get("text")
+                        if word:
+                            self.all_loaded_cards.append({
+                                'id': word, 
+                                'text': word, 
+                                'notes': item.get('note', ''), 
+                                'correct_answer': word
+                            })
+            else:
+                raise ValueError(f"词表类型 '{self.current_wordlist_type}' 与文件格式 '{file_format}' 不匹配。")
+
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            # 向上抛出异常，由调用者处理
+            raise Exception(f"加载或解析词表文件 '{filename}' 失败: {e}")
+        
     def _generate_card_order(self):
         source_cards = list(self.all_loaded_cards); now_ts = datetime.now().timestamp()
         if self.smart_random_radio.isChecked():

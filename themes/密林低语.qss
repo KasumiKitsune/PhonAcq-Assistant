@@ -324,3 +324,27 @@ QRadioButton::indicator:disabled {
 QRadioButton:disabled {
     color: #9E9382;
 }
+/* ================== Waveform Widget (Whispering Woods) ================== */
+/*
+ * 通过 qproperty- 语法设置我们在 WaveformWidget 中定义的自定义属性
+ * 这使得主题可以完全控制波形图的颜色
+ */
+WaveformWidget {
+    /* 波形颜色: 使用主题的重点绿色，像森林里的苔藓 */
+    qproperty-waveformColor: #788C67;       
+    /* 播放头光标颜色: 使用醒目的古金色，突出显示当前位置 */
+    qproperty-cursorColor: #C9A870;         
+    /* 选区颜色: 半透明的古金色，与光标颜色协调 */
+    qproperty-selectionColor: rgba(201, 168, 112, 100); 
+    /* 边框: 与主题中其他控件（如输入框）保持一致 */
+    border: 1px solid #B8A990;
+    /* 圆角: 采用主题中常见的圆角大小，增加柔和感 */
+    border-radius: 6px;
+}
+
+WaveformWidget:disabled {
+    /* 当被禁用时，波形颜色变为暗淡的卡其色 */
+    qproperty-waveformColor: #B8A990; 
+    /* 降低其不透明度以提供视觉反馈 */
+    opacity: 0.5;
+}

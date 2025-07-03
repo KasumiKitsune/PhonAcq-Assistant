@@ -216,7 +216,7 @@ def load_tooltips_config():
     default_tooltips = {
         "数据采集": { "description": "包含所有用于实时录制和收集语音数据的功能模块。", "sub_tabs": { "口音采集会话": "适用于标准的文本到语音朗读任务。", "语音包录制": "用于为标准词表录制高质量的真人提示音。" }},
         "方言研究": { "description": "专为方言学田野调查设计的工具集。", "sub_tabs": { "图文采集": "展示图片并录制方言描述。", "图文词表编辑": "在程序内直接创建、编辑和保存用于“图文采集”的词表。" }},
-        "语料管理": { "description": "提供对项目所使用的词表和已生成的音频数据进行管理的工具。", "sub_tabs": { "词表编辑器": "可视化地创建和编辑标准词表。", "Excel转换器": "支持标准词表与图文词表的双向转换。", "数据管理器": "浏览、试听、重命名和删除所有已录制的音频数据。" }},
+        "资源管理": { "description": "提供对项目所使用的词表和已生成的音频数据进行管理的工具。", "sub_tabs": { "词表编辑器": "可视化地创建和编辑标准词表。", "Excel转换器": "支持标准词表与图文词表的双向转换。", "数据管理器": "浏览、试听、重命名和删除所有已录制的音频数据。" }},
         "实用工具": { "description": "提供一系列辅助性的语言学工具。", "sub_tabs": { "拼音转IPA": "将汉字实时转换为国际音标。", "TTS 工具": "批量或即时将文本列表转换为语音文件。" }},
         "系统与帮助": { "description": "配置应用程序的行为、外观，并获取使用帮助。", "sub_tabs": { "程序设置": "调整应用的各项参数，包括UI布局、音频设备和主题皮肤等。", "帮助文档": "提供详细的程序使用指南和常见问题解答。" }}
     }
@@ -564,7 +564,7 @@ class MainWindow(QMainWindow):
         
         self.main_tabs.addTab(collection_tabs, "数据采集")
         self.main_tabs.addTab(preparation_tabs, "数据准备")
-        self.main_tabs.addTab(management_tabs, "语料管理")
+        self.main_tabs.addTab(management_tabs, "资源管理")
         self.main_tabs.addTab(utilities_tabs, "实用工具")
         self.main_tabs.addTab(system_tabs, "系统与帮助")
 
@@ -572,7 +572,7 @@ class MainWindow(QMainWindow):
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
         collection_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据采集", i))
         preparation_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("数据准备", i))
-        management_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("语料管理", i))
+        management_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("资源管理", i))
         utilities_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("实用工具", i))
         system_tabs.currentChanged.connect(lambda i: self.on_sub_tab_changed("系统与帮助", i))
         
@@ -740,7 +740,7 @@ class MainWindow(QMainWindow):
             elif index == 1 and hasattr(self, 'dialect_visual_editor_page') and hasattr(self.dialect_visual_editor_page, 'refresh_file_list'):
                 self.dialect_visual_editor_page.refresh_file_list()
             
-        elif group_name == "语料管理":
+        elif group_name == "资源管理":
             if index == 0 and hasattr(self, 'audio_manager_page') and hasattr(self.audio_manager_page, 'load_and_refresh'):
                 self.audio_manager_page.load_and_refresh()
             elif index == 1 and hasattr(self, 'log_viewer_page') and hasattr(self.log_viewer_page, 'load_and_refresh'):

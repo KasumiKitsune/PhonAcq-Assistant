@@ -1,0 +1,38 @@
+{
+    "meta": {
+        "format": "visual_wordlist",
+        "version": "1.0"
+    },
+    "items": [
+        {
+            "id": "chicken_group",
+            "image_path": "sample_farm_life/chicken_group.jpg",
+            "prompt_text": "请用您的方言说说图片里的这些动物是什么，它们在做什么？",
+            "notes": "目标词汇：鸡、公鸡、母鸡、小鸡、喂食、啄米等。观察量词和动态描述。"
+        },
+        {
+            "id": "rice_field_harvest",
+            "image_path": "sample_farm_life/luce_field_harvest.png",
+            "prompt_text": "描述一下这个场景。现在是农忙的什么季节？人们在做什么？",
+            "notes": "目标词汇：稻田、收割、稻谷、镰刀、打谷等。注意时态和场景描述。"
+        },
+        {
+            "id": "vegetable_garden",
+            "image_path": "sample_farm_life/vegetable_garden.jpg",
+            "prompt_text": "图中的这些蔬菜，用你们那儿的话都叫什么名字？",
+            "notes": "目标：多种常见蔬菜的方言名称。如：白菜、萝卜、茄子、辣椒、黄瓜等。"
+        },
+        {
+            "id": "old_farmhouse",
+            "image_path": "sample_farm_life/old_farmhouse.png",
+            "prompt_text": "请描述一下这座老房子。它有什么特点？这种房子现在还常见吗？",
+            "notes": "目标：房屋结构、材料的方言词汇，以及相关的文化背景讨论。"
+        },
+        {
+            "id": "drying_grains",
+            "image_path": "sample_farm_life/drying grains.jpg",
+            "prompt_text": "粮食丰收后，你们通常怎么晾晒和储存谷物？有什么特别的工具或说法吗？",
+            "notes": "考察与粮食处理相关的动词和名词。"
+        }
+    ]
+}

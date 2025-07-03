@@ -284,3 +284,49 @@ QRadioButton::indicator:disabled {
 QRadioButton:disabled {
     color: #504068;
 }
+/* ============================================================================== */
+/* == 4.9 提示框 (QToolTip) - Data Terminal Style == */
+/* ============================================================================== */
+QToolTip {
+    /* [核心] 深邃的背景配上霓虹色边框和文字，营造出数据终端的感觉 */
+    background-color: #120D1A; 
+    color: #00FFFF;
+    border: 1px solid #00FFFF;
+    
+    padding: 6px 10px;
+    
+    /* [核心] 坚持主题的锐利、无圆角风格 */
+    border-radius: 0px; 
+    
+    /* 字体与主题保持一致，使用等宽字体 */
+    font-family: "Lucida Console", "Courier New", monospace;
+    font-size: 16px;
+    font-weight: bold;
+    
+    opacity: 240;
+}
+
+/* ============================================================================== */
+/* == 5. 自定义控件样式 (Custom Widget Styles) - Part 2 == */
+/* ============================================================================== */
+
+/* --- 为新的 WaveformWidget 添加样式 --- */
+/*
+ * 通过 qproperty- 语法设置我们在 WaveformWidget 中定义的自定义属性
+ * 这使得主题可以完全控制波形图的颜色
+ */
+WaveformWidget {
+    qproperty-waveformColor: #FF00FF;       /* 波形颜色: 霓虹洋红 (Neon Magenta) */
+    qproperty-cursorColor: #00FFFF;         /* 播放头光标颜色: 霓虹青 (Neon Cyan) */
+    qproperty-selectionColor: rgba(255, 0, 255, 70); /* 选区颜色: 半透明的霓虹洋红 */
+    
+    /* 边框样式与其他主要显示区域保持一致 */
+    border: 2px solid #60507F;
+    border-radius: 0px;
+}
+
+WaveformWidget:disabled {
+    /* 当被禁用时，降低其不透明度以提供视觉反馈 */
+    qproperty-waveformColor: #9080A8; /* 禁用时波形颜色变暗 */
+    opacity: 0.5;
+}

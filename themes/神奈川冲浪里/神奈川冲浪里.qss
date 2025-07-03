@@ -306,3 +306,20 @@ WaveformWidget:disabled {
     qproperty-waveformColor: #A8B8C8; 
     opacity: 0.5;
 }
+QToolTip {
+    /* [核心] 使用主题中的沙/木色作为背景，而不是常见的深色，以呼应“白昼”主题 */
+    background-color: #F5F8FA; 
+    
+    /* [核心] 使用主题中的“墨色”作为文字和边框，形成高对比度，如同木刻版画 */
+    color: #3B6894;
+    border: 1px solid #3B6894;
+    
+    padding: 6px 10px; /* 内边距，提供呼吸空间 */
+    
+    /* [核心] 坚持主题的锐利、无圆角风格 */
+    border-radius: 0px; 
+    
+    /* 字体与主题保持一致 */
+    font-size: 16px;
+    font-weight: bold;
+}

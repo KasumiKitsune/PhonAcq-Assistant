@@ -13,6 +13,7 @@ import importlib.util
 from datetime import datetime
 import re 
 import subprocess 
+import json
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QMessageBox, QComboBox, QFormLayout,
@@ -113,7 +114,7 @@ class TtsUtilityPage(QWidget):
         load_group = QGroupBox("从文件批量转换")
         load_layout = QFormLayout(load_group)
         # [修改] 只创建按钮，不在此设置图标
-        self.load_wordlist_btn = QPushButton("加载词表 (.py)")
+        self.load_wordlist_btn = QPushButton("加载词表 (.json)")
         self.load_wordlist_btn.setToolTip("点击选择一个标准词表或图文词表文件，\n其内容将填充到下方的编辑器中。\n也可以将文件直接拖拽到此模块窗口。")
         self.loaded_file_label = QLabel("未加载文件"); self.loaded_file_label.setWordWrap(True)
         self.loaded_file_label.setToolTip("当前加载的词表文件名。若未加载文件，则表示使用当前编辑器中的文本进行转换。")
@@ -207,12 +208,14 @@ class TtsUtilityPage(QWidget):
             urls = event.mimeData().urls()
             if urls and urls[0].isLocalFile():
                 filepath = urls[0].toLocalFile()
-                if filepath.lower().endswith('.py'):
+                # [修改] 检查 .json 扩展名
+                if filepath.lower().endswith('.json'):
                     event.acceptProposedAction()
 
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
             filepath = event.mimeData().urls()[0].toLocalFile()
+            # [修改] 直接调用正确的加载方法
             self.load_wordlist_from_file(filepath)
 
     def toggle_output_dir_input(self, state):
@@ -280,22 +283,51 @@ class TtsUtilityPage(QWidget):
 
     def load_wordlist_from_file(self, filepath=None):
         if not filepath:
-            filepath, _ = QFileDialog.getOpenFileName(self, "选择标准或图文词表文件", self.STD_WORD_LIST_DIR, "Python 文件 (*.py)")
+            # [修改] 更新文件对话框的过滤器
+            filepath, _ = QFileDialog.getOpenFileName(self, "选择标准或图文词表文件", self.STD_WORD_LIST_DIR, "JSON 词表文件 (*.json)")
         if not filepath: return
-        self.current_wordlist_path = filepath; self.loaded_file_label.setText(os.path.basename(filepath))
+
+        self.current_wordlist_path = filepath
+        self.loaded_file_label.setText(os.path.basename(filepath))
         self.log_message(f"已加载词表: {os.path.basename(filepath)}")
+        
         try:
-            spec = importlib.util.spec_from_file_location("temp_tts_wordlist", filepath); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-            self.editor_table.setRowCount(0); words_to_add = []
-            if hasattr(module, 'WORD_GROUPS'):
-                for group in module.WORD_GROUPS:
-                    for word, value in group.items(): _, lang = value if isinstance(value, tuple) and len(value) == 2 else ("", ""); words_to_add.append({'text': word, 'lang': lang})
-            elif hasattr(module, 'ITEMS'):
-                for item in module.ITEMS: text_to_read = item.get('id', ''); words_to_add.append({'text': text_to_read, 'lang': ''})
-            else: QMessageBox.warning(self, "格式错误", "选择的Python文件既不包含 'WORD_GROUPS' 也不包含 'ITEMS' 变量。"); self.loaded_file_label.setText("加载失败，格式错误"); self.current_wordlist_path = None; return
-            for item in words_to_add: self.add_table_row(item['text'], item['lang'])
+            # [修改] 使用 json.load() 读取文件
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            self.editor_table.setRowCount(0)
+            words_to_add = []
+            
+            # 根据 meta.format 字段判断词表类型
+            meta = data.get("meta", {})
+            file_format = meta.get("format")
+
+            if file_format == "standard_wordlist":
+                groups = data.get("groups", [])
+                for group in groups:
+                    for item in group.get("items", []):
+                        words_to_add.append({'text': item.get("text", ""), 'lang': item.get("lang", "")})
+            elif file_format == "visual_wordlist":
+                items = data.get("items", [])
+                for item in items:
+                    # 对于图文词表，我们通常使用其唯一ID作为待转换文本
+                    words_to_add.append({'text': item.get("id", ""), 'lang': ''}) # 图文词表通常无语言信息
+            else:
+                QMessageBox.warning(self, "格式错误", "选择的JSON文件格式未知或不受支持。")
+                self.loaded_file_label.setText("加载失败，格式错误")
+                self.current_wordlist_path = None
+                return
+
+            for item in words_to_add:
+                if item['text']: # 确保不添加空行
+                    self.add_table_row(item['text'], item['lang'])
+
             self.log_message(f"词表中的 {len(words_to_add)} 个词条已填充到编辑器。")
-        except Exception as e: QMessageBox.critical(self, "加载错误", f"加载词表文件失败: {e}"); self.loaded_file_label.setText("加载失败"); self.current_wordlist_path = None
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            QMessageBox.critical(self, "加载错误", f"加载词表文件失败: {e}")
+            self.loaded_file_label.setText("加载失败")
+            self.current_wordlist_path = None
 
     def get_items_from_editor(self):
         items = []

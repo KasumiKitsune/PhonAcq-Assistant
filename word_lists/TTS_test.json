@@ -1,0 +1,293 @@
+{
+    "meta": {
+        "format": "standard_wordlist",
+        "version": "1.0"
+    },
+    "groups": [
+        {
+            "id": 1,
+            "items": [
+                {
+                    "text": "Hello",
+                    "note": "(en-us) 你好",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "The quick brown fox jumps over the lazy dog.",
+                    "note": "(en-us) 敏捷的棕色狐狸跳过了懒狗。",
+                    "lang": "en-us"
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "items": [
+                {
+                    "text": "Cheers",
+                    "note": "(en-uk) 谢谢/干杯",
+                    "lang": "en-uk"
+                },
+                {
+                    "text": "I would like a cup of tea, please.",
+                    "note": "(en-uk) 请给我来杯茶。",
+                    "lang": "en-uk"
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "items": [
+                {
+                    "text": "你好",
+                    "note": "(zh-cn) Hello",
+                    "lang": "zh-cn"
+                },
+                {
+                    "text": "今天天气怎么样？",
+                    "note": "(zh-cn) How is the weather today?",
+                    "lang": "zh-cn"
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "items": [
+                {
+                    "text": "こんにちは",
+                    "note": "(ja) Hello",
+                    "lang": "ja"
+                },
+                {
+                    "text": "私の名前はSagerです。",
+                    "note": "(ja) My name is Sager.",
+                    "lang": "ja"
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "items": [
+                {
+                    "text": "안녕하세요",
+                    "note": "(ko) Hello",
+                    "lang": "ko"
+                },
+                {
+                    "text": "만나서 반갑습니다.",
+                    "note": "(ko) Nice to meet you.",
+                    "lang": "ko"
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "items": [
+                {
+                    "text": "Bonjour",
+                    "note": "(fr) Hello",
+                    "lang": "fr"
+                },
+                {
+                    "text": "Je ne comprends pas.",
+                    "note": "(fr) I do not understand.",
+                    "lang": "fr"
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "items": [
+                {
+                    "text": "Danke",
+                    "note": "(de) Thank you",
+                    "lang": "de"
+                },
+                {
+                    "text": "Sprechen Sie Englisch?",
+                    "note": "(de) Do you speak English?",
+                    "lang": "de"
+                }
+            ]
+        },
+        {
+            "id": 8,
+            "items": [
+                {
+                    "text": "Gracias",
+                    "note": "(es) Thank you",
+                    "lang": "es"
+                },
+                {
+                    "text": "¿Dónde está el baño?",
+                    "note": "(es) Where is the bathroom?",
+                    "lang": "es"
+                }
+            ]
+        },
+        {
+            "id": 9,
+            "items": [
+                {
+                    "text": "Obrigado",
+                    "note": "(pt) Thank you (male speaker)",
+                    "lang": "pt"
+                },
+                {
+                    "text": "Eu não falo português.",
+                    "note": "(pt) I do not speak Portuguese.",
+                    "lang": "pt"
+                }
+            ]
+        },
+        {
+            "id": 10,
+            "items": [
+                {
+                    "text": "Ciao",
+                    "note": "(it) Hello/Goodbye",
+                    "lang": "it"
+                },
+                {
+                    "text": "Quanto costa?",
+                    "note": "(it) How much does it cost?",
+                    "lang": "it"
+                }
+            ]
+        },
+        {
+            "id": 11,
+            "items": [
+                {
+                    "text": "Привет",
+                    "note": "(ru) Hi",
+                    "lang": "ru"
+                },
+                {
+                    "text": "Как у тебя дела?",
+                    "note": "(ru) How are you?",
+                    "lang": "ru"
+                }
+            ]
+        },
+        {
+            "id": 12,
+            "items": [
+                {
+                    "text": "Hallo",
+                    "note": "(nl) Hello",
+                    "lang": "nl"
+                },
+                {
+                    "text": "Ik spreek geen Nederlands.",
+                    "note": "(nl) I do not speak Dutch.",
+                    "lang": "nl"
+                }
+            ]
+        },
+        {
+            "id": 13,
+            "items": [
+                {
+                    "text": "Cześć",
+                    "note": "(pl) Hi",
+                    "lang": "pl"
+                },
+                {
+                    "text": "Jak się masz?",
+                    "note": "(pl) How are you?",
+                    "lang": "pl"
+                }
+            ]
+        },
+        {
+            "id": 14,
+            "items": [
+                {
+                    "text": "Merhaba",
+                    "note": "(tr) Hello",
+                    "lang": "tr"
+                },
+                {
+                    "text": "Teşekkür ederim.",
+                    "note": "(tr) Thank you.",
+                    "lang": "tr"
+                }
+            ]
+        },
+        {
+            "id": 15,
+            "items": [
+                {
+                    "text": "Xin chào",
+                    "note": "(vi) Hello",
+                    "lang": "vi"
+                },
+                {
+                    "text": "Cảm ơn bạn.",
+                    "note": "(vi) Thank you.",
+                    "lang": "vi"
+                }
+            ]
+        },
+        {
+            "id": 16,
+            "items": [
+                {
+                    "text": "नमस्ते",
+                    "note": "(hi) Hello",
+                    "lang": "hi"
+                },
+                {
+                    "text": "आपका नाम क्या है?",
+                    "note": "(hi) What is your name?",
+                    "lang": "hi"
+                }
+            ]
+        },
+        {
+            "id": 17,
+            "items": [
+                {
+                    "text": "مرحبا",
+                    "note": "(ar) Hello",
+                    "lang": "ar"
+                },
+                {
+                    "text": "شكرا لك",
+                    "note": "(ar) Thank you.",
+                    "lang": "ar"
+                }
+            ]
+        },
+        {
+            "id": 18,
+            "items": [
+                {
+                    "text": "สวัสดี",
+                    "note": "(th) Hello",
+                    "lang": "th"
+                },
+                {
+                    "text": "ขอบคุณครับ",
+                    "note": "(th) Thank you (male speaker)",
+                    "lang": "th"
+                }
+            ]
+        },
+        {
+            "id": 19,
+            "items": [
+                {
+                    "text": "Halo",
+                    "note": "(id) Hello",
+                    "lang": "id"
+                },
+                {
+                    "text": "Terima kasih.",
+                    "note": "(id) Thank you.",
+                    "lang": "id"
+                }
+            ]
+        }
+    ]
+}

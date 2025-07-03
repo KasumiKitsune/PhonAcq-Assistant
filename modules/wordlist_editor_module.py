@@ -7,9 +7,11 @@ MODULE_DESCRIPTION = "在程序内直接创建、编辑和保存单词/词语列
 
 import os
 import sys
-import importlib.util
 from datetime import datetime
 import json
+import shutil # [新增] 用于文件复制
+import subprocess # [新增] 用于打开文件浏览器
+
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget,
                              QTableWidgetItem, QHeaderView, QComboBox, QShortcut,
@@ -17,48 +19,21 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
 from PyQt5.QtCore import Qt, QSize, QEvent
 from PyQt5.QtGui import QKeySequence, QIcon
 
-# 数据定义
+# ... (LANGUAGE_MAP, FLAG_CODE_MAP, get_base_path_for_module, create_page, Command classes 不变) ...
 LANGUAGE_MAP = {
-    "自动检测": "", 
-    "英语 (美国)": "en-us", 
-    "英语 (英国)": "en-uk", 
-    "中文 (普通话）": "zh-cn",
-    "日语": "ja",
-    "韩语": "ko",
-    "法语 (法国)": "fr", # fr-fr, fr-ca 等映射到 fr
-    "德语": "de",
-    "西班牙语": "es",
-    "葡萄牙语": "pt",
-    "意大利语": "it",
-    "俄语": "ru",
-    "荷兰语": "nl",
-    "波兰语": "pl",
-    "土耳其语": "tr",
-    "越南语": "vi",
-    "印地语": "hi",
-    "阿拉伯语": "ar",
-    "泰语": "th",
-    "印尼语": "id",
-    # ...可以继续添加更多gTTS支持的语言...
+    "自动检测": "", "英语 (美国)": "en-us", "英语 (英国)": "en-uk", "中文 (普通话）": "zh-cn", "日语": "ja", "韩语": "ko",
+    "法语 (法国)": "fr", "德语": "de", "西班牙语": "es", "葡萄牙语": "pt", "意大利语": "it", "俄语": "ru",
+    "荷兰语": "nl", "波兰语": "pl", "土耳其语": "tr", "越南语": "vi", "印地语": "hi", "阿拉伯语": "ar", "泰语": "th", "印尼语": "id",
 }
-
-# [修复] 对应的旗帜代码映射
 FLAG_CODE_MAP = {
-    "": "auto", "en-us": "us", "en-uk": "gb", "zh-cn": "cn", 
-    "ja": "jp", "ko": "kr", "fr": "fr", "de": "de", "es": "es", "pt": "pt",
-    "it": "it", "ru": "ru", "nl": "nl", "pl": "pl", "tr": "tr",
-    "vi": "vn", "hi": "in", "ar": "sa", "th": "th", "id": "id",
+    "": "auto", "en-us": "us", "en-uk": "gb", "zh-cn": "cn", "ja": "jp", "ko": "kr", "fr": "fr", "de": "de", "es": "es", "pt": "pt",
+    "it": "it", "ru": "ru", "nl": "nl", "pl": "pl", "tr": "tr", "vi": "vn", "hi": "in", "ar": "sa", "th": "th", "id": "id",
 }
-
 def get_base_path_for_module():
     if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
     else: return os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-
-# [修改] 接收 icon_manager 和 detect_language_func
 def create_page(parent_window, WORD_LIST_DIR, icon_manager, detect_language_func):
     return WordlistEditorPage(parent_window, WORD_LIST_DIR, icon_manager, detect_language_func)
-
-# Undo/Redo 命令类 (保持不变)
 class WordlistChangeCellCommand(QUndoCommand):
     def __init__(self, editor, row, col, old_text, new_text, description):
         super().__init__(description); self.editor = editor; self.table = editor.table_widget; self.row, self.col = row, col; self.old_text, self.new_text = old_text, new_text
@@ -70,7 +45,6 @@ class WordlistChangeCellCommand(QUndoCommand):
         item = self.table.item(self.row, self.col);
         if not item: item = QTableWidgetItem(); self.table.setItem(self.row, self.col, item)
         item.setText(self.old_text)
-
 class WordlistChangeLanguageCommand(QUndoCommand):
     def __init__(self, editor, row, old_lang_code, new_lang_code, description):
         super().__init__(description); self.editor = editor; self.table = editor.table_widget; self.row = row; self.old_lang, self.new_lang = old_lang_code, new_lang_code
@@ -81,7 +55,6 @@ class WordlistChangeLanguageCommand(QUndoCommand):
             if index != -1: widget.setCurrentIndex(index)
     def redo(self): self._set_language(self.new_lang)
     def undo(self): self._set_language(self.old_lang)
-
 class WordlistRowOperationCommand(QUndoCommand):
     def __init__(self, editor, start_row, rows_data, operation_type, move_offset=0, description=""):
         super().__init__(description); self.editor = editor; self.table = editor.table_widget; self.start_row, self.rows_data, self.type, self.move_offset = start_row, rows_data, operation_type, move_offset
@@ -104,7 +77,6 @@ class WordlistRowOperationCommand(QUndoCommand):
 
 
 class WordlistEditorPage(QWidget):
-    # [修改] 接收 icon_manager 和 detect_language_func
     def __init__(self, parent_window, WORD_LIST_DIR, icon_manager, detect_language_func):
         super().__init__()
         self.parent_window = parent_window; self.WORD_LIST_DIR = WORD_LIST_DIR; self.icon_manager = icon_manager
@@ -122,7 +94,10 @@ class WordlistEditorPage(QWidget):
     def _init_ui(self):
         main_layout = QHBoxLayout(self); self.left_panel = QWidget()
         left_layout = QVBoxLayout(self.left_panel)
-        self.file_list_widget = QListWidget(); self.file_list_widget.setToolTip("所有可编辑的单词表文件。\n点击选择，双击可编辑文件名。")
+        # [修改] 启用自定义上下文菜单
+        self.file_list_widget = QListWidget()
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list_widget.setToolTip("所有可编辑的单词表文件。\n右键单击可进行更多操作。")
         self.new_btn = QPushButton("新建单词表");
         file_btn_layout = QHBoxLayout(); self.save_btn = QPushButton("保存"); self.save_as_btn = QPushButton("另存为...")
         file_btn_layout.addWidget(self.save_btn); file_btn_layout.addWidget(self.save_as_btn)
@@ -137,7 +112,6 @@ class WordlistEditorPage(QWidget):
         self.table_widget.verticalHeader().setVisible(True); self.table_widget.setAlternatingRowColors(True)
 
         table_btn_layout = QHBoxLayout()
-        # [新增] 撤销、重做、自动检测语言按钮
         self.undo_btn = QPushButton("撤销"); self.redo_btn = QPushButton("重做")
         self.auto_detect_lang_btn = QPushButton("自动检测语言")
         self.add_row_btn = QPushButton("添加行"); self.remove_row_btn = QPushButton("移除选中行")
@@ -158,12 +132,10 @@ class WordlistEditorPage(QWidget):
         self.undo_action.setIcon(self.icon_manager.get_icon("undo")); self.redo_action.setIcon(self.icon_manager.get_icon("redo"))
 
     def apply_layout_settings(self):
-        # ... (unchanged)
         config = self.parent_window.config; ui_settings = config.get("ui_settings", {}); width = ui_settings.get("editor_sidebar_width", 280); self.left_panel.setFixedWidth(width); col_widths = ui_settings.get("wordlist_editor_col_widths", [80, -1, -1, -1]);
         if 0 < self.table_widget.columnCount() and col_widths[0] != -1: self.table_widget.setColumnWidth(0, col_widths[0])
 
     def on_column_resized(self, logical_index, old_size, new_size):
-        # ... (unchanged)
         config = self.parent_window.config; current_widths = config.setdefault("ui_settings", {}).get("wordlist_editor_col_widths", [80, -1, -1, -1])
         if logical_index == 0: current_widths[0] = new_size
         config.setdefault("ui_settings", {})["wordlist_editor_col_widths"] = current_widths
@@ -177,62 +149,216 @@ class WordlistEditorPage(QWidget):
         current_selection = self.file_list_widget.currentItem().text() if self.file_list_widget.currentItem() else ""
         self.file_list_widget.clear();
         if os.path.exists(self.WORD_LIST_DIR):
-            files = sorted([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.py')]); self.file_list_widget.addItems(files)
+            files = sorted([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')]); self.file_list_widget.addItems(files)
             for i in range(len(files)):
                 if files[i] == current_selection: self.file_list_widget.setCurrentRow(i); break
 
     def setup_connections_and_shortcuts(self):
         self.file_list_widget.currentItemChanged.connect(self.on_file_selected)
+        # [新增] 连接新信号
+        self.file_list_widget.itemDoubleClicked.connect(self.on_file_double_clicked)
+        self.file_list_widget.customContextMenuRequested.connect(self.show_file_context_menu)
+        
         self.new_btn.clicked.connect(self.new_wordlist); self.save_btn.clicked.connect(self.save_wordlist); self.save_as_btn.clicked.connect(self.save_wordlist_as)
         self.add_row_btn.clicked.connect(lambda: self.add_row()); self.remove_row_btn.clicked.connect(self.remove_row)
         self.table_widget.itemPressed.connect(self.on_item_pressed); self.table_widget.itemChanged.connect(self.on_item_changed_for_undo)
         self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu); self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.undo_stack.cleanChanged.connect(lambda is_clean: self.save_btn.setEnabled(not is_clean))
         self.table_widget.viewport().installEventFilter(self)
-        
         self.undo_action = self.undo_stack.createUndoAction(self, "撤销"); self.undo_action.setShortcut(QKeySequence.Undo); self.redo_action = self.undo_stack.createRedoAction(self, "重做"); self.redo_action.setShortcut(QKeySequence.Redo)
         self.addAction(self.undo_action); self.addAction(self.redo_action)
-        
-        # [新增] 连接新按钮
         self.undo_btn.clicked.connect(self.undo_action.trigger); self.redo_btn.clicked.connect(self.redo_action.trigger)
         self.auto_detect_lang_btn.clicked.connect(self.auto_detect_languages)
-        self.undo_stack.canUndoChanged.connect(self.undo_btn.setEnabled)
-        self.undo_stack.canRedoChanged.connect(self.redo_btn.setEnabled)
-        self.undo_btn.setEnabled(False); self.redo_btn.setEnabled(False) # 初始状态
-        
+        self.undo_stack.canUndoChanged.connect(self.undo_btn.setEnabled); self.undo_stack.canRedoChanged.connect(self.redo_btn.setEnabled)
+        self.undo_btn.setEnabled(False); self.redo_btn.setEnabled(False)
         QShortcut(QKeySequence.Save, self, self.save_wordlist); QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.save_wordlist_as); QShortcut(QKeySequence.New, self, self.new_wordlist); QShortcut(QKeySequence.Copy, self, self.copy_selection)
         QShortcut(QKeySequence.Cut, self, self.cut_selection); QShortcut(QKeySequence.Paste, self, self.paste_selection); QShortcut(QKeySequence("Ctrl+D"), self, self.duplicate_rows); QShortcut(QKeySequence(Qt.ALT | Qt.Key_Up), self, lambda: self.move_rows(-1)); QShortcut(QKeySequence(Qt.ALT | Qt.Key_Down), self, lambda: self.move_rows(1))
         QShortcut(QKeySequence(Qt.CTRL | Qt.Key_Minus), self, self.remove_row)
         self.table_widget.horizontalHeader().sectionResized.connect(self.on_column_resized)
 
-    # --- [新增] 自动检测语言的方法 ---
+    # ... (auto_detect_languages 和 undo/redo 相关方法保持不变) ...
     def auto_detect_languages(self):
-        detected_count = 0
-        self.undo_stack.beginMacro("自动检测语言")
-        
-        gtts_settings = self.parent_window.config.get("gtts_settings", {})
-        default_lang = gtts_settings.get("default_lang", "en-us")
-        
+        detected_count = 0; self.undo_stack.beginMacro("自动检测语言")
+        gtts_settings = self.parent_window.config.get("gtts_settings", {}); default_lang = gtts_settings.get("default_lang", "en-us")
         for row in range(self.table_widget.rowCount()):
-            word_item = self.table_widget.item(row, 1)
-            lang_combo = self.table_widget.cellWidget(row, 3)
-            
+            word_item = self.table_widget.item(row, 1); lang_combo = self.table_widget.cellWidget(row, 3)
             if word_item and word_item.text().strip() and lang_combo:
                 current_lang = lang_combo.currentData()
-                # 只对未设置语言（即"自动"）的行进行检测
                 if current_lang == "":
-                    text = word_item.text()
-                    detected_lang = self.detect_language_func(text) or default_lang
-                    
+                    text = word_item.text(); detected_lang = self.detect_language_func(text) or default_lang
                     if detected_lang != current_lang:
-                        cmd = WordlistChangeLanguageCommand(self, row, current_lang, detected_lang, "自动填充语言")
-                        self.undo_stack.push(cmd)
-                        detected_count += 1
-        
-        self.undo_stack.endMacro()
-        QMessageBox.information(self, "检测完成", f"成功检测并填充了 {detected_count} 个词条的语言。")
+                        cmd = WordlistChangeLanguageCommand(self, row, current_lang, detected_lang, "自动填充语言"); self.undo_stack.push(cmd); detected_count += 1
+        self.undo_stack.endMacro(); QMessageBox.information(self, "检测完成", f"成功检测并填充了 {detected_count} 个词条的语言。")
 
-    # ... (其余所有方法保持不变) ...
+    # --- [新增] 文件列表的上下文菜单和操作 ---
+    def on_file_double_clicked(self, item):
+        self._show_in_explorer(item)
+
+    def show_file_context_menu(self, position):
+        item = self.file_list_widget.itemAt(position)
+        if not item: return
+
+        menu = QMenu()
+        show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
+        menu.addSeparator()
+        duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
+        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
+        
+        action = menu.exec_(self.file_list_widget.mapToGlobal(position))
+
+        if action == show_action:
+            self._show_in_explorer(item)
+        elif action == duplicate_action:
+            self._duplicate_file(item)
+        elif action == delete_action:
+            self._delete_file(item)
+
+    def _show_in_explorer(self, item):
+        if not item: return
+        filepath = os.path.join(self.WORD_LIST_DIR, item.text())
+        if not os.path.exists(filepath):
+            QMessageBox.warning(self, "文件不存在", "该文件可能已被移动或删除。")
+            self.refresh_file_list()
+            return
+        
+        try:
+            if sys.platform == 'win32':
+                subprocess.run(['explorer', '/select,', os.path.normpath(filepath)])
+            elif sys.platform == 'darwin':
+                subprocess.check_call(['open', '-R', filepath])
+            else: # Linux
+                subprocess.check_call(['xdg-open', os.path.dirname(filepath)])
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法打开文件所在位置: {e}")
+
+    def _duplicate_file(self, item):
+        if not item: return
+        src_path = os.path.join(self.WORD_LIST_DIR, item.text())
+        if not os.path.exists(src_path):
+            QMessageBox.warning(self, "文件不存在", "无法创建副本，源文件可能已被移动或删除。"); self.refresh_file_list(); return
+
+        base, ext = os.path.splitext(item.text())
+        dest_path = os.path.join(self.WORD_LIST_DIR, f"{base}_copy{ext}")
+        i = 1
+        while os.path.exists(dest_path):
+            dest_path = os.path.join(self.WORD_LIST_DIR, f"{base}_copy_{i}{ext}")
+            i += 1
+        
+        try:
+            shutil.copy2(src_path, dest_path)
+            self.refresh_file_list()
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法创建副本: {e}")
+
+    def _delete_file(self, item):
+        if not item: return
+        filepath = os.path.join(self.WORD_LIST_DIR, item.text())
+        
+        reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除文件 '{item.text()}' 吗？\n此操作不可撤销。",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                os.remove(filepath)
+                # 如果删除的是当前打开的文件，则重置编辑器
+                if filepath == self.current_wordlist_path:
+                    self.current_wordlist_path = None
+                    self.table_widget.setRowCount(0)
+                    self.undo_stack.clear()
+                self.refresh_file_list()
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"无法删除文件: {e}")
+    # --- 结束新增 ---
+
+    # ... (其他方法保持不变, 仅修改 load_file_to_table) ...
+    def on_file_selected(self, current, previous):
+        if not self.undo_stack.isClean() and previous:
+            reply = QMessageBox.question(self, "未保存的更改", "您有未保存的更改，确定要切换吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No: self.file_list_widget.currentItemChanged.disconnect(self.on_file_selected); self.file_list_widget.setCurrentItem(previous); self.file_list_widget.currentItemChanged.connect(self.on_file_selected); return
+        if current:
+            self.current_wordlist_path = os.path.join(self.WORD_LIST_DIR, current.text())
+            self.load_file_to_table()
+        else:
+            self.current_wordlist_path = None
+            self.table_widget.setRowCount(0)
+            self.undo_stack.clear()
+
+    def load_file_to_table(self):
+        # [修复] 增加文件存在性检查
+        if not self.current_wordlist_path or not os.path.exists(self.current_wordlist_path):
+            QMessageBox.information(self, "文件不存在", f"词表文件 '{os.path.basename(str(self.current_wordlist_path))}' 不存在，可能已被删除或移动。")
+            self.current_wordlist_path = None
+            self.table_widget.setRowCount(0)
+            self.undo_stack.clear()
+            self.refresh_file_list() # 刷新列表以移除不存在的文件
+            return
+            
+        self.table_widget.blockSignals(True)
+        self.table_widget.setRowCount(0)
+        
+        try:
+            with open(self.current_wordlist_path, 'r', encoding='utf-8') as f: data = json.load(f)
+            if "meta" not in data or "groups" not in data or not isinstance(data["groups"], list): raise ValueError("JSON文件格式无效，缺少 'meta' 或 'groups' 键。")
+            row_index = 0
+            for group_data in data["groups"]:
+                group_id = group_data.get("id", ""); items = group_data.get("items", [])
+                if not isinstance(items, list): continue
+                for item_data in items:
+                    text = item_data.get("text", ""); note = item_data.get("note", ""); lang = item_data.get("lang", "")
+                    self.table_widget.insertRow(row_index); self.populate_row(row_index, [str(group_id), text, note, lang]); row_index += 1
+            self.undo_stack.clear()
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            QMessageBox.critical(self, "加载失败", f"无法解析JSON词表文件 '{os.path.basename(self.current_wordlist_path)}':\n{e}")
+        finally:
+            self.table_widget.blockSignals(False)
+
+    def populate_row(self, row, data):
+        self.table_widget.setItem(row, 0, QTableWidgetItem(data[0])); self.table_widget.setItem(row, 1, QTableWidgetItem(data[1])); self.table_widget.setItem(row, 2, QTableWidgetItem(data[2]))
+        combo = QComboBox(self.table_widget); combo.setIconSize(QSize(24, 18))
+        for display_name, lang_code in LANGUAGE_MAP.items():
+            icon_path = os.path.join(self.flags_path, f"{FLAG_CODE_MAP.get(lang_code, 'auto')}.png"); combo.addItem(QIcon(icon_path) if os.path.exists(icon_path) else QIcon(), display_name, lang_code)
+        index = combo.findData(data[3]);
+        if index != -1: combo.setCurrentIndex(index)
+        combo.view().pressed.connect(lambda _, r=row: self.on_language_combo_pressed(r)); combo.activated.connect(lambda idx, r=row: self.on_language_manually_changed(idx, r)); self.table_widget.setCellWidget(row, 3, combo)
+
+    def new_wordlist(self):
+        if not self.undo_stack.isClean():
+            reply = QMessageBox.question(self, "未保存的更改", "您有未保存的更改，确定要新建吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No: return
+        self.table_widget.setRowCount(0); self.current_wordlist_path = None; self.file_list_widget.setCurrentItem(None); self.undo_stack.clear(); self.add_row()
+
+    def save_wordlist(self):
+        if self.current_wordlist_path: self._write_to_file(self.current_wordlist_path)
+        else: self.save_wordlist_as()
+
+    def save_wordlist_as(self):
+        filepath, _ = QFileDialog.getSaveFileName(self, "另存为单词表", self.WORD_LIST_DIR, "JSON 文件 (*.json)")
+        if filepath:
+            if not filepath.lower().endswith('.json'): filepath += '.json'
+            self._write_to_file(filepath); self.current_wordlist_path = filepath; self.refresh_file_list()
+            for i in range(self.file_list_widget.count()):
+                if self.file_list_widget.item(i).text() == os.path.basename(filepath): self.file_list_widget.setCurrentRow(i); break
+
+    def _write_to_file(self, filepath):
+        groups_map = {}
+        for row in range(self.table_widget.rowCount()):
+            try:
+                group_item = self.table_widget.item(row, 0); word_item = self.table_widget.item(row, 1)
+                if not group_item or not word_item or not group_item.text().isdigit() or not word_item.text().strip(): continue
+                group_id = int(group_item.text()); text = word_item.text().strip()
+                note_item = self.table_widget.item(row, 2); note = note_item.text().strip() if note_item else ""
+                lang_combo = self.table_widget.cellWidget(row, 3); lang = lang_combo.currentData() if lang_combo else ""
+                if group_id not in groups_map: groups_map[group_id] = []
+                groups_map[group_id].append({"text": text, "note": note, "lang": lang})
+            except (ValueError, AttributeError): continue
+        final_data_structure = {"meta": {"format": "standard_wordlist", "version": "1.0", "author": "PhonAcq Assistant", "save_date": datetime.now().isoformat()}, "groups": []}
+        for group_id, items in sorted(groups_map.items()): final_data_structure["groups"].append({"id": group_id, "items": items})
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f: json.dump(final_data_structure, f, indent=4, ensure_ascii=False)
+            self.undo_stack.setClean(); QMessageBox.information(self, "成功", f"单词表已成功保存至:\n{filepath}")
+        except Exception as e: QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")
+
+    # ... (eventFilter, keyPressEvent, on_item_pressed, etc. remain unchanged) ...
     def eventFilter(self, source, event):
         if source is self.table_widget.viewport() and event.type() == QEvent.Wheel and self.table_widget.itemAt(event.pos()) and self.table_widget.itemAt(event.pos()).column() == 0:
             item = self.table_widget.itemAt(event.pos());
@@ -321,25 +447,14 @@ class WordlistEditorPage(QWidget):
         self.undo_stack.endMacro()
     def duplicate_rows(self):
         rows_to_duplicate = self.get_selected_rows_indices()
-        
-        # --- [修复] 修正变量作用域和逻辑流 ---
         if not rows_to_duplicate:
-            # 如果没有通过复选框等方式选中行，则尝试获取当前高亮的行
             current_row = self.table_widget.currentRow()
-            if current_row == -1:
-                # 如果连高亮的行都没有，则不执行任何操作
-                return
-            else:
-                # 使用高亮的行作为要复制的行
-                rows_to_duplicate = [current_row]
-        # --- 结束修复 ---
-
-        # 后续逻辑保持不变，因为此时 rows_to_duplicate 肯定有值了
+            if current_row == -1: return
+            else: rows_to_duplicate = [current_row]
         rows_data = self._get_rows_data(rows_to_duplicate)
         insert_at = rows_to_duplicate[-1] + 1
         cmd = WordlistRowOperationCommand(self, insert_at, rows_data, 'add', description="创建副本/重制行")
         self.undo_stack.push(cmd)
-
     def move_rows(self, offset):
         selected_rows = self.get_selected_rows_indices();
         if not selected_rows: return
@@ -359,70 +474,3 @@ class WordlistEditorPage(QWidget):
         selected_rows = self.get_selected_rows_indices()
         if not selected_rows: QMessageBox.warning(self, "提示", "请先选择要移除的整行。"); return
         rows_data = self._get_rows_data(selected_rows); start_row = selected_rows[0]; cmd = WordlistRowOperationCommand(self, start_row, rows_data, 'remove', description="移除选中行"); self.undo_stack.push(cmd)
-    def on_file_selected(self, current, previous):
-        if not self.undo_stack.isClean() and previous:
-            reply = QMessageBox.question(self, "未保存的更改", "您有未保存的更改，确定要切换吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.No: self.file_list_widget.currentItemChanged.disconnect(self.on_file_selected); self.file_list_widget.setCurrentItem(previous); self.file_list_widget.currentItemChanged.connect(self.on_file_selected); return
-        if current: self.current_wordlist_path = os.path.join(self.WORD_LIST_DIR, current.text()); self.load_file_to_table()
-        else: self.current_wordlist_path = None; self.table_widget.setRowCount(0); self.undo_stack.clear()
-    def load_file_to_table(self):
-        self.table_widget.blockSignals(True); self.table_widget.setRowCount(0)
-        if not self.current_wordlist_path: self.table_widget.blockSignals(False); return
-        try:
-            spec = importlib.util.spec_from_file_location("temp_wordlist", self.current_wordlist_path)
-            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module); word_groups = getattr(module, 'WORD_GROUPS', []); row = 0
-            for i, group in enumerate(word_groups, 1):
-                for word, value in group.items():
-                    ipa, lang_code = value if isinstance(value, tuple) and len(value) == 2 else (str(value), ''); self.table_widget.insertRow(row); self.populate_row(row, [str(i), word, ipa, lang_code]); row += 1
-            self.undo_stack.clear()
-        except Exception as e: QMessageBox.critical(self, "加载失败", f"无法解析单词表文件 '{os.path.basename(self.current_wordlist_path)}':\n{e}")
-        finally: self.table_widget.blockSignals(False)
-    def populate_row(self, row, data):
-        self.table_widget.setItem(row, 0, QTableWidgetItem(data[0])); self.table_widget.setItem(row, 1, QTableWidgetItem(data[1])); self.table_widget.setItem(row, 2, QTableWidgetItem(data[2]))
-        combo = QComboBox(self.table_widget); combo.setIconSize(QSize(24, 18))
-        for display_name, lang_code in LANGUAGE_MAP.items():
-            icon_path = os.path.join(self.flags_path, f"{FLAG_CODE_MAP.get(lang_code, 'auto')}.png"); combo.addItem(QIcon(icon_path) if os.path.exists(icon_path) else QIcon(), display_name, lang_code)
-        index = combo.findData(data[3]);
-        if index != -1: combo.setCurrentIndex(index)
-        combo.view().pressed.connect(lambda _, r=row: self.on_language_combo_pressed(r)); combo.activated.connect(lambda idx, r=row: self.on_language_manually_changed(idx, r)); self.table_widget.setCellWidget(row, 3, combo)
-    def new_wordlist(self):
-        if not self.undo_stack.isClean():
-            reply = QMessageBox.question(self, "未保存的更改", "您有未保存的更改，确定要新建吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.No: return
-        self.table_widget.setRowCount(0); self.current_wordlist_path = None; self.file_list_widget.setCurrentItem(None); self.undo_stack.clear(); self.add_row()
-    def save_wordlist(self):
-        if self.current_wordlist_path: self._write_to_file(self.current_wordlist_path)
-        else: self.save_wordlist_as()
-    def save_wordlist_as(self):
-        filepath, _ = QFileDialog.getSaveFileName(self, "另存为单词表", self.WORD_LIST_DIR, "Python 文件 (*.py)")
-        if filepath:
-            if not filepath.endswith('.py'): filepath += '.py'
-            self._write_to_file(filepath); self.current_wordlist_path = filepath; self.refresh_file_list()
-            for i in range(self.file_list_widget.count()):
-                if self.file_list_widget.item(i).text() == os.path.basename(filepath): self.file_list_widget.setCurrentRow(i); break
-    def _write_to_file(self, filepath):
-        word_groups_map = {}
-        for row in range(self.table_widget.rowCount()):
-            try:
-                group_item = self.table_widget.item(row, 0); word_item = self.table_widget.item(row, 1)
-                if not group_item or not word_item or not group_item.text().isdigit() or not word_item.text().strip(): continue
-                group_id = int(group_item.text()); word = word_item.text().strip()
-                ipa_item = self.table_widget.item(row, 2); ipa = ipa_item.text().strip() if ipa_item else ''
-                lang_combo = self.table_widget.cellWidget(row, 3); lang_code = lang_combo.currentData() if lang_combo else ''
-                if group_id not in word_groups_map: word_groups_map[group_id] = {}
-                word_groups_map[group_id][word] = (ipa, lang_code)
-            except (ValueError, AttributeError): continue
-        word_groups_list = [v for k, v in sorted(word_groups_map.items())]
-        py_code = f"# Auto-generated by PhonAcq Assistant Wordlist Editor\n# Save date: {datetime.now():%Y-%m-%d %H:%M:%S}\n\nWORD_GROUPS = [\n"
-        for group in word_groups_list:
-            if not group: continue
-            py_code += "    {\n";
-            for word, (ipa, lang) in group.items():
-                word_escaped = word.replace("'", "\\'"); ipa_escaped = ipa.replace("'", "\\'")
-                py_code += f"        '{word_escaped}': ('{ipa_escaped}', '{lang}'),\n"
-            py_code += "    },\n"
-        py_code += "]\n"
-        try:
-            with open(filepath, 'w', encoding='utf-8') as f: f.write(py_code)
-            self.undo_stack.setClean(); QMessageBox.information(self, "成功", f"单词表已成功保存至:\n{filepath}")
-        except Exception as e: QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")

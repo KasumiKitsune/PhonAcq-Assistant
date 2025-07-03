@@ -287,3 +287,39 @@ QRadioButton::indicator:disabled {
 QRadioButton:disabled {
     color: #A8B8C8;
 }
+
+/* --- 为新的 WaveformWidget 添加样式 --- */
+/*
+ * 通过 qproperty- 语法设置我们在 WaveformWidget 中定义的自定义属性
+ * 这使得主题可以完全控制波形图的颜色
+ */
+WaveformWidget {
+    qproperty-waveformColor: #3B6894;       /* 波形颜色: 深浪蓝 */
+    qproperty-cursorColor: #E53935;         /* 播放头光标颜色: 醒目的红色 */
+    qproperty-selectionColor: rgba(138, 178, 214, 100); /* 选区颜色: 半透明的柔和波浪蓝 */
+    border: 1px solid #C5D9E8;
+    border-radius: 0px;
+}
+
+WaveformWidget:disabled {
+    /* 当被禁用时（例如多选文件时），降低其不透明度以提供视觉反馈 */
+    qproperty-waveformColor: #A8B8C8; 
+    opacity: 0.5;
+}
+QToolTip {
+    /* [核心] 使用主题中的沙/木色作为背景，而不是常见的深色，以呼应“白昼”主题 */
+    background-color: #F5F8FA; 
+    
+    /* [核心] 使用主题中的“墨色”作为文字和边框，形成高对比度，如同木刻版画 */
+    color: #3B6894;
+    border: 1px solid #3B6894;
+    
+    padding: 6px 10px; /* 内边距，提供呼吸空间 */
+    
+    /* [核心] 坚持主题的锐利、无圆角风格 */
+    border-radius: 0px; 
+    
+    /* 字体与主题保持一致 */
+    font-size: 16px;
+    font-weight: bold;
+}

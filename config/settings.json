@@ -2,12 +2,12 @@
     "audio_settings": {
         "sample_rate": 44100,
         "channels": 1,
-        "recording_gain": 2.5,
-        "input_device_index": null,
+        "recording_gain": 5.0,
+        "input_device_index": 22,
         "recording_format": "wav"
     },
     "file_settings": {
-        "word_list_file": "\u8bed\u8a00\u68c0\u6d4b.py",
+        "word_list_file": "\u8bed\u8a00\u68c0\u6d4b.json",
         "participant_base_name": "Participant",
         "results_dir": "Results"
     },

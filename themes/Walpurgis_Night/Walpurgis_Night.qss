@@ -1,0 +1,354 @@
+/*
+ * Walpurgis Night v1.1 - The Final Invocation
+ * Author: AI Assistant (Successor)
+ * Date: [Current Date]
+ * Description: 一个为PhonAcq Assistant设计的哥特与神秘主义风格主题。
+ *              此版本对所有色彩进行了最终校准，确保在所有状态下都保持
+ *              深邃、统一的黑暗视觉体验。
+ */
+/* @icon-path: "icons/" */
+
+/* ============================================================================== */
+/* == 1. 全局与基础样式 (Midnight Sky & Bone White) == */
+/* ============================================================================== */
+QWidget {
+    font-family: "Microsoft YaHei";
+    color: #d1c8b7; /* 骸骨白 (Bone White) */
+    font-size: 16px;
+    font-weight: normal;
+    background-color: transparent;
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
+    background-color: #1a1d24; /* 午夜天幕 (Midnight Sky) */
+}
+
+/* ============================================================================== */
+/* == 2. 容器与布局控件 (Shadowy Structures) == */
+/* ============================================================================== */
+QGroupBox { 
+    border: 1px solid #2c303a; /* 山岩魅影 (Shadowy Rock) */
+    margin-top: 18px; 
+    padding: 25px 15px 15px 15px;
+    border-radius: 0px;
+    background-color: rgba(44, 48, 58, 0.2);
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top center;
+    padding: 5px 15px;
+    background-color: #e64a19; /* 炽燃篝火 (Blazing Bonfire) */
+    color: #FFFFFF; /* [修正] 标题文字改为白色，对比更强 */
+    font-weight: bold;
+    border-radius: 0px;
+}
+
+QSplitter::handle {
+    background-color: #454a59;
+}
+QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle:vertical { height: 1px; }
+QSplitter::handle:hover { background-color: #e64a19; }
+
+/* ============================================================================== */
+/* == 3. 标签页 (Ritual Banners) == */
+/* ============================================================================== */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #454a59;
+    background-color: #1a1d24;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: center;
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: transparent; 
+    color: #8a8174;
+    border: 1px solid transparent;
+    border-bottom: 2px solid #454a59;
+    font-size: 18px;
+    font-weight: bold;
+    min-width: 180px;
+    padding: 12px 20px; 
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    color: #e64a19;
+    border-bottom-color: #8f3a1b; /* 余烬 (Embers) */
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #1a1d24;
+    color: #e64a19; 
+    border-color: #454a59;
+    border-bottom-color: #1a1d24;
+}
+
+QTabWidget#SubTabWidget::pane { border: none; }
+QTabWidget#SubTabWidget::tab-bar { 
+    alignment: left;
+    border-bottom: 1px solid #454a59;
+}
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent;
+    color: #8a8174;
+    border: none;
+    padding: 8px 16px;
+    font-size: 16px;
+    font-weight: bold;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #d1c8b7;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #d1c8b7; 
+    border-top: 2px solid #8f3a1b;
+    border-bottom: 2px solid #e64a19;
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #555; }
+
+/* ============================================================================== */
+/* == 4. 核心交互控件 (Bonfire & Embers) == */
+/* ============================================================================== */
+QPushButton {
+    border: 1px solid #454a59; 
+    padding: 10px 22px; 
+    border-radius: 0px;
+    font-size: 16px; 
+    background-color: #2c303a; 
+    color: #d1c8b7; 
+    min-height: 28px;
+    font-weight: bold;
+}
+QPushButton:hover { 
+    background-color: #3e4350;
+    border-color: #e64a19; /* [修正] 悬停时边框高亮 */
+}
+QPushButton:pressed { 
+    background-color: #1a1d24; 
+    border-color: #e64a19;
+}
+QPushButton:disabled { 
+    background-color: #2c303a; 
+    color: #555; 
+    border-color: #454a59;
+}
+
+QPushButton#AccentButton { 
+    background-color: #e64a19;
+    color: #FFFFFF;
+    border: 1px solid #ff7043;
+}
+QPushButton#AccentButton:hover { background-color: #f4511e; border-color: #ff8a65; }
+QPushButton#AccentButton:pressed { background-color: #d84315; }
+
+QPushButton#ActionButton_Delete {
+    background-color: #6d1a1a;
+    color: #ffcdd2;
+    border: 1px solid #b71c1c;
+}
+QPushButton#ActionButton_Delete:hover { background-color: #b71c1c; color: #FFFFFF; }
+QPushButton#ActionButton_Delete:pressed { background-color: #880e4f; }
+
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #21252b;
+    border: 1px solid #454a59;
+    border-radius: 0px; 
+    padding: 8px;
+    color: #d1c8b7;
+    selection-background-color: #8f3a1b;
+    selection-color: #FFFFFF; 
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { 
+    border: 1px solid #e64a19; 
+    background-color: #262a31;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #2c303a;
+    color: #555;
+}
+QTextBrowser a { color: #e64a19; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; color: #ff7043; }
+
+QComboBox { 
+    background-color: #21252b;
+    border: 1px solid #454a59;
+    border-radius: 0px; 
+    padding: 7px 8px;
+}
+QComboBox:focus { border: 1px solid #e64a19; }
+QComboBox::drop-down { 
+    background-color: #e64a19;
+    border: none;
+    width: 22px;
+}
+QComboBox::down-arrow { image: url(icon:arrow_down_light); }
+QComboBox QAbstractItemView { 
+    border: 1px solid #e64a19; 
+    background-color: #21252b; 
+    selection-background-color: #8f3a1b; 
+    selection-color: #FFFFFF; 
+    outline: 0px;
+}
+
+QListWidget, QTableWidget { 
+    background-color: #21252b; 
+    border: 1px solid #454a59;
+    border-radius: 0px; 
+    outline: 0px;
+    alternate-background-color: #262a31;
+    gridline-color: #2c303a; 
+}
+/* [新增] 统一列表和表格项的背景色 */
+QListWidget::item {
+    background-color: #21252b;
+    border: none;
+    padding: 10px 15px; /* 增加水平内边距，让文字在选中时有更多空间 */
+}
+QTableWidget::item {
+    background-color: #21252b;
+    border: none;
+}
+QListWidget::item:alternate, QTableWidget::item:alternate {
+    background-color: #262a31;
+}
+
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #8f3a1b; 
+    color: #FFFFFF; 
+}
+QTableWidget QLineEdit {
+    border: 1px solid #e64a19; /* [修正] 确保表格内编辑框有清晰的焦点指示 */
+}
+
+QHeaderView::section { 
+    background-color: #2c303a; 
+    padding: 8px; 
+    border: none;
+    border-bottom: 2px solid #e64a19; 
+    font-weight: bold; 
+    color: #d1c8b7;
+}
+QTableCornerButton::section {
+    background-color: #2c303a;
+    border: 1px solid #454a59;
+}
+
+QSlider::groove:horizontal { 
+    height: 3px; 
+    background: #454a59;
+}
+QSlider::handle:horizontal { 
+    background: #d1c8b7; 
+    border: 1px solid #1a1d24; 
+    width: 10px;
+    height: 20px;
+    margin: -8px 0;
+}
+QSlider::handle:horizontal:hover {
+    background: #FFFFFF;
+}
+
+QProgressBar { 
+    border: 1px solid #454a59; 
+    border-radius: 0px; 
+    text-align: center; 
+    color: #FFFFFF; 
+    background-color: #2c303a;
+    font-weight: bold;
+}
+QProgressBar::chunk { 
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8f3a1b, stop:1 #e64a19);
+}
+
+QScrollBar:vertical, QScrollBar:horizontal {
+    border: none;
+    background: #1a1d24;
+    width: 14px;
+    height: 14px;
+}
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: #454a59;
+    border-radius: 0px;
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+    background: #e64a19;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    height: 0; width: 0;
+}
+
+QMenu {
+    background-color: #21252b;
+    border: 1px solid #e64a19;
+    padding: 5px;
+}
+QMenu::item:selected {
+    background-color: #8f3a1b;
+}
+QMenu::separator { height: 1px; background: #454a59; margin: 5px; }
+
+QToolTip {
+    background-color: #1a1d24;
+    color: #e64a19;
+    border: 1px solid #e64a19;
+    padding: 6px 8px;
+    border-radius: 0px;
+    opacity: 240;
+}
+
+QMessageBox, QDialog { 
+    background-color: #21252b; /* [修正] 对话框背景改为深色 */
+    border: 1px solid #e64a19;
+    border-radius: 0px;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 16px;
+}
+
+/* ============================================================================== */
+/* == 5. 自定义控件样式 (Arcane Contraptions) == */
+/* ============================================================================== */
+ToggleSwitch {
+    qproperty-trackColorOff: #454a59;      
+    qproperty-trackColorOn: #e64a19;       
+    qproperty-knobColor: #d1c8b7;          
+    qproperty-trackBorderRadius: 0;     
+    qproperty-borderWidth: 2;              
+    qproperty-borderColor: #D1C8B7;        
+    qproperty-knobMargin: 2;               
+    qproperty-knobShape: 'rectangle';      
+    min-width: 50px; max-width: 50px;                       
+    min-height: 25px; max-height: 25px;                      
+}
+
+WaveformWidget {
+    qproperty-waveformColor: #d1c8b7;
+    qproperty-cursorColor: #e64a19;
+    qproperty-selectionColor: rgba(143, 58, 27, 100);
+    border: 1px solid #454a59;
+    border-radius: 0px;
+    background-color: #21252b; /* [新增] 确保波形图背景色与输入框一致 */
+}
+
+/* ============================================================================== */
+/* == 6. 模块特定样式 (Specific Rituals) == */
+/* ============================================================================== */
+QLabel#ScalableImageLabel {
+    border: 1px dashed #454a59;
+    background-color: #21252b;
+    color: #555; 
+}
+QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border: 2px solid #8a8174;
+    background-color: transparent;
+}
+QRadioButton::indicator:checked {
+    background-color: #e64a19;
+    border: 2px solid #2c303a;
+}
+QRadioButton::indicator:disabled {
+    border-color: #454a59;
+}
