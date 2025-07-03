@@ -1,11 +1,24 @@
+# Core application framework
 PyQt5
+
+# Data handling and Excel integration
 pandas
 openpyxl
+
+# Audio processing and playback
 sounddevice
 soundfile
 numpy
+
+# Online Text-to-Speech (TTS)
 gTTS
+
+# String similarity and fuzzy matching for smart-detect features
 thefuzz
 python-Levenshtein
+
+# Chinese Pinyin to IPA conversion
 pypinyin
+
+# Markdown rendering for the help module
 markdown
