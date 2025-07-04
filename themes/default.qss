@@ -392,3 +392,50 @@ QRadioButton {
 }
 QRadioButton:checked { color: #2c3e50; font-weight: bold; }
 QRadioButton::indicator { width: 18px; height: 18px; }
+/* --- 概览波形图 (顶部的波形图) --- */
+/*
+ * 使用对象名选择器来为音频分析模块中的特定 WaveformWidget 指定样式，
+ * 避免与音频数据管理器中的样式冲突。
+ */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    qproperty-backgroundColor: #FFFFFF; /* 背景设为纯白，与下方语谱图一致 */
+    qproperty-waveformColor: #a0a0a0;   /* 波形使用中性灰色，作为参考 */
+    
+    border: 1px solid #D9DEE4;         /* 与其他输入框等控件边框一致 */
+    border-bottom: none;               /* 去掉下边框，与语谱图无缝连接 */
+    border-radius: 8px 8px 0 0;        /* 只保留顶部圆角 */
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    /* 语谱图颜色映射：从纯白到深蓝灰，提供清晰、柔和的视觉效果 */
+    qproperty-backgroundColor: #FFFFFF;
+    qproperty-spectrogramMinColor: #FFFFFF; /* 能量最低处 (背景): 纯白 */
+    qproperty-spectrogramMaxColor: #2c3e50; /* 能量最高处 (前景): 深蓝灰 */
+    
+    /* 强度曲线颜色: 使用一个不刺眼的绿色 */
+    qproperty-intensityColor: #27ae60;
+    
+    /* 原始F0点的颜色: 使用主题蓝，代表精确的分析结果 */
+    qproperty-f0Color: #3B97E3;
+    
+    /* 派生F0曲线的颜色: 使用一个更柔和、半透明的蓝色 */
+    qproperty-f0DerivedColor: rgba(59, 151, 227, 100);
+    
+    /* F1高亮颜色: 使用深邃的蓝灰色，与前景能量色一致，代表最重要信息 */
+    qproperty-f1Color: #2c3e50;
+
+    /* 其他共振峰颜色: 使用一个较浅的灰色，作为次要信息 */
+    qproperty-formantColor: #7f8c8d;
+    
+    /* 播放头光标颜色: 使用醒目的红色，提供高对比度 */
+    qproperty-cursorColor: #e74c3c;
+    
+    /* 鼠标悬停信息框: 采用与全局Tooltip一致的深色背景、亮色文字风格 */
+    qproperty-infoTextColor: #FFFFFF;
+    qproperty-infoBackgroundColor: rgba(44, 62, 80, 0.9); /* 半透明的深蓝灰 */
+    
+    /* 边框样式 */
+    border: 1px solid #D9DEE4;
+    border-radius: 0 0 8px 8px; /* 只保留底部圆角 */
+}

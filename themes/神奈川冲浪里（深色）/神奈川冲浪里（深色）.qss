@@ -358,3 +358,48 @@ WaveformWidget:disabled {
     /* 降低不透明度以提供清晰的禁用反馈 */
     opacity: 0.6;
 }
+/* --- 主波形图 (顶部的概览波形) --- */
+/*
+ * 为顶部的波形概览图单独设置样式，使其在视觉上作为背景参考。
+ */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #4A5B78;
+    border-bottom: none;
+    border-radius: 0px;
+    /* [修复] 明确设置背景色为夜海色，与语谱图的背景统一 */
+    qproperty-backgroundColor: #0F1A2C; 
+    qproperty-waveformColor: #5A6B88;
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    qproperty-backgroundColor: #0F1A2C;
+    qproperty-spectrogramMinColor: #0F1A2C;
+    qproperty-spectrogramMaxColor: #E8EAF6;
+    
+    /* 强度曲线颜色: 使用主题中的沙/木色，如同月光下的沙滩 */
+    qproperty-intensityColor: #A79B82;
+    
+    /* 原始F0点的颜色: 使用醒目的红色，如同黑夜中的警示灯，代表精确的测量点 */
+    qproperty-f0Color: #E53935;
+    
+    /* 派生F0曲线的颜色: 使用明亮的浪花蓝，如同月光在波浪上的反光，作为主要的视觉引导线 */
+    qproperty-f0DerivedColor: #75AADB;
+    
+    /* F1高亮颜色: 使用主题中的浪尖白，代表最重要的共振峰 */
+    qproperty-f1Color: #FFFFFF;
+
+    /* 其他共振峰颜色: 使用浪花蓝，作为次要信息 */
+    qproperty-formantColor: #75AADB;
+    
+    /* 播放头光标颜色: 保持醒目的红色 */
+    qproperty-cursorColor: #E53935;
+    
+    /* 鼠标悬停信息框的文字和背景色: 与主题风格保持一致 */
+    qproperty-infoTextColor: #E8EAF6; /* Moonlight White */
+    qproperty-infoBackgroundColor: rgba(15, 26, 44, 0.85); /* 半透明的夜海色 */
+    
+    /* 边框样式 */
+    border: 1px solid #4A5B78; /* 深灰色边框 */
+    border-radius: 0px;
+}

@@ -7,16 +7,15 @@ MODULE_DESCRIPTION = "展示图片并录制方言描述，支持文字备注显�
 
 import os
 import sys 
-import importlib.util
 import threading
 import queue
 import time
 import random
 import json
 
-from PyQt5.QtCore import QObject, pyqtSignal, Qt, QSize, QEvent, QTimer, QUrl, QThread, QPoint
+from PyQt5.QtCore import pyqtSignal, Qt, QSize, QEvent, QTimer, QThread, QPoint
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
-                             QListWidgetItem, QFileDialog, QMessageBox, QComboBox, QFormLayout,
+                             QListWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QTextEdit, QSizePolicy, QProgressBar, QApplication,
                              QStyle, QSlider, QMenu, QLineEdit)
 from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QColor, QPainter, QTransform, QPen
@@ -38,18 +37,20 @@ WORD_LIST_DIR_FOR_DIALECT_VISUAL = ""
 
 # 模块入口函数
 def create_page(parent_window, config, base_path, word_list_dir_visual, audio_record_dir_visual, 
-                ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager):
+                ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
     global WORD_LIST_DIR_FOR_DIALECT_VISUAL
     WORD_LIST_DIR_FOR_DIALECT_VISUAL = word_list_dir_visual
 
     if DEPENDENCIES_MISSING:
+        # ... (错误页面逻辑不变) ...
         error_page = QWidget()
         layout = QVBoxLayout(error_page)
         label = QLabel(f"看图说话采集模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy")
         label.setAlignment(Qt.AlignCenter); label.setWordWrap(True); layout.addWidget(label)
         return error_page
-        
-    return DialectVisualCollectorPage(parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager)
+    
+    # [修改] 将 resolve_device_func 传递给构造函数
+    return DialectVisualCollectorPage(parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func)
 
 class ScalableImageLabel(QLabel):
     zoom_changed = pyqtSignal(float)
@@ -218,11 +219,12 @@ class ScalableImageLabel(QLabel):
 class DialectVisualCollectorPage(QWidget):
     recording_device_error_signal = pyqtSignal(str)
     
-    def __init__(self, parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager):
+    def __init__(self, parent_window, config, base_path, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
         super().__init__()
         self.parent_window = parent_window; self.config = config; self.BASE_PATH = base_path
         self.ToggleSwitch = ToggleSwitchClass; self.Worker = WorkerClass; self.Logger = LoggerClass
         self.icon_manager = icon_manager
+        self.resolve_device_func = resolve_device_func # [新增] 保存解析函数
         self.session_active = False; self.is_recording = False; self.original_items_list = []; self.current_items_list = []
         self.current_item_index = -1; self.current_wordlist_path = None; self.current_wordlist_name = None; self.current_audio_folder = None
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
@@ -510,11 +512,19 @@ class DialectVisualCollectorPage(QWidget):
 
     def _persistent_recorder_task(self):
         try:
-            device_index = self.config['audio_settings'].get('input_device_index', None); sr = self.config.get('audio_settings', {}).get('sample_rate', 44100); ch = self.config.get('audio_settings', {}).get('channels', 1)
-            with sd.InputStream(device=device_index, samplerate=sr, channels=ch, callback=self._audio_callback): self.session_stop_event.wait()
+            # [修改] 调用解析函数来获取设备索引，而不是直接读取配置
+            device_index = self.resolve_device_func(self.config)
+            
+            sr = self.config.get('audio_settings', {}).get('sample_rate', 44100)
+            ch = self.config.get('audio_settings', {}).get('channels', 1)
+            
+            with sd.InputStream(device=device_index, samplerate=sr, channels=ch, callback=self._audio_callback):
+                self.session_stop_event.wait()
         except Exception as e: 
-            error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"; print(f"持久化录音线程错误: {error_msg}")
-            if self.logger: self.logger.log(f"[FATAL_ERROR] Cannot start audio stream: {e}"); self.recording_device_error_signal.emit(error_msg)
+            error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"
+            print(f"持久化录音线程错误: {error_msg}")
+            if self.logger: self.logger.log(f"[FATAL_ERROR] Cannot start audio stream: {e}")
+            self.recording_device_error_signal.emit(error_msg)
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status and (status.input_overflow or status.output_overflow or status.priming_output):

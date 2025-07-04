@@ -9,13 +9,12 @@ import os
 import sys
 import random
 import threading
-import importlib.util
 import json
 from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,
-                             QStyle, QListWidgetItem, QApplication, QSpacerItem, QSizePolicy, QShortcut)
+                             QListWidgetItem, QSizePolicy, QShortcut)
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QTextDocument, QColor, QKeySequence
 

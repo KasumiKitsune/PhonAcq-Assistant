@@ -249,3 +249,64 @@ WaveformWidget:disabled {
     /* 降低不透明度以提供清晰的禁用反馈 */
     opacity: 0.6;
 }
+/* 
+================================================================================
+【新增】音频分析模块样式 (Modern Elegance)
+================================================================================ 
+*/
+
+/* --- 主波形图 (顶部的概览波形) --- */
+/*
+ * 为顶部的波形概览图单独设置样式，使其在视觉上作为背景参考。
+ */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #EAE0D6;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0; /* 顶部圆角，与下方语谱图平滑连接 */
+    background-color: #FDFBF8; /* 与主背景色一致 */
+    qproperty-backgroundColor: #FDFBF8; /* [修复] 确保自定义背景色也设置 */
+    qproperty-waveformColor: #DCD0C0; /* 使用柔和的背景灰色作为波形色 */
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    /* 语谱图颜色映射 */
+    qproperty-spectrogramMinColor: #FDFBF8; /* 能量最低处 (背景): 温暖米白 */
+    qproperty-spectrogramMaxColor: #4A4034; /* 能量最高处 (前景): 深褐色墨水 */
+    
+    /* 强度曲线颜色: 使用主题棕色，但降低饱和度，使其不那么刺眼 */
+    qproperty-intensityColor: #B57F6A;
+    
+    /* 原始F0点的颜色: 使用主题棕色 */
+    qproperty-f0Color: #8F4C33;
+    
+    /* 派生F0曲线的颜色: 使用更柔和的灰褐色，作为引导线 */
+    qproperty-f0DerivedColor: #8A7E72;
+    
+    /* F1高亮颜色: 使用深褐色墨水，最重要共振峰 */
+    qproperty-f1Color: #4A4034;
+
+    /* 其他共振峰颜色: 使用柔和的灰褐色 */
+    qproperty-formantColor: #8A7E72;
+    
+    /* 播放头光标颜色: 使用深邃但不过于刺眼的红色 */
+    qproperty-cursorColor: #C62828;
+    
+    /* 鼠标悬停信息框的文字和背景色 */
+    qproperty-infoTextColor: #FFFFFF;
+    qproperty-infoBackgroundColor: rgba(74, 64, 52, 0.85); /* 半透明的深褐色墨水 */
+    
+    /* 边框样式 */
+    border: 1px solid #EAE0D6;
+    border-radius: 0 0 8px 8px; /* 底部圆角 */
+}
+
+QToolTip {
+    background-color: #FFFFFF; 
+    color: #4A4034;
+    border: 1px solid #EAE0D6;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: normal;
+}

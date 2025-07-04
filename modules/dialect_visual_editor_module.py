@@ -7,14 +7,13 @@ MODULE_DESCRIPTION = "在程序内直接创建、编辑和保存用于“看图�
 
 import os
 import sys
-import importlib.util
 from datetime import datetime
 import json
 import shutil # [新增] 用于文件复制
 import subprocess # [新增] 用于打开文件浏览器
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
-                             QHeaderView, QCheckBox, QShortcut, QUndoStack, 
+                             QHeaderView, QShortcut, QUndoStack, 
                              QUndoCommand, QApplication, QMenu)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence, QColor, QBrush, QIcon

@@ -348,3 +348,44 @@ WaveformWidget:disabled {
     /* 降低其不透明度以提供视觉反馈 */
     opacity: 0.5;
 }
+/* --- 主波形图 (顶部的概览波形) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #DCD0C0;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0; /* 顶部圆角，与下方语谱图平滑连接 */
+    qproperty-backgroundColor: #FDFBF5; /* 羊皮纸白背景 */
+    qproperty-waveformColor: #B8A990; /* 尘土卡其色波形，作为背景参考 */
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    /* 语谱图颜色映射 */
+    qproperty-spectrogramMinColor: #FDFBF5; /* 能量最低处 (背景): 羊皮纸白 */
+    qproperty-spectrogramMaxColor: #4A4034; /* 能量最高处 (前景): 深褐色墨水 */
+    
+    /* 强度曲线颜色: 迷雾森林绿 */
+    qproperty-intensityColor: #788C67;
+    
+    /* 原始F0点的颜色: 古金色，如同魔法符文 */
+    qproperty-f0Color: #C9A870;
+    
+    /* 派生F0曲线的颜色: 半透明的森林绿，作为引导线 */
+    qproperty-f0DerivedColor: rgba(120, 140, 103, 180);
+    
+    /* F1高亮颜色: 深褐色墨水，最重要共振峰 */
+    qproperty-f1Color: #4A4034;
+
+    /* 其他共振峰颜色: 尘土卡其色 */
+    qproperty-formantColor: #B8A990;
+    
+    /* 播放头光标颜色: 使用与强度曲线相同的绿色，保持色调和谐 */
+    qproperty-cursorColor: #788C67;
+    
+    /* 鼠标悬停信息框的文字和背景色 */
+    qproperty-infoTextColor: #FDFBF5;
+    qproperty-infoBackgroundColor: rgba(74, 64, 52, 0.85); /* 半透明的深褐色墨水 */
+    
+    /* 边框样式 */
+    border: 1px solid #DCD0C0;
+    border-radius: 0 0 8px 8px; /* 底部圆角 */
+}

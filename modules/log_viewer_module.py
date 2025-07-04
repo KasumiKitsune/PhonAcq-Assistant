@@ -38,14 +38,22 @@ TRANSLATION_MAP = {
     "SESSION_START": "会话开始", "SESSION_END": "会话结束", "SESSION_CONFIG": "会话配置",
     "SESSION_CONFIG_CHANGE": "会话设置变更", "RECORD_START": "录音开始", "RECORDING_START": "录音开始",
     "RECORDING_SAVE_ATTEMPT": "尝试保存录音", "RECORDING_SAVE_SUCCESS": "录音保存成功",
-    "INFO": "信息", "TTS_SUCCESS": "TTS生成成功", "ERROR": "错误", "FATAL": "致命错误",
+    "INFO": "信息", 
+    # [修改] 新增和细化翻译
+    "TTS_SUCCESS": "TTS生成成功", 
+    "TTS_ERROR": "TTS生成失败", 
+    "WARNING": "警告",
+    "ERROR": "错误", "FATAL": "致命错误",
     "Participant": "参与者", "Session Folder": "会话文件夹", "Wordlist": "词表",
     "Mode": "模式", "Scope": "范围", "Output folder": "输出文件夹", "Word": "单词",
     "Format": "格式", "Path": "路径", "Item ID": "项目ID", "Order changed to": "顺序变更为",
     "Sequential": "顺序", "Random": "随机", "Partial (One per group)": "部分(每组一个)",
     "Full List": "完整列表", "File saved successfully.": "文件已成功保存。", "Session ended by user.": "用户结束了会话。",
     "Dialect visual collection for wordlist": "图文采集词表", "Voicebank recording for wordlist": "提示音录制词表",
-    "No missing TTS audio files to generate.": "TTS文件已全部生成，无需再处理。","All items in the list have been recorded.": "列表中的所有内容都已录制。",
+    "No missing TTS audio files to generate.": "TTS文件已全部生成，无需再处理。",
+    "All items in the list have been recorded.": "列表中的所有内容都已录制。",
+    # [新增] 新的完整句子翻译
+    "User chose to ignore missing TTS files and continue session.": "用户选择忽略缺失的TTS文件并继续会话。"
 }
 LITERAL_VALUE_KEYS = {
     "Participant", "Session Folder", "Wordlist", "Word", "Item ID", "Path", "Format", "Output folder"
@@ -607,22 +615,50 @@ class LogViewerPage(QWidget):
         return TRANSLATION_MAP.get(text, text.replace("_", " ").title()) if is_event_type else self._translate_details_impl(text)
             
     def _translate_details_impl(self, text):
-        if text in TRANSLATION_MAP: return TRANSLATION_MAP[text]
+        if text in TRANSLATION_MAP:
+            return TRANSLATION_MAP[text]
+        
+        # 匹配 TTS_ERROR 详情
+        match_tts_error = re.match(r"Failed to generate TTS for '(.*?)': (.*)", text)
+        if match_tts_error:
+            word = match_tts_error.group(1)
+            error_msg = match_tts_error.group(2)
+            return f"词条: '{word}'，错误: {error_msg}"
+        
+        # [新增] 匹配 "Failed to load wordlist" 格式的日志
+        match_load_failed = re.match(r"Failed to load wordlist '(.*?)': (.*)", text)
+        if match_load_failed:
+            wordlist_name = match_load_failed.group(1)
+            error_details = match_load_failed.group(2)
+            # 对错误详情本身进行一次尝试性翻译，以处理嵌套的错误信息
+            translated_error_details = self._translate_details_impl(error_details)
+            return f"加载词表 '{wordlist_name}' 失败: {translated_error_details}"
+
         match_generated = re.match(r"Generated '(.*?)' with lang '(.*?)'", text)
-        if match_generated: return f"已生成 '{match_generated.group(1)}'，语言: '{match_generated.group(2)}'"
+        if match_generated: 
+            return f"已生成 '{match_generated.group(1)}'，语言: '{match_generated.group(2)}'"
+        
         match_recorded = re.match(r"Session ended by user. Recorded (\d+)/(\d+) items.", text)
-        if match_recorded: return f"用户结束了会话。已录制 {match_recorded.group(1)}/{match_recorded.group(2)} 项。"
+        if match_recorded: 
+            return f"用户结束了会话。已录制 {match_recorded.group(1)}/{match_recorded.group(2)} 项。"
+        
         match_found_tts = re.match(r"Found (\d+) missing TTS files. Starting generation...", text)
-        if match_found_tts: return f"发现 {match_found_tts.group(1)} 个缺失的TTS文件，开始生成..."
+        if match_found_tts: 
+            return f"发现 {match_found_tts.group(1)} 个缺失的TTS文件，开始生成..."
+        
+        # --- 原有的键值对解析逻辑 ---
         translated_parts = []
         parts = re.split(r",\s*(?=[A-Za-z\s]+:\s*['\w])", text)
         for part in parts:
             match_kv = re.match(r"([^:]+):\s*['\"]?(.*?)['\"]?$", part.strip())
             if match_kv:
-                key, value = match_kv.groups(); key_strip = key.strip()
+                key, value = match_kv.groups()
+                key_strip = key.strip()
                 translated_key = TRANSLATION_MAP.get(key_strip, key_strip)
                 translated_value = TRANSLATION_MAP.get(value.strip(), value.strip()) if key_strip not in LITERAL_VALUE_KEYS else value
                 translated_parts.append(f"{translated_key}: '{translated_value}'")
-            else: translated_parts.append(TRANSLATION_MAP.get(part.strip(), part.strip()))
+            else:
+                translated_parts.append(TRANSLATION_MAP.get(part.strip(), part.strip()))
+        
         reconstructed_text = ", ".join(translated_parts)
         return reconstructed_text if reconstructed_text != text else text

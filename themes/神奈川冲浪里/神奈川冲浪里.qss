@@ -323,3 +323,50 @@ QToolTip {
     font-size: 16px;
     font-weight: bold;
 }
+/* --- 主波形图 (顶部的概览波形) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #C5D9E8; /* 浅天蓝色边框 */
+    border-bottom: none; /* 与下方的语谱图无缝连接 */
+    border-radius: 0px;
+    
+    /* [修复] 在浅色主题下，背景色应为纯白以获得最佳对比度 */
+    qproperty-backgroundColor: #FFFFFF;
+    
+    /* 概览波形颜色: 使用柔和的波浪蓝，作为背景参考 */
+    qproperty-waveformColor: #8AB2D6; 
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    /* 语谱图背景色: 能量最低处，使用非常浅的蓝灰色，与主背景区分 */
+    qproperty-spectrogramMinColor: #F5F8FA; 
+    
+    /* 能量最高处: 使用主题中的“墨色”，形成强烈的黑白对比 */
+    qproperty-spectrogramMaxColor: #1C2A40; 
+    
+    /* 强度曲线颜色: 使用稳重的“深波浪蓝” */
+    qproperty-intensityColor: #3B6894;
+    
+    /* 原始F0点的颜色: 使用醒目的红色，提供高辨识度 */
+    qproperty-f0Color: #E53935;
+    
+    /* 派生F0曲线的颜色: 使用略暗的红色，作为F0点的连接线 */
+    qproperty-f0DerivedColor: #C62828;
+    
+    /* F1高亮颜色: 使用最深的“墨色”，代表最重要的共振峰 */
+    qproperty-f1Color: #1C2A40;
+
+    /* 其他共振峰颜色: 使用深波浪蓝，作为次要信息 */
+    qproperty-formantColor: #3B6894;
+    
+    /* 播放头光标颜色: 保持醒目的红色 */
+    qproperty-cursorColor: #E53935;
+    
+    /* 鼠标悬停信息框的文字和背景色: 白色背景，深色文字，与全局Tooltip风格一致 */
+    qproperty-infoTextColor: #1C2A40;
+    qproperty-infoBackgroundColor: rgba(255, 255, 255, 0.85);
+    
+    /* 边框样式 */
+    border: 1px solid #C5D9E8; /* 浅天蓝色边框 */
+    border-radius: 0px;
+}

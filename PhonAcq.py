@@ -467,6 +467,71 @@ class ToggleSwitch(QCheckBox):
         else:
             super().mousePressEvent(event)
 
+
+def resolve_recording_device(config):
+    """
+    根据配置中的简易/专家模式，解析出最终要使用的物理设备索引。
+    这是所有录音模块获取设备ID的唯一入口。
+    """
+    try:
+        audio_settings = config.get("audio_settings", {})
+        mode = audio_settings.get("input_device_mode", "manual")
+        
+        if mode == "manual":
+            # 专家模式：直接返回保存的索引
+            return audio_settings.get("input_device_index", None)
+
+        if mode == "default":
+            # 简易模式 - 系统默认
+            return None
+
+        devices = sd.query_devices()
+        candidate_devices = []
+
+        if mode == "loopback":
+            # 寻找立体声混音
+            for i, dev in enumerate(devices):
+                if dev['max_input_channels'] > 0 and ('mix' in dev['name'].lower() or '混音' in dev['name']):
+                    return i
+            # 如果没找到，回退到系统默认
+            return None 
+
+        # 扫描所有输入设备
+        for i, dev in enumerate(devices):
+            if dev['max_input_channels'] > 0:
+                name_lower = dev['name'].lower()
+                is_external = any(kw in name_lower for kw in ['usb', 'bluetooth', 'external'])
+                is_internal = any(kw in name_lower for kw in ['internal', 'built-in', '内置'])
+                
+                # 排除立体声混音设备，除非模式明确是loopback
+                if 'mix' in name_lower or '混音' in name_lower:
+                    continue
+
+                if mode == "external" and is_external:
+                    candidate_devices.append({'index': i, 'name': name_lower})
+                elif mode == "internal" and is_internal:
+                    candidate_devices.append({'index': i, 'name': name_lower})
+                elif mode == "smart":
+                    if is_external:
+                        # 在智能模式下，外置设备有最高优先级
+                        candidate_devices.append({'index': i, 'name': name_lower, 'priority': 2})
+                    elif is_internal:
+                        candidate_devices.append({'index': i, 'name': name_lower, 'priority': 1})
+        
+        if candidate_devices:
+            if mode == "smart":
+                # 按优先级排序，优先级高的（外置）在前
+                candidate_devices.sort(key=lambda x: x.get('priority', 0), reverse=True)
+            # 返回找到的第一个（或优先级最高的）候选设备
+            return candidate_devices[0]['index']
+
+        # 如果根据模式没有找到任何匹配的设备，最终回退到系统默认
+        return None
+
+    except Exception as e:
+        print(f"解析录音设备时出错: {e}", file=sys.stderr)
+        # 出现任何异常都安全地回退到系统默认
+        return None
 class MainWindow(QMainWindow):
     def __init__(self, splash_ref=None, tooltips_ref=None):
         super().__init__()
@@ -501,9 +566,10 @@ class MainWindow(QMainWindow):
 
         # 页面创建
         self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '标准朗读采集', 
-            lambda m, ts, w, l, im: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, im))
+            lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, im, rdf))
+
         self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '提示音录制', 
-            lambda m, ts, w, l, im: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im))
+            lambda m, ts, w, l, im, rdf: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
         self.audio_manager_page = self.create_module_or_placeholder('audio_manager_module', '音频数据管理器', 
             lambda m, ts, im: m.create_page(self, self.config, BASE_PATH, self.config['file_settings'].get("results_dir"), AUDIO_RECORD_DIR, im, ts))
         self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_module', '通用词表编辑器', 
@@ -515,7 +581,7 @@ class MainWindow(QMainWindow):
         DIALECT_VISUAL_WORDLIST_DIR = os.path.join(BASE_PATH, "dialect_visual_wordlists")
         os.makedirs(DIALECT_VISUAL_WORDLIST_DIR, exist_ok=True)
         self.dialect_visual_page = self.create_module_or_placeholder('dialect_visual_collector_module', '看图说话采集', 
-            lambda m, ts, w, l, im: m.create_page(self, self.config, BASE_PATH, DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im))
+            lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, BASE_PATH, DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
         self.dialect_visual_editor_page = self.create_module_or_placeholder('dialect_visual_editor_module', '图文词表编辑器', 
             lambda m, ts, im: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR, ts, im))
         self.pinyin_to_ipa_page = self.create_module_or_placeholder('pinyin_to_ipa_module', '拼音转IPA', 
@@ -528,7 +594,8 @@ class MainWindow(QMainWindow):
         )
         self.settings_page = self.create_module_or_placeholder('settings_module', '程序设置',
             lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir)) 
-        
+        self.audio_analysis_page = self.create_module_or_placeholder('audio_analysis_module', '音频分析', 
+            lambda m, im, ts: m.create_page(self, im, ts))     
         # [修改] 日志查看器页面创建，注入 icon_manager
         self.log_viewer_page = self.create_module_or_placeholder('log_viewer_module', '日志查看器',
             lambda m, ts, im: m.create_page(self, self.config, ts, im))
@@ -551,6 +618,7 @@ class MainWindow(QMainWindow):
         
         management_tabs = QTabWidget(); management_tabs.setObjectName("SubTabWidget")
         management_tabs.addTab(self.audio_manager_page, "音频数据管理器")
+        management_tabs.addTab(self.audio_analysis_page, "音频分析")
         management_tabs.addTab(self.log_viewer_page, "日志查看器")
         
         utilities_tabs = QTabWidget(); utilities_tabs.setObjectName("SubTabWidget")
@@ -585,6 +653,32 @@ class MainWindow(QMainWindow):
             
         self.apply_theme()
         self.on_main_tab_changed(0) # 初始加载第一个标签页
+
+    # [新增] 用于模块间通信的槽函数
+    def go_to_audio_analysis(self, filepath):
+        """
+        切换到音频分析模块并加载指定的文件。
+        这是一个公共API，供其他模块调用。
+        """
+        if not hasattr(self, 'audio_analysis_page'):
+            QMessageBox.warning(self, "功能缺失", "音频分析模块未成功加载。")
+            return
+
+        # 1. 找到“资源管理”主标签页并切换过去
+        for i in range(self.main_tabs.count()):
+            if self.main_tabs.tabText(i) == "资源管理":
+                self.main_tabs.setCurrentIndex(i)
+                # 2. 找到“音频分析”子标签页并切换过去
+                sub_tab_widget = self.main_tabs.widget(i)
+                if isinstance(sub_tab_widget, QTabWidget):
+                    for j in range(sub_tab_widget.count()):
+                        if sub_tab_widget.tabText(j) == "音频分析":
+                            sub_tab_widget.setCurrentIndex(j)
+                            # 确保UI更新
+                            QApplication.processEvents()
+                            # 3. 调用加载方法
+                            self.audio_analysis_page.load_audio_file(filepath)
+                            return
 
     def setup_and_load_config_external(self):
         """外部模块可调用的配置加载器"""
@@ -632,50 +726,46 @@ class MainWindow(QMainWindow):
                     return page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR)
                 
                 elif module_key == 'flashcard_module':
-                    # 确保 QLabel 已导入，作为 ScalableImageLabelClass 的回退
+                    # ... (此模块逻辑不变) ...
                     from PyQt5.QtWidgets import QLabel 
                     ScalableImageLabelClass = QLabel
-                    # 如果 dialect_visual_collector_module 已加载，则尝试从中获取 ScalableImageLabel
                     if 'dialect_visual_collector_module' in MODULES:
                         ScalableImageLabelClass = getattr(MODULES['dialect_visual_collector_module']['module'], 'ScalableImageLabel', QLabel)
-    
-                    # 传递给 page_factory (lambda) 的参数必须与 lambda 的签名和 m.create_page 的签名匹配
                     return page_factory(module, ToggleSwitch, ScalableImageLabelClass, 
                                         BASE_PATH, AUDIO_TTS_DIR, AUDIO_RECORD_DIR, icon_manager)
 
+                # --- [修改] 为所有录音模块注入 resolve_recording_device 函数 ---
                 elif module_key == 'accent_collection_module':
-                    # 现在它需要 ToggleSwitch, Worker, Logger, 和 IconManager
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager)
+                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
 
                 elif module_key == 'dialect_visual_collector_module':
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager)
+                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
 
                 elif module_key == 'voicebank_recorder_module':
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager)
-
+                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
+                
+                # --- 其他模块的依赖注入保持不变 ---
                 elif module_key == 'dialect_visual_editor_module':
-                    # 现在它需要 ToggleSwitch 和 IconManager
                     return page_factory(module, ToggleSwitch, icon_manager)
                 
                 elif module_key == 'audio_manager_module':
-                    # 现在它需要 icon_manager
                     return page_factory(module, ToggleSwitch, icon_manager)
                 
-                elif module_key in ['pinyin_to_ipa_module', 'dialect_visual_editor_module']:
+                elif module_key in ['pinyin_to_ipa_module']: # 修正：移除 dialect_visual_editor_module
                     return page_factory(module, ToggleSwitch)
                 
                 elif module_key == 'wordlist_editor_module':
-                    # 现在它需要 icon_manager
                     return page_factory(module, icon_manager, detect_language)
 
                 elif module_key == 'excel_converter_module':
-                    # 现在它需要 icon_manager
                     return page_factory(module, icon_manager)
                 
                 elif module_key == 'tts_utility_module':
                     return page_factory(module, ToggleSwitch, Worker, detect_language, WORD_LIST_DIR, icon_manager)
 
-                # --- [修改] 为 log_viewer_module 添加 IconManager 依赖 ---
+                elif module_key == 'audio_analysis_module':
+                    return page_factory(module, icon_manager, ToggleSwitch)
+
                 elif module_key == 'log_viewer_module':
                     return page_factory(module, ToggleSwitch, icon_manager)
 
@@ -685,23 +775,17 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"创建模块 '{name}' 页面时出错: {e}", file=sys.stderr)
         
-        # --- [修复] 解决 UnboundLocalError ---
-        # 确保 QLabel 在此作用域内可用
+        # ... (占位符逻辑不变) ...
         from PyQt5.QtWidgets import QLabel, QVBoxLayout
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignCenter)
+        layout = QVBoxLayout(page); layout.setAlignment(Qt.AlignCenter)
         if module_key == 'settings_module':
             label_text = f"设置模块 ('{name}') 加载失败。\n请检查 'modules/settings_module.py' 文件是否存在且无误。"
         else:
             label_text = f"模块 '{name}' 未加载或创建失败。\n请检查 'modules/{module_key}.py' 文件以及相关依赖。"
-        
-        label = QLabel(label_text) # 现在 QLabel 是已定义的
-        label.setWordWrap(True)
-        label.setStyleSheet("color: #D32F2F; font-size: 24px;") # Give it a distinct error style
-        layout.addWidget(label)
+        label = QLabel(label_text); label.setWordWrap(True); label.setStyleSheet("color: #D32F2F; font-size: 24px;"); layout.addWidget(label)
         return page
-        
+    
     def on_main_tab_changed(self, index):
         """主标签页切换时触发，进而触发子标签页的刷新逻辑。"""
         current_main_tab_text = self.main_tabs.tabText(index)
@@ -801,6 +885,7 @@ class MainWindow(QMainWindow):
             'wordlist_editor_page',
             'dialect_visual_editor_page', 
             'converter_page',
+            'audio_analysis_page',
             'tts_utility_page', # <-- 新增项
             'flashcard_page', # <-- 新增项
             # ... 其他模块

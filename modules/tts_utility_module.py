@@ -9,7 +9,6 @@ import os
 import sys
 import threading
 import time
-import importlib.util
 from datetime import datetime
 import re 
 import subprocess 
@@ -17,8 +16,8 @@ import json
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QMessageBox, QComboBox, QFormLayout,
-                             QGroupBox, QProgressBar, QStyle, QLineEdit, QTableWidget,
-                             QTableWidgetItem, QHeaderView, QCheckBox, QPlainTextEdit,
+                             QGroupBox, QProgressBar, QLineEdit, QTableWidget,
+                             QTableWidgetItem, QHeaderView, QPlainTextEdit,
                              QSplitter, QSizePolicy) 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize 
 from PyQt5.QtGui import QIcon 

@@ -9,7 +9,6 @@ import os
 import sys
 import threading
 import queue
-import importlib.util
 import time
 import json # [新增] 导入json
 
@@ -113,24 +112,27 @@ class WaveformWidget(QWidget):
             painter.drawLine(x, int(half_h - y_offset), x, int(half_h + y_offset))
 
 # --- [修改] 标准化模块入口函数 ---
-def create_page(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager):
+def create_page(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
     if DEPENDENCIES_MISSING:
+        # ... (错误页面逻辑不变) ...
         error_page = QWidget(); layout = QVBoxLayout(error_page)
         label = QLabel(f"提示音录制模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy")
         label.setAlignment(Qt.AlignCenter); label.setWordWrap(True); layout.addWidget(label)
         return error_page
 
-    return VoicebankRecorderPage(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager)
+    # [修改] 将 resolve_device_func 传递给构造函数
+    return VoicebankRecorderPage(parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func)
 
 
 class VoicebankRecorderPage(QWidget):
     recording_device_error_signal = pyqtSignal(str)
 
-    def __init__(self, parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager):
+    def __init__(self, parent_window, WORD_LIST_DIR, AUDIO_RECORD_DIR, ToggleSwitchClass, WorkerClass, LoggerClass, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
         super().__init__()
         self.parent_window = parent_window; self.WORD_LIST_DIR = WORD_LIST_DIR; self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR
         self.ToggleSwitch = ToggleSwitchClass; self.Worker = WorkerClass; self.LoggerClass = LoggerClass
         self.icon_manager = icon_manager
+        self.resolve_device_func = resolve_device_func # [新增] 保存解析函数
         self.config = self.parent_window.config
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1; self.logger = None
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
@@ -170,9 +172,14 @@ class VoicebankRecorderPage(QWidget):
         control_group = QGroupBox("控制面板"); self.control_layout = QFormLayout(control_group) 
         self.word_list_combo = QComboBox(); self.word_list_combo.setToolTip("选择一个用于录制提示音的单词表。")
         self.start_btn = QPushButton("加载词表并开始"); self.start_btn.setObjectName("AccentButton"); self.start_btn.setToolTip("加载选中的单词表，并开始一个新的录制会话。")
-        self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.setToolTip("提前结束当前的录制会话。"); self.end_session_btn.hide()
-        self.control_layout.addRow("选择单词表:", self.word_list_combo); self.control_layout.addRow(self.start_btn)
+        self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.setToolTip("提前结束当前的录制会话。")
         
+        # [修改] 将所有按钮都添加到布局中，然后根据状态控制显隐
+        self.control_layout.addRow("选择单词表:", self.word_list_combo)
+        self.control_layout.addRow(self.start_btn)
+        self.control_layout.addRow(self.end_session_btn)
+
+        self.end_session_btn.hide() # 初始状态下隐藏“结束会话”按钮        
         self.recording_status_panel = QGroupBox("录音状态"); status_panel_layout = QVBoxLayout(self.recording_status_panel)
         self.recording_indicator = QLabel("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;")
         self.volume_label = QLabel("当前音量:"); self.volume_meter = QProgressBar(); self.volume_meter.setRange(0, 100); self.volume_meter.setValue(0); self.volume_meter.setTextVisible(False)
@@ -287,9 +294,14 @@ class VoicebankRecorderPage(QWidget):
         if os.path.exists(self.WORD_LIST_DIR): self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
 
     def reset_ui(self):
-        self.word_list_combo.show(); self.start_btn.show();
-        if self.end_session_btn.parent() is not None: self.control_layout.removeRow(self.end_session_btn)
-        self.list_widget.setRowCount(0); self.record_btn.setEnabled(False); self.log("请选择一个单词表开始录制。")
+        # [修改] 只切换按钮的可见性
+        self.word_list_combo.show()
+        self.start_btn.show()
+        self.end_session_btn.hide()
+        
+        self.list_widget.setRowCount(0)
+        self.record_btn.setEnabled(False)
+        self.log("请选择一个单词表开始录制。")
 
     def end_session(self, force=False):
         if not force:
@@ -314,7 +326,12 @@ class VoicebankRecorderPage(QWidget):
             self.current_word_index=0
             if self.logger: self.logger.log(f"[SESSION_START] Voicebank recording for wordlist: '{wordlist_file}'"); self.logger.log(f"[SESSION_CONFIG] Output folder: '{self.audio_folder}'")
             self.session_stop_event.clear(); self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True); self.recording_thread.start(); self.update_timer.start(30)
-            self.word_list_combo.hide(); self.start_btn.hide(); self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.clicked.connect(self.end_session); self.update_icons(); self.control_layout.addRow(self.end_session_btn)
+            
+            # [修改] 只切换按钮的可见性，不再重新创建或添加/删除
+            self.word_list_combo.hide()
+            self.start_btn.hide()
+            self.end_session_btn.show()
+
             self.update_list_widget(); self.record_btn.setEnabled(True); self.log("准备就绪，请选择词语并录音。"); self.session_active = True
         except Exception as e: 
             if self.logger: self.logger.log(f"[ERROR] Failed to start session: {e}")
@@ -377,10 +394,15 @@ class VoicebankRecorderPage(QWidget):
 
     def _persistent_recorder_task(self):
         try:
-            device_index = self.config['audio_settings'].get('input_device_index', None)
-            with sd.InputStream(device=device_index, samplerate=self.config['audio_settings']['sample_rate'], channels=self.config['audio_settings']['channels'], callback=self._audio_callback): self.session_stop_event.wait()
-        except Exception as e: error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"; print(f"持久化录音线程错误 (Voicebank): {error_msg}"); self.recording_device_error_signal.emit(error_msg)
-
+            # [修改] 调用解析函数来获取设备索引
+            device_index = self.resolve_device_func(self.config)
+            
+            with sd.InputStream(device=device_index, samplerate=self.config['audio_settings']['sample_rate'], channels=self.config['audio_settings']['channels'], callback=self._audio_callback):
+                self.session_stop_event.wait()
+        except Exception as e:
+            error_msg = f"无法启动录音，请检查设备设置或权限。\n错误详情: {e}"
+            print(f"持久化录音线程错误 (Voicebank): {error_msg}")
+            self.recording_device_error_signal.emit(error_msg)
     def save_recording_task(self, worker_instance):
         if self.audio_queue.empty(): return
         data_chunks = [];

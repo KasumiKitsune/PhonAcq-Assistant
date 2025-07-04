@@ -8,17 +8,17 @@ MODULE_DESCRIPTION = "进行标准的文本到语音实验，适用于朗读任�
 import os
 import threading
 import queue
-import importlib.util
 import time
 import random
 import sys
 import json
+import subprocess
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QLineEdit, QHeaderView,
                              QAbstractItemView)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, pyqtProperty
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtProperty
 from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
 
 # 模块级别的依赖检查
@@ -123,25 +123,28 @@ class WaveformWidget(QWidget):
 
 # ===== 标准化模块入口函数 =====
 def create_page(parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager):
+                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
     if DEPENDENCIES_MISSING:
+        # ... (错误页面逻辑不变) ...
         error_page = QWidget(); layout = QVBoxLayout(error_page)
         label = QLabel(f"标准朗读采集模块加载失败：\n缺少必要的依赖库。\n\n错误: {MISSING_ERROR_MESSAGE}\n\n请运行: pip install sounddevice soundfile numpy gtts")
         label.setAlignment(Qt.AlignCenter); label.setWordWrap(True); layout.addWidget(label)
         return error_page
 
+    # [修改] 将 resolve_device_func 传递给构造函数
     return AccentCollectionPage(parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager)
+                                detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager, resolve_device_func)
 
 
 class AccentCollectionPage(QWidget):
     recording_device_error_signal = pyqtSignal(str)
 
     def __init__(self, parent_window, config, ToggleSwitchClass, WorkerClass, LoggerClass,
-                 detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager):
+                 detect_language_func, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, icon_manager, resolve_device_func): # <-- 新增 resolve_device_func
         super().__init__()
         self.parent_window = parent_window; self.config = config; self.ToggleSwitch = ToggleSwitchClass; self.Worker = WorkerClass
         self.Logger = LoggerClass; self.icon_manager = icon_manager; self.detect_language = detect_language_func
+        self.resolve_device_func = resolve_device_func # [新增] 保存解析函数
         self.WORD_LIST_DIR = WORD_LIST_DIR; self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR; self.AUDIO_TTS_DIR = AUDIO_TTS_DIR; self.BASE_PATH = BASE_PATH
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2); self.recording_thread = None
@@ -403,18 +406,65 @@ class AccentCollectionPage(QWidget):
             self.reset_ui()
         
     def update_tts_progress(self, percentage, text):
-        self.progress_bar.setValue(percentage); self.status_label.setText(f"状态：{text}")
+        self.progress_bar.setValue(percentage)
         
-    def on_tts_finished(self, error_msg):
+        # [新增] 截断过长的状态文本
+        max_len = 50 
+        if len(text) > max_len:
+            display_text = text[:max_len] + "..."
+        else:
+            display_text = text
+            
+        self.status_label.setText(f"状态：{display_text}")
+        # [新增] 同时，将完整文本设置到状态标签的工具提示中，方便用户查看
+        self.status_label.setToolTip(text)
+        
+    def on_tts_finished(self, result):
         self.progress_bar.setVisible(False)
-        if error_msg:
-            QMessageBox.warning(self, "音频检查/生成失败", error_msg)
-            if self.logger: self.logger.log(f"[ERROR] TTS Generation Error: {error_msg}")
-            self.reset_ui(); return
-        self.session_stop_event.clear(); self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True); self.recording_thread.start(); self.update_timer.start(30)
-        self.status_label.setText("状态：音频准备就绪。"); self.pre_session_widget.hide(); self.in_session_widget.show(); self.record_btn.setEnabled(True); self.session_active = True
-        self.prepare_word_list()
-        if self.current_word_list: self.record_btn.setText("开始录制 (1/{})".format(len(self.current_word_list)))
+        
+        status = result.get('status')
+        tts_folder = result.get('tts_folder')
+
+        if status == 'success':
+            self._proceed_to_start_session()
+        elif status == 'partial_failure':
+            missing_files = result.get('missing_files', [])
+            error_details = result.get('error_details', [])
+            
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("TTS 音频生成不完整")
+            msg_box.setText("部分提示音自动生成失败，可能是网络问题或不支持的语言。")
+            
+            details = "以下词条的提示音缺失:\n\n"
+            details += "\n".join(f"- {word}" for word in missing_files[:10])
+            if len(missing_files) > 10:
+                details += f"\n...等共 {len(missing_files)} 个。"
+
+            if error_details:
+                details += "\n\n错误摘要:\n" + "\n".join(error_details)
+
+            msg_box.setInformativeText(details)
+            
+            prepare_btn = msg_box.addButton("准备音频 (打开文件夹)", QMessageBox.AcceptRole)
+            ignore_btn = msg_box.addButton("忽略并继续", QMessageBox.DestructiveRole)
+            msg_box.setStandardButtons(QMessageBox.Cancel)
+            
+            msg_box.exec_()
+            
+            if msg_box.clickedButton() == prepare_btn:
+                self._open_tts_folder(tts_folder)
+                self.reset_ui()
+            elif msg_box.clickedButton() == ignore_btn:
+                if self.logger: self.logger.log("[WARNING] User chose to ignore missing TTS files and continue session.")
+                self._proceed_to_start_session()
+            else: # Cancel
+                self.reset_ui()
+
+        else: # Handle other generic errors
+            error_msg = result.get('error', '未知错误')
+            QMessageBox.critical(self, "准备失败", f"无法开始会话: {error_msg}")
+            self.reset_ui()
         
     def _find_existing_audio(self, word):
         # 辅助函数，用于查找给定单词的已存在音频文件
@@ -440,17 +490,26 @@ class AccentCollectionPage(QWidget):
         self.list_widget.setRowCount(0) # Clear table
         for i, item_data in enumerate(self.current_word_list):
             self.list_widget.insertRow(i)
-            # Column 0: Word
-            word_item = QTableWidgetItem(item_data['word'])
+            
+            # --- Column 0: Word ---
+            word_text = item_data['word']
+            word_item = QTableWidgetItem(word_text)
+            # [新增] 为“词语”列设置工具提示
+            word_item.setToolTip(word_text)
             self.list_widget.setItem(i, 0, word_item)
-            # Column 1: IPA
-            ipa_item = QTableWidgetItem(item_data['ipa'])
+            
+            # --- Column 1: IPA/备注 ---
+            ipa_text = item_data['ipa']
+            ipa_item = QTableWidgetItem(ipa_text)
+            # [新增] 为“IPA/备注”列设置工具提示
+            ipa_item.setToolTip(ipa_text)
             self.list_widget.setItem(i, 1, ipa_item)
-            # Column 2: Waveform Widget
+
+            # --- Column 2: Waveform Widget ---
             waveform_widget = WaveformWidget(self)
             self.list_widget.setCellWidget(i, 2, waveform_widget)
             
-            # 检查此单词是否已经有录音（比如继续上一次的会话）
+            # --- 检查和更新已录制状态 ---
             filepath = self._find_existing_audio(item_data['word'])
             if filepath:
                 item_data['recorded'] = True
@@ -533,8 +592,11 @@ class AccentCollectionPage(QWidget):
 
     def _persistent_recorder_task(self):
         try:
-            device_index = self.config['audio_settings'].get('input_device_index', None)
-            with sd.InputStream(device=device_index,samplerate=self.config['audio_settings']['sample_rate'],channels=self.config['audio_settings']['channels'],callback=self._audio_callback): self.session_stop_event.wait()
+            # [修改] 调用解析函数来获取设备索引
+            device_index = self.resolve_device_func(self.config)
+            
+            with sd.InputStream(device=device_index,samplerate=self.config['audio_settings']['sample_rate'],channels=self.config['audio_settings']['channels'],callback=self._audio_callback):
+                self.session_stop_event.wait()
         except Exception as e:
             error_msg = f"无法启动录音，请检查录音设备设置或权限。\n错误详情: {e}"; print(f"持久化录音线程错误: {error_msg}")
             if self.logger: self.logger.log(f"[ERROR] Persistent recorder task failed: {error_msg}")
@@ -613,82 +675,95 @@ class AccentCollectionPage(QWidget):
         
         return word_groups
         
-    def check_and_generate_audio_logic(self,worker,word_groups):
-        wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
-        gtts_settings = self.config.get("gtts_settings", {})
-        gtts_default_lang = gtts_settings.get("default_lang", "en-us")
-        gtts_auto_detect = gtts_settings.get("auto_detect", True)
-        all_words_with_lang = {}
+    def _proceed_to_start_session(self):
+        """封装了开始录音会话的核心逻辑。"""
+        self.session_stop_event.clear()
+        self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
+        self.recording_thread.start()
+        self.update_timer.start(30)
+        
+        self.status_label.setText("状态：音频准备就绪。")
+        self.pre_session_widget.hide()
+        self.in_session_widget.show()
+        self.record_btn.setEnabled(True)
+        self.session_active = True
+        
+        self.prepare_word_list()
+        if self.current_word_list:
+            recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
+            self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
 
-        for group_idx, group in enumerate(word_groups):
-            if not isinstance(group, dict):
-                if self.logger: self.logger.log(f"[WARNING] Word group at index {group_idx} in '{wordlist_name}' is not a dictionary, skipping.")
-                continue
-            
-            for word, value in group.items():
-                # 1. Get language from wordlist if specified
-                lang = value[1] if isinstance(value, tuple) and len(value) == 2 and value[1] else None
-                
-                # 2. If not specified, try to auto-detect
-                if not lang and gtts_auto_detect:
-                    lang = self.detect_language(word)
-                
-                # 3. If still no language, fallback to default
-                if not lang:
-                    lang = gtts_default_lang
-                
-                # [修复] Ensure every word is added to the dictionary, regardless of how its language was determined
-                all_words_with_lang[word] = lang
+    def _open_tts_folder(self, folder_path):
+        """跨平台地在文件浏览器中打开指定文件夹。"""
+        if not folder_path or not os.path.exists(folder_path):
+            QMessageBox.warning(self, "无法打开", "目标文件夹不存在。")
+            return
         
-        record_audio_folder = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name)
-        tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
-        if not os.path.exists(tts_audio_folder):
-            try:
-                os.makedirs(tts_audio_folder)
-            except Exception as e:
-                return f"创建TTS音频目录失败: {e}"
-        
-        # [修改] 现在，我们需要检查所有类型的提示音，包括已经由用户录制的。
-        # TTS 应该只在完全没有任何提示音（无论是录制的还是已生成的TTS）时才生成。
-        # 我们需要检查两个目录：用户录音目录和TTS目录。
-        missing = []
-        for w in all_words_with_lang:
-            # 检查用户录制的语音包
-            user_recorded_exists = False
-            for ext in ['.wav', '.mp3', '.flac', '.ogg']: # Check common formats
-                if os.path.exists(os.path.join(self.AUDIO_RECORD_DIR, wordlist_name, f"{w}{ext}")):
-                    user_recorded_exists = True
-                    break
-            
-            # 检查已生成的TTS
-            tts_exists = os.path.exists(os.path.join(tts_audio_folder, f"{w}.mp3"))
+        try:
+            if sys.platform == 'win32':
+                os.startfile(os.path.realpath(folder_path))
+            elif sys.platform == 'darwin':
+                subprocess.check_call(['open', folder_path])
+            else: # Linux
+                subprocess.check_call(['xdg-open', folder_path])
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法打开文件夹: {e}")
 
-            if not user_recorded_exists and not tts_exists:
-                missing.append(w)
+    def check_and_generate_audio_logic(self, worker, word_groups):
+            wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
+            tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
+        
+            # 提前准备好返回结构
+            result = {'status': 'success', 'tts_folder': tts_audio_folder}
 
-        if not missing:
-            if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")
-            return None
-            
-        if self.logger: self.logger.log(f"[INFO] Found {len(missing)} missing TTS files. Starting generation...")
+            gtts_settings = self.config.get("gtts_settings", {}); gtts_default_lang = gtts_settings.get("default_lang", "en-us"); gtts_auto_detect = gtts_settings.get("auto_detect", True)
+            all_words_with_lang = {}
+            # ... (填充 all_words_with_lang 的逻辑保持不变) ...
+            for group_idx, group in enumerate(word_groups):
+                if not isinstance(group, dict):
+                    if self.logger: self.logger.log(f"[WARNING] Word group at index {group_idx} in '{wordlist_name}' is not a dictionary, skipping.")
+                    continue
+                for word, value in group.items():
+                    lang = value[1] if isinstance(value, tuple) and len(value) == 2 and value[1] else None
+                    if not lang and gtts_auto_detect: lang = self.detect_language(word)
+                    if not lang: lang = gtts_default_lang
+                    all_words_with_lang[word] = lang
         
-        total_missing = len(missing)
-        errors_occurred = []
-        for i, word in enumerate(missing):
-            percentage = int(((i + 1) / total_missing) * 100)
-            progress_text = f"正在生成TTS ({i+1}/{total_missing}): {word}..."
-            worker.progress.emit(percentage, progress_text)
-            filepath = os.path.join(tts_audio_folder, f"{word}.mp3")
-            try:
-                gTTS(text=word, lang=all_words_with_lang[word], slow=False).save(filepath)
-                if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{all_words_with_lang[word]}'.")
-                time.sleep(0.3) # Be nice to Google's servers
-            except Exception as e:
-                error_detail = f"for '{word}': {e}"
-                errors_occurred.append(error_detail)
-                if self.logger: self.logger.log(f"[TTS_ERROR] Failed to generate TTS {error_detail}")
+            if not os.path.exists(tts_audio_folder):
+                try: os.makedirs(tts_audio_folder)
+                except Exception as e: return {'status': 'error', 'error': f"创建TTS音频目录失败: {e}"}
+
+            missing = []
+            for w in all_words_with_lang:
+                user_recorded_exists = False
+                for ext in ['.wav', '.mp3', '.flac', '.ogg']:
+                    if os.path.exists(os.path.join(self.AUDIO_RECORD_DIR, wordlist_name, f"{w}{ext}")): user_recorded_exists = True; break
+                tts_exists = os.path.exists(os.path.join(tts_audio_folder, f"{w}.mp3"))
+                if not user_recorded_exists and not tts_exists: missing.append(w)
+
+            if not missing:
+                if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")
+                return result # 返回成功
+
+            if self.logger: self.logger.log(f"[INFO] Found {len(missing)} missing TTS files. Starting generation...")
         
-        if errors_occurred:
-            return "部分TTS音频生成失败，请检查日志和网络连接。\n" + "\n".join(errors_occurred[:3])
-            
-        return None
+            total_missing = len(missing); errors_occurred = []; failed_words = []
+            for i, word in enumerate(missing):
+                percentage = int(((i + 1) / total_missing) * 100); progress_text = f"正在生成TTS ({i+1}/{total_missing}): {word}"
+                max_len = 50; display_text = progress_text[:max_len] + "..." if len(progress_text) > max_len else progress_text
+                worker.progress.emit(percentage, display_text) # 使用截断后的文本更新UI
+                filepath = os.path.join(tts_audio_folder, f"{word}.mp3")
+                try:
+                    gTTS(text=word, lang=all_words_with_lang[word], slow=False).save(filepath)
+                    if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{all_words_with_lang[word]}'.")
+                    time.sleep(0.3)
+                except Exception as e:
+                    error_detail = f"for '{word}': {str(e)[:100]}..."; errors_occurred.append(error_detail); failed_words.append(word)
+                    if self.logger: self.logger.log(f"[TTS_ERROR] Failed to generate TTS {error_detail}")
+        
+            if errors_occurred:
+                result['status'] = 'partial_failure'
+                result['missing_files'] = failed_words
+                result['error_details'] = errors_occurred[:3] # 只返回前3个错误摘要
+        
+            return result
