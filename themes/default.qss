@@ -230,6 +230,7 @@ QComboBox QAbstractItemView {
 }
 QComboBox QAbstractItemView::item { 
     padding: 8px 12px; 
+    min-height: 22px; 
 }
 
 /* --- 4.4 列表与表格 (QListWidget, QTableWidget) --- */

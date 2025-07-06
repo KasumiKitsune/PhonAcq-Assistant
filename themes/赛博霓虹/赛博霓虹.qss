@@ -330,3 +330,55 @@ WaveformWidget:disabled {
     qproperty-waveformColor: #9080A8; /* 禁用时波形颜色变暗 */
     opacity: 0.5;
 }
+
+/* --- 主波形图 (顶部的概览波形) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #3A2F4D;
+    border-bottom: none;
+    border-radius: 0px;
+    qproperty-backgroundColor: #120D1A; /* 使用最深的背景色 */
+    qproperty-waveformColor: #60507F;   /* 使用柔和的紫色作为背景波形 */
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    /* 语谱图颜色映射: 从最深的背景色到明亮的霓虹青色 */
+    qproperty-backgroundColor: #120D1A; 
+    qproperty-spectrogramMinColor: #120D1A; /* 能量最低处 (背景): 深靛蓝 */
+    qproperty-spectrogramMaxColor: #00FFFF; /* 能量最高处 (前景): 霓虹青 */
+    
+    /* 强度曲线颜色: 使用霓虹洋红，与主题中的链接和二级标签页颜色一致 */
+    qproperty-intensityColor: #FF00FF;
+    
+    /* 原始F0点的颜色: 使用醒目的霓虹青色，与能量最高点呼应 */
+    qproperty-f0Color: #00FFFF;
+    
+    /* 派生F0曲线的颜色: 使用半透明的霓虹洋红，作为辅助线 */
+    qproperty-f0DerivedColor: rgba(255, 0, 255, 180);
+    
+    /* F1高亮颜色: 使用纯白色，在深色背景和霓虹色中提供最强的对比 */
+    qproperty-f1Color: #FFFFFF;
+
+    /* 其他共振峰颜色: 使用霓虹青色，与F0点保持一致 */
+    qproperty-formantColor: #00FFFF;
+    
+    /* 播放头光标颜色: 使用与F0不同的霓虹洋红，以作区分 */
+    qproperty-cursorColor: #FF00FF;
+    
+    /* 坐标轴颜色: 使用柔和的紫色，不干扰主要分析曲线 */
+    qproperty-f0AxisColor: #60507F;
+    
+    /* 鼠标悬停信息框的文字和背景色: 保持赛博终端风格 */
+    qproperty-infoTextColor: #00FFFF;
+    qproperty-infoBackgroundColor: rgba(18, 13, 26, 0.9); /* 半透明的深靛蓝 */
+    
+    /* 边框样式 */
+    border: 1px solid #3A2F4D;
+    border-radius: 0px;
+}
+
+/* --- 时间轴控件 --- */
+TimeAxisWidget {
+    /* 确保时间轴的背景和文字颜色与主题一致 */
+    background-color: #1A1423; /* Darker Indigo */
+}

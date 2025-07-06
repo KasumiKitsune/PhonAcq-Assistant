@@ -277,11 +277,19 @@ class AccentCollectionPage(QWidget):
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.clicked.connect(self.handle_record_button)
         self.replay_btn.clicked.connect(self.replay_audio)
-        # [修改] 连接表格信号
         self.list_widget.itemSelectionChanged.connect(self.on_list_item_changed)
         self.list_widget.cellDoubleClicked.connect(self.on_cell_double_clicked)
-        self.random_switch.stateChanged.connect(self.on_session_mode_changed)
-        self.full_list_switch.stateChanged.connect(self.on_session_mode_changed)
+        
+        # [修改] 将原始连接重定向到新的持久化槽函数
+        # self.random_switch.stateChanged.connect(self.on_session_mode_changed) # 旧连接
+        # self.full_list_switch.stateChanged.connect(self.on_session_mode_changed) # 旧连接
+        self.random_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('is_random', bool(state))
+        )
+        self.full_list_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('is_full_list', bool(state))
+        )
+        
         self.recording_device_error_signal.connect(self.show_recording_device_error)
 
     def on_cell_double_clicked(self, row, column):
@@ -303,8 +311,28 @@ class AccentCollectionPage(QWidget):
         ui_settings = self.config.get("ui_settings", {}); width = ui_settings.get("collector_sidebar_width", 320); self.right_panel.setFixedWidth(width)
 
     def load_config_and_prepare(self):
-        self.config = self.parent_window.config; self.apply_layout_settings()
-        if not self.session_active: self.populate_word_lists(); self.participant_input.setText(self.config['file_settings'].get('participant_base_name', 'participant'))
+        self.config = self.parent_window.config
+        self.apply_layout_settings()
+
+        # [新增] 加载并应用已保存的模块状态
+        # 'accent_collection' 必须与步骤3中使用的键一致
+        module_states = self.config.get("module_states", {}).get("accent_collection", {})
+
+        # 在设置初始状态时阻塞信号，避免触发不必要的保存操作
+        self.random_switch.blockSignals(True)
+        self.full_list_switch.blockSignals(True)
+
+        # 从配置中读取值，如果找不到，则使用默认值 False
+        self.random_switch.setChecked(module_states.get("is_random", False))
+        self.full_list_switch.setChecked(module_states.get("is_full_list", False))
+
+        # 恢复信号连接
+        self.random_switch.blockSignals(False)
+        self.full_list_switch.blockSignals(False)
+        
+        if not self.session_active:
+            self.populate_word_lists()
+            self.participant_input.setText(self.config['file_settings'].get('participant_base_name', 'participant'))
     
     def show_recording_device_error(self, error_message):
         QMessageBox.critical(self, "录音设备错误", error_message); self.status_label.setText("状态：录音设备错误，请检查设置。"); self.record_btn.setEnabled(False)
@@ -767,3 +795,17 @@ class AccentCollectionPage(QWidget):
                 result['error_details'] = errors_occurred[:3] # 只返回前3个错误摘要
         
             return result
+    def _on_persistent_setting_changed(self, key, value):
+        """
+        当用户更改需要记忆的设置时调用此方法。
+        1. 调用主窗口API将状态保存到 settings.json。
+        2. 调用原有的响应函数以确保UI实时更新。
+        """
+        # 步骤1：调用全局API保存状态
+        # 'accent_collection' 是此模块在配置文件中的唯一标识符
+        self.parent_window.update_and_save_module_state('accent_collection', key, value)
+        
+        # 步骤2：调用原有逻辑以更新UI（如果会话已激活）
+        # 这一步至关重要，确保了在不破坏现有功能的前提下增加新功能
+        if self.session_active:
+            self.on_session_mode_changed()

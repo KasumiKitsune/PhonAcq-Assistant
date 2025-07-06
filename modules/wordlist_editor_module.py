@@ -198,7 +198,7 @@ class WordlistEditorPage(QWidget):
         item = self.file_list_widget.itemAt(position)
         if not item: return
 
-        menu = QMenu()
+        menu = QMenu(self.file_list_widget)
         show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
         menu.addSeparator()
         duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
@@ -392,7 +392,7 @@ class WordlistEditorPage(QWidget):
             cmd = WordlistChangeLanguageCommand(self, row, self.old_lang_before_edit, new_lang_code, "改变语言"); self.undo_stack.push(cmd)
         self.old_lang_before_edit = None
     def show_context_menu(self, position):
-        menu = QMenu(); selection = self.table_widget.selectedRanges()
+        menu = QMenu(self.file_list_widget); selection = self.table_widget.selectedRanges()
         cut_action = menu.addAction(self.icon_manager.get_icon("cut"), "剪切 (Ctrl+X)"); cut_action.setToolTip("剪切选中的单元格内容。"); copy_action = menu.addAction(self.icon_manager.get_icon("copy"), "复制 (Ctrl+C)"); copy_action.setToolTip("复制选中的单元格内容。"); paste_action = menu.addAction(self.icon_manager.get_icon("paste"), "粘贴 (Ctrl+V)"); paste_action.setToolTip("将剪贴板内容粘贴到当前位置。"); menu.addSeparator()
         duplicate_action = menu.addAction(self.icon_manager.get_icon("duplicate_row"), "创建副本/重制行 (Ctrl+D)"); duplicate_action.setToolTip("复制选中行并插入到下方。"); menu.addSeparator()
         add_row_action = menu.addAction(self.icon_manager.get_icon("add_row"), "在下方插入新行"); add_row_action.setToolTip("在当前选中行下方插入一个新行。"); remove_row_action = menu.addAction(self.icon_manager.get_icon("remove_row"), "删除选中行"); remove_row_action.setToolTip("删除表格中所有选中的行。"); menu.addSeparator()

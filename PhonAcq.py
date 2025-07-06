@@ -898,6 +898,26 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的图标时出错: {e}")
 
+    def update_and_save_module_state(self, module_key, setting_key, value):
+        """
+        更新并立即保存一个特定模块的状态到 settings.json。
+        """
+        if "module_states" not in self.config:
+            self.config["module_states"] = {}
+        if module_key not in self.config["module_states"]:
+            self.config["module_states"][module_key] = {}
+            
+        # 更新内存中的配置字典
+        self.config["module_states"][module_key][setting_key] = value
+        
+        # 立即写入文件
+        try:
+            # SETTINGS_FILE 应该是你已定义的全局变量
+            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4)
+        except Exception as e:
+            print(f"Error saving module state for {module_key}: {e}", file=sys.stderr)
+
 # --- 主程序执行块 ---
 if __name__ == "__main__":
     splash.showMessage("加载核心组件...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)

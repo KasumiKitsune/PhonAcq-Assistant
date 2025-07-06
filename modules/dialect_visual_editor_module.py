@@ -136,7 +136,7 @@ class DialectVisualEditorPage(QWidget):
         item = self.file_list_widget.itemAt(position)
         if not item: return
 
-        menu = QMenu()
+        menu = QMenu(self.file_list_widget)
         show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
         menu.addSeparator()
         duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
@@ -255,7 +255,7 @@ class DialectVisualEditorPage(QWidget):
                 item.setBackground(QBrush(QColor("#FFCCCC")) if is_duplicate else QBrush(Qt.white))
         self.table_widget.blockSignals(False)
     def show_context_menu(self, position):
-        menu = QMenu(); selection = self.table_widget.selectedRanges()
+        menu = QMenu(self.file_list_widget); selection = self.table_widget.selectedRanges()
         cut_action = menu.addAction(self.icon_manager.get_icon("cut"), "剪切 (Ctrl+X)"); copy_action = menu.addAction(self.icon_manager.get_icon("copy"), "复制 (Ctrl+C)"); paste_action = menu.addAction(self.icon_manager.get_icon("paste"), "粘贴 (Ctrl+V)")
         menu.addSeparator(); duplicate_action = menu.addAction(self.icon_manager.get_icon("duplicate_row"), "创建副本/重制行 (Ctrl+D)"); menu.addSeparator()
         add_row_action = menu.addAction(self.icon_manager.get_icon("add_row"), "在下方插入新行"); remove_row_action = menu.addAction(self.icon_manager.get_icon("remove_row"), "删除选中行")

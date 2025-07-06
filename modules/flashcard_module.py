@@ -103,19 +103,62 @@ class FlashcardPage(QWidget):
         source_layout.addRow("词表文件:", self.wordlist_combo)
         mode_group = QGroupBox("2. 选择模式"); self.mode_layout = QVBoxLayout(mode_group)
         options_group = QGroupBox("3. 学习选项"); options_layout = QVBoxLayout(options_group)
-        self.order_mode_group = QGroupBox("卡片顺序"); order_layout = QVBoxLayout()
-        self.smart_random_radio = QRadioButton("智能随机 (推荐)"); self.smart_random_radio.setChecked(True); self.smart_random_radio.setToolTip("优先展示未掌握、易错和到期应复习的卡片，是最高效的学习模式。")
-        self.random_radio = QRadioButton("完全随机"); self.random_radio.setToolTip("在所有卡片中（包括已掌握的）纯粹随机抽取。")
-        self.sequential_radio = QRadioButton("按列表顺序"); self.sequential_radio.setToolTip("严格按照词表文件中的原始顺序显示所有卡片。")
-        order_layout.addWidget(self.smart_random_radio); order_layout.addWidget(self.random_radio); order_layout.addWidget(self.sequential_radio); self.order_mode_group.setLayout(order_layout)
-        autoplay_layout = QHBoxLayout(); autoplay_layout.addWidget(QLabel("自动播放音频:")); self.autoplay_audio_switch = self.ToggleSwitch(); self.autoplay_audio_switch.setChecked(True); self.autoplay_audio_switch.setToolTip("开启后，切换到新卡片时会自动播放关联的音频。")
-        autoplay_layout.addWidget(self.autoplay_audio_switch); autoplay_layout.addStretch()
-        hide_list_layout = QHBoxLayout(); hide_list_layout.addWidget(QLabel("隐藏项目列表:")); self.hide_list_switch = self.ToggleSwitch(); self.hide_list_switch.setChecked(True); self.hide_list_switch.setToolTip("开启后，开始学习时将隐藏左侧的卡片列表，以减少干扰，专注于当前卡片。")
-        hide_list_layout.addWidget(self.hide_list_switch); hide_list_layout.addStretch()
-        auto_show_answer_layout = QHBoxLayout(); auto_show_answer_layout.addWidget(QLabel("自动显示答案:"))
-        self.auto_show_answer_switch = self.ToggleSwitch(); self.auto_show_answer_switch.setChecked(False); self.auto_show_answer_switch.setToolTip("开启后，在“学习模式”下切换到新卡片时，会自动显示答案，无需手动点击。")
-        auto_show_answer_layout.addWidget(self.auto_show_answer_switch); auto_show_answer_layout.addStretch()
-        options_layout.addWidget(self.order_mode_group); options_layout.addLayout(autoplay_layout); options_layout.addLayout(hide_list_layout); options_layout.addLayout(auto_show_answer_layout)
+        module_states = self.parent_window.config.get("module_states", {}).get("flashcard", {})
+        # --- 卡片顺序 ---
+        self.order_mode_group = QGroupBox("卡片顺序")
+        order_layout = QVBoxLayout()
+        self.smart_random_radio = QRadioButton("智能随机 (推荐)")
+        self.random_radio = QRadioButton("完全随机")
+        self.sequential_radio = QRadioButton("按列表顺序")
+        
+        # 加载已保存的顺序模式
+        saved_order_mode = module_states.get('order_mode', 'smart_random')
+        if saved_order_mode == 'random':
+            self.random_radio.setChecked(True)
+        elif saved_order_mode == 'sequential':
+            self.sequential_radio.setChecked(True)
+        else: # 默认为 smart_random
+            self.smart_random_radio.setChecked(True)
+            
+        # ... (设置 tooltips 的代码不变) ...
+        self.smart_random_radio.setToolTip("...")
+        self.random_radio.setToolTip("...")
+        self.sequential_radio.setToolTip("...")
+        
+        order_layout.addWidget(self.smart_random_radio)
+        order_layout.addWidget(self.random_radio)
+        order_layout.addWidget(self.sequential_radio)
+        self.order_mode_group.setLayout(order_layout)
+        
+        # --- 其他开关 ---
+        autoplay_layout = QHBoxLayout()
+        autoplay_layout.addWidget(QLabel("自动播放音频:"))
+        self.autoplay_audio_switch = self.ToggleSwitch()
+        self.autoplay_audio_switch.setChecked(module_states.get('autoplay_audio', True)) # 默认开启
+        self.autoplay_audio_switch.setToolTip("...")
+        autoplay_layout.addWidget(self.autoplay_audio_switch)
+        autoplay_layout.addStretch()
+        
+        hide_list_layout = QHBoxLayout()
+        hide_list_layout.addWidget(QLabel("隐藏项目列表:"))
+        self.hide_list_switch = self.ToggleSwitch()
+        self.hide_list_switch.setChecked(module_states.get('hide_list', True)) # 默认开启
+        self.hide_list_switch.setToolTip("...")
+        hide_list_layout.addWidget(self.hide_list_switch)
+        hide_list_layout.addStretch()
+        
+        auto_show_answer_layout = QHBoxLayout()
+        auto_show_answer_layout.addWidget(QLabel("自动显示答案:"))
+        self.auto_show_answer_switch = self.ToggleSwitch()
+        self.auto_show_answer_switch.setChecked(module_states.get('auto_show_answer', False)) # 默认关闭
+        self.auto_show_answer_switch.setToolTip("...")
+        auto_show_answer_layout.addWidget(self.auto_show_answer_switch)
+        auto_show_answer_layout.addStretch()
+        
+        options_layout.addWidget(self.order_mode_group)
+        options_layout.addLayout(autoplay_layout)
+        options_layout.addLayout(hide_list_layout)
+        options_layout.addLayout(auto_show_answer_layout)
         self.clear_progress_btn = QPushButton("清空当前词表学习记录"); self.clear_progress_btn.setObjectName("ActionButton_Delete"); self.clear_progress_btn.setToolTip("警告：将永久删除当前选中词表的所有学习记录（如掌握状态、复习次数等）。")
         self.start_reset_btn = QPushButton("加载词表并开始学习"); self.start_reset_btn.setObjectName("AccentButton"); self.start_reset_btn.setFixedHeight(40); self.start_reset_btn.setToolTip("加载选中的词表和模式，开始一个新的学习会话。/ 结束当前会话并返回选择界面。")
         right_layout.addWidget(source_group); right_layout.addWidget(mode_group); right_layout.addWidget(options_group); right_layout.addStretch()
@@ -136,6 +179,28 @@ class FlashcardPage(QWidget):
         self.clear_progress_btn.clicked.connect(self.clear_current_progress)
         self.answer_submit_btn.clicked.connect(self.check_answer)
         self.answer_input.returnPressed.connect(self.check_answer)
+        # [新增] 连接持久化设置的信号
+        # QRadioButton 的 toggled 信号在选中时会发出 True
+        self.smart_random_radio.toggled.connect(
+            lambda checked: self._on_persistent_setting_changed('order_mode', 'smart_random') if checked else None
+        )
+        self.random_radio.toggled.connect(
+            lambda checked: self._on_persistent_setting_changed('order_mode', 'random') if checked else None
+        )
+        self.sequential_radio.toggled.connect(
+            lambda checked: self._on_persistent_setting_changed('order_mode', 'sequential') if checked else None
+        )
+        
+        # ToggleSwitch 的 stateChanged 信号发出的是状态值 (0 或 2)
+        self.autoplay_audio_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('autoplay_audio', bool(state))
+        )
+        self.hide_list_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('hide_list', bool(state))
+        )
+        self.auto_show_answer_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('auto_show_answer', bool(state))
+        )
         
         QShortcut(QKeySequence(Qt.Key_Left), self, self.show_prev_card)
         QShortcut(QKeySequence(Qt.Key_Right), self, self.show_next_card)
@@ -446,3 +511,6 @@ class FlashcardPage(QWidget):
         progress = self.progress_data.setdefault(card_id, {"views": 0, "mastered": False, "errors": 0, "level": 0, "last_viewed_ts": 0, "next_review_ts": 0})
         progress["mastered"] = False; progress["errors"] = progress.get("errors", 0) + 1; progress["level"] = 0; progress["next_review_ts"] = 0
         self.update_list_item_icon(self.current_card_index, False); self.save_progress()
+    def _on_persistent_setting_changed(self, key, value):
+        """当用户更改任何可记忆的设置时，调用此方法以保存状态。"""
+        self.parent_window.update_and_save_module_state('flashcard', key, value)

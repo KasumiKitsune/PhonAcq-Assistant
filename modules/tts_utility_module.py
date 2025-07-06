@@ -137,14 +137,38 @@ class TtsUtilityPage(QWidget):
 
         right_panel_container = QWidget(); right_panel_main_layout = QVBoxLayout(right_panel_container); right_panel_container.setMinimumWidth(320); right_panel_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         settings_group = QGroupBox("TTS 参数设置"); settings_form_layout = QFormLayout(settings_group)
-        self.default_lang_combo = QComboBox(); self.default_lang_combo.setToolTip("当列表中的语言列为空时，将使用此处的默认语言。")
-        for name, code in LANGUAGE_MAP_TTS.items(): self.default_lang_combo.addItem(name, code)
-        gtts_conf = self.config.get("gtts_settings", {}); default_lang_val = gtts_conf.get("default_lang", "en-us")
-        idx = self.default_lang_combo.findData(default_lang_val); self.default_lang_combo.setCurrentIndex(idx if idx != -1 else 0)
-        self.auto_detect_lang_switch = self.ToggleSwitch(); self.auto_detect_lang_switch.setChecked(gtts_conf.get("auto_detect", True)); self.auto_detect_lang_switch.setToolTip("开启后，将尝试自动检测文本的语言（如中/日/韩），\n如果检测失败，则使用上面的默认语言。")
-        auto_detect_layout = QHBoxLayout(); auto_detect_layout.addWidget(self.auto_detect_lang_switch); auto_detect_layout.addStretch()
-        self.slow_speed_switch = self.ToggleSwitch(); self.slow_speed_switch.setChecked(False); self.slow_speed_switch.setToolTip("开启后，将以较慢的语速生成语音，适合教学场景。")
-        slow_speed_layout = QHBoxLayout(); slow_speed_layout.addWidget(self.slow_speed_switch); slow_speed_layout.addStretch()
+        # 1. 安全地获取本模块的配置
+        module_states = self.config.get("module_states", {}).get("tts_utility", {})
+
+        # 2. 创建并设置 default_lang_combo
+        self.default_lang_combo = QComboBox()
+        self.default_lang_combo.setToolTip("当列表中的语言列为空时，将使用此处的默认语言。")
+        for name, code in LANGUAGE_MAP_TTS.items():
+            self.default_lang_combo.addItem(name, code)
+        
+        # 加载已保存的语言设置，如果不存在，则使用gTTS的全局默认值
+        gtts_conf = self.config.get("gtts_settings", {})
+        default_lang_val = module_states.get("default_lang", gtts_conf.get("default_lang", "en-us"))
+        idx = self.default_lang_combo.findData(default_lang_val)
+        if idx != -1:
+            self.default_lang_combo.setCurrentIndex(idx)
+
+        # 3. 创建并设置 auto_detect_lang_switch
+        self.auto_detect_lang_switch = self.ToggleSwitch()
+        # 加载已保存的设置，如果不存在，则使用gTTS的全局默认值
+        self.auto_detect_lang_switch.setChecked(module_states.get("auto_detect", gtts_conf.get("auto_detect", True)))
+        self.auto_detect_lang_switch.setToolTip("开启后，将尝试自动检测文本的语言（如中/日/韩），\n如果检测失败，则使用上面的默认语言。")
+        auto_detect_layout = QHBoxLayout()
+        auto_detect_layout.addWidget(self.auto_detect_lang_switch)
+        auto_detect_layout.addStretch()
+        
+        # 4. 创建并设置 slow_speed_switch
+        self.slow_speed_switch = self.ToggleSwitch()
+        self.slow_speed_switch.setChecked(module_states.get("slow", False)) # 默认不慢速
+        self.slow_speed_switch.setToolTip("开启后，将以较慢的语速生成语音，适合教学场景。")
+        slow_speed_layout = QHBoxLayout()
+        slow_speed_layout.addWidget(self.slow_speed_switch)
+        slow_speed_layout.addStretch()
         
         self.output_to_flashcard_switch = self.ToggleSwitch(); self.output_to_flashcard_switch.setChecked(False); self.output_to_flashcard_switch.setToolTip("开启后，音频将直接生成到“速记卡”模块对应的词表文件夹内。\n此模式下，必须先加载一个词表文件以确定目标文件夹。")
         flashcard_output_layout = QHBoxLayout(); flashcard_output_layout.addWidget(self.output_to_flashcard_switch); flashcard_output_layout.addStretch()
@@ -188,6 +212,17 @@ class TtsUtilityPage(QWidget):
         self.stop_tts_btn.clicked.connect(self.stop_tts_processing)
         self.open_output_dir_btn.clicked.connect(self.open_target_output_directory)
         self.output_to_flashcard_switch.stateChanged.connect(self.toggle_output_dir_input)
+                # [新增] 连接持久化设置的信号
+        self.default_lang_combo.currentIndexChanged.connect(
+            lambda: self._on_persistent_setting_changed('default_lang', self.default_lang_combo.currentData())
+        )
+        self.auto_detect_lang_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('auto_detect', bool(state))
+        )
+        self.slow_speed_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('slow', bool(state))
+        )
+        # 注意：output_to_flashcard_switch 的状态是临时的，不应被持久化，因为它依赖于是否加载了词表，所以不在此处连接。
     
     # --- [新增] 更新图标的方法 ---
     def update_icons(self):
@@ -423,3 +458,7 @@ class TtsUtilityPage(QWidget):
         completion_message = f"TTS转换完成！成功处理 {processed_count}/{total_items} 个词条。"
         if errors: completion_message += f"\n发生 {len(errors)} 个错误 (详情请查看上方日志)。"
         return completion_message
+    # [新增] 用于处理和保存持久化设置的槽函数
+    def _on_persistent_setting_changed(self, key, value):
+        """当用户更改任何可记忆的设置时，调用此方法以保存状态。"""
+        self.parent_window.update_and_save_module_state('tts_utility', key, value)

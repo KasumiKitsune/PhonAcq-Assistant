@@ -284,6 +284,17 @@ class DialectVisualCollectorPage(QWidget):
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.clicked.connect(self.handle_record_button)
         self.item_list_widget.currentItemChanged.connect(self.on_item_selected)
+        self.show_notes_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('show_notes', bool(state))
+        )
+        self.show_prompt_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('show_prompt', bool(state))
+        )
+        self.random_order_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('is_random', bool(state))
+        )
+        
+        self.recording_device_error_signal.connect(self.show_recording_device_error)
         self.show_notes_switch.stateChanged.connect(self.toggle_notes_visibility)
         self.show_prompt_switch.stateChanged.connect(self.toggle_prompt_visibility)
         self.random_order_switch.stateChanged.connect(self.on_order_mode_changed)
@@ -335,7 +346,31 @@ class DialectVisualCollectorPage(QWidget):
         ui_settings = self.config.get("ui_settings", {}); width = ui_settings.get("collector_sidebar_width", 320); self.left_panel.setFixedWidth(width)
 
     def load_config_and_prepare(self):
-        self.config = self.parent_window.config; self.apply_layout_settings()
+        self.config = self.parent_window.config
+        self.apply_layout_settings()
+
+        # [新增] 加载并应用已保存的模块状态
+        # 'dialect_visual_collector' 必须与步骤3中使用的键一致
+        module_states = self.config.get("module_states", {}).get("dialect_visual_collector", {})
+        
+        # blockSignals 确保在设置初始状态时不触发 stateChanged，避免不必要的写入
+        self.random_order_switch.blockSignals(True)
+        self.show_prompt_switch.blockSignals(True)
+        self.show_notes_switch.blockSignals(True)
+        
+        # 从配置中读取值，如果找不到，则使用默认值
+        self.random_order_switch.setChecked(module_states.get("is_random", False))
+        self.show_prompt_switch.setChecked(module_states.get("show_prompt", True))
+        self.show_notes_switch.setChecked(module_states.get("show_notes", False))
+        
+        self.random_order_switch.blockSignals(False)
+        self.show_prompt_switch.blockSignals(False)
+        self.show_notes_switch.blockSignals(False)
+        
+        # 触发一次初始的UI更新
+        self.toggle_notes_visibility(self.show_notes_switch.isChecked())
+        self.toggle_prompt_visibility(self.show_prompt_switch.isChecked())
+
         if not self.session_active:
             self.populate_word_lists()
             default_participant = self.config.get('file_settings', {}).get('participant_base_name', 'participant')
@@ -593,3 +628,16 @@ class DialectVisualCollectorPage(QWidget):
              raise ValueError(f"词表文件 '{filename_from_combo}' 中的 'items' 必须是一个列表。")
              
         return items_list
+
+    def _on_persistent_setting_changed(self, key, value):
+        # 1. 调用主窗口的API来保存状态
+        # 'dialect_visual_collector' 是这个模块在配置文件中的唯一标识符，必须唯一
+        self.parent_window.update_and_save_module_state('dialect_visual_collector', key, value)
+        
+        # 2. 调用原有的响应逻辑，以确保UI实时更新
+        if key == 'show_notes':
+            self.toggle_notes_visibility(value)
+        elif key == 'show_prompt':
+            self.toggle_prompt_visibility(value)
+        elif key == 'is_random' and self.session_active:
+            self.on_order_mode_changed(value)

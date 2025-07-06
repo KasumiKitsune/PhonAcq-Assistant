@@ -528,7 +528,7 @@ class LogViewerPage(QWidget):
     def open_session_context_menu(self, position):
         selected_items = self.session_list.selectedItems()
         if not selected_items: return
-        menu = QMenu()
+        menu = QMenu(self.session_list)
         
         item_text = "会话" if self.current_mode == 'log' else "进度文件"
         delete_action = menu.addAction(f"删除选中的 {len(selected_items)} 个{item_text}")

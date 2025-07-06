@@ -15,8 +15,8 @@ import subprocess
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QAbstractItemView, QMenu, QSplitter, QInputDialog, QLineEdit,
-                             QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout)
-from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty
+                             QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider)
+from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QColor, QPen, QBrush, QPalette
 
 # [新增] 导入 QMediaPlayer 和 QMediaContent
@@ -29,6 +29,63 @@ try:
 except ImportError:
     AUDIO_ANALYSIS_AVAILABLE = False
     print("WARNING: numpy or soundfile not found. Audio auto-volume, editing and visualization features will be disabled.")
+
+# [新增] 自定义QSlider，以支持点击跳转
+class ClickableSlider(QSlider):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+
+    def _get_value_from_pos(self, pos):
+        """根据鼠标位置计算滑块的值。"""
+        if self.orientation() == Qt.Horizontal:
+            # 使用更精确的 QStyle 方法来计算
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            gr = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+            sr = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+            
+            if gr.width() <= 0: return self.minimum()
+
+            slider_length = gr.width()
+            slider_min = gr.x()
+            slider_max = gr.right() - sr.width()
+            
+            # 确保点击位置在有效范围内
+            clamped_x = max(slider_min, min(pos.x(), slider_max))
+            
+            value_ratio = (clamped_x - slider_min) / (slider_max - slider_min)
+
+        else: # 垂直方向
+            # (类似地，但为简洁起见，我们主要关注水平方向)
+            value_ratio = (self.height() - pos.y()) / self.height()
+
+        return self.minimum() + value_ratio * (self.maximum() - self.minimum())
+
+    def mousePressEvent(self, event):
+        """当鼠标按下时，立即跳转到该位置。"""
+        if event.button() == Qt.LeftButton:
+            new_value = self._get_value_from_pos(event.pos())
+            self.setValue(int(new_value))
+            # 发射 sliderMoved 信号，让播放器立即响应
+            self.sliderMoved.emit(int(new_value))
+            # 这一步是关键，它使得在按下后立即移动鼠标也能触发 mouseMoveEvent
+            # 就像标准的拖动一样
+            event.accept()
+            return
+        
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """在鼠标按住并移动时，持续更新位置。"""
+        # 我们只在左键按下的情况下才处理移动事件
+        if event.buttons() & Qt.LeftButton:
+            new_value = self._get_value_from_pos(event.pos())
+            self.setValue(int(new_value))
+            self.sliderMoved.emit(int(new_value))
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
 
 class ReorderDialog(QDialog):
     def __init__(self, filepaths, parent=None, icon_manager=None):
@@ -111,11 +168,14 @@ class ReorderDialog(QDialog):
 
 # --- WaveformWidget 类定义保持不变 ---
 class WaveformWidget(QWidget):
+    clicked_at_ratio = pyqtSignal(float)
+    marker_requested_at_ratio = pyqtSignal(float)
+    clear_markers_requested = pyqtSignal()
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(60)
         self.setMaximumHeight(60)
-        self.setToolTip("音频波形预览。\n蓝色区域表示裁切范围，红色竖线是当前播放位置。")
+        self.setToolTip("音频波形预览。\n- 左键点击/拖动: 寻轨\n- 右键点击: 标记起点/终点\n- 中键点击: 清除标记")
         self._waveform_data = None
         self._playback_pos_ratio = 0.0
         self._trim_start_ratio = -1.0
@@ -124,6 +184,7 @@ class WaveformWidget(QWidget):
         self._waveformColor = self.palette().color(QPalette.Highlight)
         self._cursorColor = QColor("red")
         self._selectionColor = QColor(0, 100, 255, 60)
+        self.is_scrubbing = False
 
     @pyqtProperty(QColor)
     def waveformColor(self): return self._waveformColor
@@ -167,6 +228,48 @@ class WaveformWidget(QWidget):
         self._waveform_data = None; self._playback_pos_ratio = 0.0
         self._trim_start_ratio = -1.0; self._trim_end_ratio = -1.0
         self.update()
+
+    # [重构] 完整的鼠标事件处理
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.is_scrubbing = True
+            self._handle_scrub(event.pos())
+            event.accept()
+        elif event.button() == Qt.RightButton:
+            # 右键点击，发射请求标记的信号
+            ratio = event.x() / self.width()
+            if 0 <= ratio <= 1:
+                self.marker_requested_at_ratio.emit(ratio)
+            event.accept()
+        elif event.button() == Qt.MiddleButton:
+            # 中键点击，发射请求清除标记的信号
+            self.clear_markers_requested.emit()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.is_scrubbing:
+            self._handle_scrub(event.pos())
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.is_scrubbing = False
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    # [新增] 辅助方法，用于处理寻轨逻辑
+    def _handle_scrub(self, pos):
+        # 计算点击位置在宽度上的比例 (0.0 to 1.0)
+        ratio = pos.x() / self.width()
+        # 确保比例在有效范围内
+        clamped_ratio = max(0.0, min(1.0, ratio))
+        # 发射信号，将比例传递出去
+        self.clicked_at_ratio.emit(clamped_ratio)
 
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
@@ -215,7 +318,17 @@ class AudioManagerPage(QWidget):
         self.player_cache = {}  # {filepath: QMediaPlayer_instance}
         self.active_player = None # 指向当前与UI交互的播放器
         self.preview_player = None
-        self._init_ui(); self._connect_signals(); self.update_icons(); self.apply_layout_settings()
+        self.staged_files = {} # 使用字典来存储 {filepath: display_name} 以防止重复添加
+        # --- [新增] 在此处加载持久化设置 ---
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        self.shortcut_button_action = module_states.get('shortcut_action', 'delete') # 默认是删除
+        self.adaptive_volume_default_state = module_states.get('adaptive_volume', True) # 默认开启
+        # --- 结束新增 ---
+        
+        self._init_ui()
+        self._connect_signals()
+        self.update_icons()
+        self.apply_layout_settings()
         
     def _init_ui(self):
         main_splitter = QSplitter(Qt.Horizontal, self)
@@ -224,6 +337,35 @@ class AudioManagerPage(QWidget):
         left_layout.addWidget(self.source_combo); left_layout.addWidget(QLabel("项目列表:"))
         self.session_list_widget = QListWidget(); self.session_list_widget.setContextMenuPolicy(Qt.CustomContextMenu); self.session_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.session_list_widget.setToolTip("双击可直接在文件浏览器中打开。\n右键可进行批量操作。"); left_layout.addWidget(self.session_list_widget, 1)
+        # [新增] 音频暂存区 UI
+        staging_group = QGroupBox("音频暂存区")
+        staging_group.setToolTip("一个临时的区域，用于收集来自不同文件夹的音频以进行连接。")
+        staging_layout = QVBoxLayout(staging_group)
+        
+        self.staging_list_widget = QListWidget()
+        self.staging_list_widget.setToolTip("当前已暂存的音频文件。\n可在此处预览顺序。")
+        
+        staging_btn_layout = QHBoxLayout()
+        self.connect_staged_btn = QPushButton("连接音频")
+        self.connect_staged_btn.setObjectName("")
+        self.clear_staged_btn = QPushButton("清空")
+
+        staging_btn_layout.addWidget(self.connect_staged_btn)
+        staging_btn_layout.addWidget(self.clear_staged_btn)
+        
+        staging_layout.addWidget(self.staging_list_widget)
+        staging_layout.addLayout(staging_btn_layout)
+        
+        left_layout.addWidget(staging_group)
+        # [新增] 在左下角添加本地状态标签
+        self.status_label = QLabel("准备就绪")
+        self.status_label.setObjectName("StatusLabelModule") # 与其他模块保持一致
+        self.status_label.setMinimumHeight(25)
+        self.status_label.setWordWrap(True)
+        left_layout.addWidget(self.status_label)
+
+        left_layout.setStretchFactor(self.session_list_widget, 2) # 让会话列表占更多空间
+        left_layout.setStretchFactor(staging_group, 1) # 让暂存区占较少空间
         right_panel = QWidget(); right_layout = QVBoxLayout(right_panel)
         self.table_label = QLabel("请从左侧选择一个项目以查看文件"); self.table_label.setAlignment(Qt.AlignCenter)
         self.audio_table_widget = QTableWidget(); self.audio_table_widget.setColumnCount(4); self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""]); self.audio_table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -233,9 +375,13 @@ class AudioManagerPage(QWidget):
         playback_v_layout = QVBoxLayout(); playback_v_layout.setContentsMargins(0, 5, 0, 5)
         playback_h_layout = QHBoxLayout()
         self.play_pause_btn = QPushButton(""); self.play_pause_btn.setMinimumWidth(80); self.play_pause_btn.setToolTip("播放或暂停当前选中的音频。")
-        self.playback_slider = QSlider(Qt.Horizontal); self.playback_slider.setToolTip("显示当前播放进度，可拖动以快进或后退。")
+        self.playback_slider = ClickableSlider(Qt.Horizontal)
+        self.playback_slider.setToolTip("显示当前播放进度，可拖动或点击以跳转。")
         volume_layout = QHBoxLayout(); volume_layout.setSpacing(5)
-        self.adaptive_volume_switch = self.ToggleSwitch(); self.adaptive_volume_switch.setToolTip("开启后，将根据音频响度自动调整初始音量。"); self.adaptive_volume_switch.setChecked(True)
+        # [修改] 在创建 adaptive_volume_switch 后，设置其加载好的状态
+        self.adaptive_volume_switch = self.ToggleSwitch()
+        self.adaptive_volume_switch.setToolTip("开启后，将根据音频响度自动调整初始音量。")
+        self.adaptive_volume_switch.setChecked(self.adaptive_volume_default_state) # <-- 在此应用加载的状态
         volume_layout.addWidget(self.adaptive_volume_switch); volume_layout.addWidget(QLabel("自适应"))
         self.volume_label = QLabel("音量:"); self.volume_slider = QSlider(Qt.Horizontal); self.volume_slider.setFixedWidth(120); self.volume_slider.setRange(0, 100); self.volume_slider.setValue(100); self.volume_slider.setToolTip("调整播放音量。")
         self.volume_percent_label = QLabel("100%"); volume_layout.addWidget(self.volume_label); volume_layout.addWidget(self.volume_slider); volume_layout.addWidget(self.volume_percent_label)
@@ -244,12 +390,26 @@ class AudioManagerPage(QWidget):
         waveform_time_layout.addWidget(self.waveform_widget, 10); waveform_time_layout.addWidget(self.duration_label)
         playback_v_layout.addLayout(playback_h_layout); playback_v_layout.addLayout(waveform_time_layout)
         self.edit_panel_container = QWidget(); container_layout = QVBoxLayout(self.edit_panel_container); container_layout.setContentsMargins(0,0,0,0)
-        self.edit_panel = QGroupBox("音频编辑"); edit_controls_layout = QHBoxLayout(self.edit_panel); edit_controls_layout.setSpacing(10)
-        self.trim_start_label = QLabel("起点: --:--.--"); self.set_start_btn = QPushButton("标记起点"); self.set_start_btn.setToolTip("将当前播放位置标记为裁切起点。")
-        self.set_end_btn = QPushButton("标记终点"); self.set_end_btn.setToolTip("将当前播放位置标记为裁切终点。"); self.trim_end_label = QLabel("终点: --:--.--")
-        self.clear_trim_btn = QPushButton("清除"); self.clear_trim_btn.setToolTip("清除已标记的起点和终点。")
+        self.edit_panel = QGroupBox("音频编辑")
+        edit_controls_layout = QHBoxLayout(self.edit_panel)
+        edit_controls_layout.setSpacing(10)
+        
+        self.trim_start_label = QLabel("起点: --:--.--")
+        self.set_start_btn = QPushButton("起点")
+        # [修改] 更新 Tooltip
+        self.set_start_btn.setToolTip("将当前播放位置标记为裁切起点。\n快捷键：在波形图上右键单击。")
+        
+        self.set_end_btn = QPushButton("终点")
+        # [修改] 更新 Tooltip
+        self.set_end_btn.setToolTip("将当前播放位置标记为裁切终点。\n快捷键：在波形图上再次右键单击。")
+        
+        self.trim_end_label = QLabel("终点: --:--.--")
+        
+        self.clear_trim_btn = QPushButton("清除")
+        # [修改] 更新 Tooltip
+        self.clear_trim_btn.setToolTip("清除已标记的起点和终点。\n快捷键：在波形图上中键单击。")
         self.preview_trim_btn = QPushButton("预览"); self.preview_trim_btn.setToolTip("试听当前标记范围内的音频。")
-        self.save_trim_btn = QPushButton("保存裁切"); self.save_trim_btn.setToolTip("将裁切后的音频另存为新文件。"); self.save_trim_btn.setObjectName("AccentButton")
+        self.save_trim_btn = QPushButton("保存"); self.save_trim_btn.setToolTip("将裁切后的音频另存为新文件。"); self.save_trim_btn.setObjectName("AccentButton")
         edit_controls_layout.addWidget(self.trim_start_label); edit_controls_layout.addWidget(self.set_start_btn); edit_controls_layout.addWidget(self.set_end_btn); edit_controls_layout.addWidget(self.trim_end_label)
         edit_controls_layout.addStretch(1); edit_controls_layout.addWidget(self.clear_trim_btn); edit_controls_layout.addWidget(self.preview_trim_btn); edit_controls_layout.addWidget(self.save_trim_btn)
         container_layout.addWidget(self.edit_panel); self.edit_panel_container.setVisible(False)
@@ -263,12 +423,17 @@ class AudioManagerPage(QWidget):
         self.session_list_widget.itemSelectionChanged.connect(self.on_session_selection_changed); self.session_list_widget.customContextMenuRequested.connect(self.open_folder_context_menu)
         self.session_list_widget.itemDoubleClicked.connect(self.on_session_item_double_clicked); self.play_pause_btn.clicked.connect(self.on_play_button_clicked)
         self.playback_slider.sliderMoved.connect(self.set_playback_position); self.volume_slider.valueChanged.connect(self._on_volume_slider_changed)
-        self.adaptive_volume_switch.stateChanged.connect(self._on_adaptive_volume_toggled); self.audio_table_widget.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.adaptive_volume_switch.stateChanged.connect(self._on_adaptive_volume_toggled_and_save)
+        self.audio_table_widget.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.audio_table_widget.customContextMenuRequested.connect(self.open_file_context_menu); self.audio_table_widget.itemSelectionChanged.connect(self._on_table_selection_changed)
         self.set_start_btn.clicked.connect(self._set_trim_start); self.set_end_btn.clicked.connect(self._set_trim_end)
         self.clear_trim_btn.clicked.connect(self._clear_trim_points); self.preview_trim_btn.clicked.connect(self._preview_trim)
         self.save_trim_btn.clicked.connect(self._save_trim)
-
+        self.connect_staged_btn.clicked.connect(self._concatenate_staged_files)
+        self.clear_staged_btn.clicked.connect(self._clear_staging_area)
+        self.waveform_widget.clicked_at_ratio.connect(self.seek_from_waveform_click)
+        self.waveform_widget.marker_requested_at_ratio.connect(self.set_marker_from_waveform)
+        self.waveform_widget.clear_markers_requested.connect(self._clear_trim_points)
         # [新增] 使用 QShortcut 设置快捷键，这是处理焦点问题的正确方法
         # 播放/暂停快捷键 (空格)
         self.toggle_shortcut = QShortcut(QKeySequence(Qt.Key_Space), self)
@@ -323,6 +488,44 @@ class AudioManagerPage(QWidget):
         for path in needed_filepaths:
             if path not in self.player_cache:
                 player = QMediaPlayer(); player.setNotifyInterval(16); player.setMedia(QMediaContent(QUrl.fromLocalFile(path))); self.player_cache[path] = player
+
+    # [新增] 用于处理波形图右键点击标记的槽函数
+    def set_marker_from_waveform(self, ratio):
+        """根据波形图上的右键点击来设置起点或终点。"""
+        if not self.active_player or self.active_player.duration() <= 0:
+            return
+
+        # 计算点击位置对应的时间（毫秒）
+        clicked_ms = int(self.active_player.duration() * ratio)
+
+        # 如果没有起点，则将本次点击设为起点
+        if self.trim_start_ms is None:
+            self.trim_start_ms = clicked_ms
+        else:
+            # 如果已有起点，则将本次点击设为终点
+            # 并确保起点总是在终点之前
+            if clicked_ms < self.trim_start_ms:
+                # 如果新点在起点前，则将原起点设为终点，新点设为起点
+                self.trim_end_ms = self.trim_start_ms
+                self.trim_start_ms = clicked_ms
+            else:
+                self.trim_end_ms = clicked_ms
+        
+        # 更新UI显示
+        self.trim_start_label.setText(f"起点: {self.format_time(self.trim_start_ms)}")
+        if self.trim_end_ms is not None:
+            self.trim_end_label.setText(f"终点: {self.format_time(self.trim_end_ms)}")
+        else:
+            self.trim_end_label.setText("终点: --:--.--")
+            
+        # 更新波形图上的选区高亮
+        self.waveform_widget.set_trim_points(self.trim_start_ms, self.trim_end_ms, self.active_player.duration())
+
+    def seek_from_waveform_click(self, ratio):
+        """根据点击的比例，跳转到音频的相应位置。"""
+        if self.active_player and self.active_player.duration() > 0:
+            target_position = int(self.active_player.duration() * ratio)
+            self.active_player.setPosition(target_position)
                 
     # [新增] 核心方法：设置当前激活的播放器并连接UI
     def _set_active_player(self, filepath):
@@ -340,10 +543,18 @@ class AudioManagerPage(QWidget):
 
     # [新增] 核心方法：清理整个缓存池
     def _clear_player_cache(self):
-        if self.active_player: self.active_player.stop(); self.active_player = None
-        for path, player in self.player_cache.items():
-            if player: player.stop(); player.setMedia(QMediaContent()); player.deleteLater()
+        # [修复] 采用同步清理，避免 deleteLater 的时序问题
+        for player in self.player_cache.values():
+            if player:
+                player.stop()
+                player.setMedia(QMediaContent())
+        
         self.player_cache.clear()
+        
+        if self.active_player:
+            self.active_player.stop()
+            self.active_player.setMedia(QMediaContent())
+            self.active_player = None
 
     # [修改] 表格选择变化时，更新缓存
     def _on_table_selection_changed(self):
@@ -358,9 +569,13 @@ class AudioManagerPage(QWidget):
     def play_selected_item(self, row):
         item = self.audio_table_widget.item(row, 0)
         if not item: return
-        if self.preview_player and self.preview_player.state() == QMediaPlayer.PlayingState:
+
+        # [核心修改] 在播放主音频前，先停止预览播放器并清理其状态
+        if self.preview_player and self.preview_player.state() != QMediaPlayer.StoppedState:
+            self._on_preview_player_state_changed(QMediaPlayer.StoppedState) # 调用清理方法
             self.preview_player.stop()
-        # [修复] 遍历整个缓存池，停止任何正在播放的实例
+
+        # ... (后续的停止缓存池播放器、加载和播放主音频的逻辑保持不变) ...
         for player in self.player_cache.values():
             if player and player.state() == QMediaPlayer.PlayingState:
                 player.stop()
@@ -385,8 +600,13 @@ class AudioManagerPage(QWidget):
         if self.active_player: self.active_player.setVolume(value)
         self.volume_percent_label.setText(f"{value}%")
         
-    def _on_adaptive_volume_toggled(self, checked):
-        if not checked: self.volume_slider.setValue(100)
+    # [重命名并修改] _on_adaptive_volume_toggled -> _on_adaptive_volume_toggled_and_save
+    def _on_adaptive_volume_toggled_and_save(self, checked):
+        # 步骤 1: 调用原有的UI响应逻辑
+        if not checked:
+            self.volume_slider.setValue(100)
+        # 步骤 2: 调用新的持久化方法
+        self._on_persistent_setting_changed('adaptive_volume', bool(checked))
         
     def _calculate_and_set_optimal_volume(self, filepath):
         if not self.adaptive_volume_switch.isChecked() or not AUDIO_ANALYSIS_AVAILABLE: self.volume_slider.setValue(100); return
@@ -455,25 +675,72 @@ class AudioManagerPage(QWidget):
         if self.active_player:
             self.active_player.stop()
 
-        # ... (读取和裁切音频的逻辑不变) ...
-        data, sr = sf.read(self.audio_table_widget.item(self.audio_table_widget.currentRow(), 0).data(Qt.UserRole))
-        start_sample = int(self.trim_start_ms / 1000 * sr)
-        end_sample = int(self.trim_end_ms / 1000 * sr)
-        trimmed_data = data[start_sample:end_sample]
-
-        # ... (创建临时文件的逻辑不变) ...
-        if self.temp_preview_file and os.path.exists(self.temp_preview_file): os.remove(self.temp_preview_file)
-        fd, self.temp_preview_file = tempfile.mkstemp(suffix=".wav"); os.close(fd); sf.write(self.temp_preview_file, trimmed_data, sr)
-        
-        # [修复] 使用实例属性来防止播放器被垃圾回收
         # 如果上一个预览播放器还在，先停止它
         if self.preview_player and self.preview_player.state() == QMediaPlayer.PlayingState:
             self.preview_player.stop()
 
+        # ... (读取、裁切、保存临时文件的逻辑不变) ...
+        data, sr = sf.read(self.audio_table_widget.item(self.audio_table_widget.currentRow(), 0).data(Qt.UserRole))
+        start_sample = int(self.trim_start_ms / 1000 * sr)
+        end_sample = int(self.trim_end_ms / 1000 * sr)
+        trimmed_data = data[start_sample:end_sample]
+        if self.temp_preview_file and os.path.exists(self.temp_preview_file): os.remove(self.temp_preview_file)
+        fd, self.temp_preview_file = tempfile.mkstemp(suffix=".wav"); os.close(fd); sf.write(self.temp_preview_file, trimmed_data, sr)
+        
         self.preview_player = QMediaPlayer()
+        self.preview_player.setNotifyInterval(16)
+        
+        # [核心修改] 将 positionChanged 连接到新的专用槽函数
+        self.preview_player.positionChanged.connect(self.update_preview_ui)
+        # 状态变化用于预览结束后的清理
+        self.preview_player.stateChanged.connect(self._on_preview_player_state_changed)
+        
         self.preview_player.setMedia(QMediaContent(QUrl.fromLocalFile(self.temp_preview_file)))
-        self.preview_player.play()
-    
+        self.preview_player.play()     
+        
+    # [新增] 专用于预览的UI更新槽，这是正确的实现
+    def update_preview_ui(self, preview_position):
+        """
+        专门处理预览播放器的位置更新，执行坐标转换并更新UI。
+        """
+        # 1. 计算绝对位置，用于更新滑块和波形图播放头
+        # 这是相对于整个原始音频文件的位置
+        absolute_position = self.trim_start_ms + preview_position
+        
+        if not self.playback_slider.isSliderDown():
+            self.playback_slider.setValue(absolute_position)
+        
+        # 确保波形图播放头也使用绝对位置来绘制
+        if self.active_player:
+            self.waveform_widget.update_playback_position(absolute_position, self.active_player.duration())
+
+        # 2. 计算并显示相对于裁切片段的时间
+        # 这是为了让用户看到预览片段自身的播放进度
+        preview_duration = self.preview_player.duration()
+        self.duration_label.setText(f"{self.format_time(preview_position)} / {self.format_time(preview_duration)}")
+
+    # [新增] 用于处理预览播放器状态变化的槽函数
+    def _on_preview_player_state_changed(self, state):
+        """当预览播放器停止或播放结束时，断开其与UI的信号连接，并恢复UI状态。"""
+        if state == QMediaPlayer.StoppedState:
+            if self.preview_player:
+                try:
+                    # [核心修改] 只断开我们挂接的信号
+                    self.preview_player.positionChanged.disconnect(self.update_preview_ui)
+                except TypeError:
+                    pass
+            
+            # [核心修改] 将UI恢复到主播放器的状态
+            if self.active_player:
+                # 用主播放器的当前位置和总时长来重置UI
+                self.update_playback_position(self.active_player.position())
+            else:
+                # 如果连主播放器都没有，就停在起点
+                start_pos = self.trim_start_ms or 0
+                self.playback_slider.setValue(start_pos)
+                self.waveform_widget.update_playback_position(start_pos, self.current_displayed_duration)
+                self.duration_label.setText(f"{self.format_time(start_pos)} / {self.format_time(self.current_displayed_duration)}")
+
     def _save_trim_logic(self):
         if self.trim_start_ms is None or self.trim_end_ms is None: QMessageBox.warning(self, "提示", "请先标记起点和终点。"); return
         filepath = self.audio_table_widget.item(self.audio_table_widget.currentRow(), 0).data(Qt.UserRole); base, ext = os.path.splitext(os.path.basename(filepath)); new_name, ok = QInputDialog.getText(self, "保存裁切文件", "输入新文件名:", QLineEdit.Normal, f"{base}_trimmed")
@@ -483,92 +750,138 @@ class AudioManagerPage(QWidget):
         data, sr = sf.read(filepath); start_sample = int(self.trim_start_ms / 1000 * sr); end_sample = int(self.trim_end_ms / 1000 * sr); trimmed_data = data[start_sample:end_sample]; sf.write(new_filepath, trimmed_data, sr)
         QMessageBox.information(self, "成功", f"文件已保存为:\n{new_filepath}"); self.populate_audio_table()
     
-    def _concatenate_selected_logic(self):
+    def _add_selected_to_staging(self):
         selected_rows = sorted(list(set(item.row() for item in self.audio_table_widget.selectedItems())))
-        if len(selected_rows) < 2:
-            QMessageBox.information(self, "提示", "请至少选择两个音频文件进行连接。")
-            return
-            
-        initial_filepaths = [self.audio_table_widget.item(row, 0).data(Qt.UserRole) for row in selected_rows]
+        added_count = 0
+        for row in selected_rows:
+            filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+            if filepath not in self.staged_files:
+                display_name = f"{os.path.basename(os.path.dirname(filepath))} / {os.path.basename(filepath)}"
+                self.staged_files[filepath] = display_name
+                added_count += 1
+        self._update_staging_list_widget()
         
-        # 检查文件格式是否一致
+        # [修改] 使用本地状态标签
+        status_text = f"已添加 {added_count} 个新文件到暂存区。"
+        self.status_label.setText(status_text)
+        QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+
+    # [新增] 更新暂存区列表UI
+    def _update_staging_list_widget(self):
+        self.staging_list_widget.clear()
+        # 这里我们不直接用staged_files.values()，因为字典是无序的。
+        # 我们按照添加的顺序（或一个固定的顺序）来显示。
+        # 更好的做法是让 staged_files 是一个 list of tuples。
+        # 但为了简单，我们暂时用字典并排序key。
+        for path in sorted(self.staged_files.keys()):
+            self.staging_list_widget.addItem(self.staged_files[path])
+
+    # [新增] 清空暂存区
+    def _clear_staging_area(self):
+        self.staged_files.clear()
+        self.staging_list_widget.clear()
+        # [修改] 使用本地状态标签
+        self.status_label.setText("暂存区已清空。")
+        QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
+
+    # [重构] 这是新的连接逻辑，替代 _concatenate_selected_logic
+    def _concatenate_staged_files(self):
+        if len(self.staged_files) < 2:
+            QMessageBox.information(self, "提示", "请至少向暂存区添加两个音频文件以进行连接。")
+            return
+
+        initial_filepaths = list(self.staged_files.keys())
+        
+        # 检查文件格式是否一致 (与之前逻辑相同)
         try:
-            first_file_info = sf.info(initial_filepaths[0])
-            sr, channels = first_file_info.samplerate, first_file_info.channels
+            first_file_info = sf.info(initial_filepaths[0]); sr, channels = first_file_info.samplerate, first_file_info.channels
             for fp in initial_filepaths[1:]:
                 info = sf.info(fp)
                 if info.samplerate != sr or info.channels != channels:
-                    QMessageBox.critical(self, "无法连接", f"文件格式不匹配。\n\n所有文件的采样率和通道数必须相同。\n标准: {sr} Hz, {channels} 通道\n冲突: {os.path.basename(fp)} ({info.samplerate} Hz, {info.channels} 通道)")
-                    return
+                    QMessageBox.critical(self, "无法连接", f"文件格式不匹配。所有文件的采样率和通道数必须相同。"); return
         except Exception as e:
-            QMessageBox.critical(self, "文件信息错误", f"无法读取文件信息: {e}")
-            return
+            QMessageBox.critical(self, "文件信息错误", f"无法读取文件信息: {e}"); return
 
-        # [修改] 使用新的 ReorderDialog
+        # 使用 ReorderDialog 让用户排序和命名
         dialog = ReorderDialog(initial_filepaths, self, self.icon_manager)
         if dialog.exec_() == QDialog.Accepted:
             reordered_paths, new_name = dialog.get_reordered_paths_and_name()
+            if not new_name: QMessageBox.warning(self, "输入无效", "请输入有效的新文件名。"); return
             
-            if not new_name:
-                QMessageBox.warning(self, "输入无效", "请输入有效的新文件名。")
-                return
-            
-            # 使用第一个文件的扩展名作为新文件的扩展名
+            # [修改] 让用户选择保存位置
             ext = os.path.splitext(reordered_paths[0])[1]
-            new_filepath = os.path.join(self.current_session_path, new_name + ext)
+            save_path, _ = QFileDialog.getSaveFileName(self, "保存连接后的音频", f"{new_name}{ext}", f"音频文件 (*{ext})")
             
-            if os.path.exists(new_filepath):
-                reply = QMessageBox.question(self, "文件已存在", f"文件 '{os.path.basename(new_filepath)}' 已存在。要覆盖它吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-                if reply == QMessageBox.No:
-                    return
+            if not save_path: return
 
             try:
-                # 使用重排后的路径列表进行连接
-                all_data = [sf.read(fp)[0] for fp in reordered_paths]
-                concatenated_data = np.concatenate(all_data)
-                sf.write(new_filepath, concatenated_data, sr)
-                QMessageBox.information(self, "成功", f"文件已连接并保存为:\n{new_filepath}")
-                self.populate_audio_table() # 刷新列表以显示新文件
+                all_data = [sf.read(fp)[0] for fp in reordered_paths]; concatenated_data = np.concatenate(all_data)
+                sf.write(save_path, concatenated_data, sr)
+                QMessageBox.information(self, "成功", f"文件已连接并保存至:\n{save_path}")
+                # 连接成功后可以选择清空暂存区
+                reply = QMessageBox.question(self, "操作完成", "连接成功！是否要清空暂存区？", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                if reply == QMessageBox.Yes:
+                    self._clear_staging_area()
             except Exception as e:
-                QMessageBox.critical(self, "连接失败", f"保存连接文件时出错: {e}")
-        
+                QMessageBox.critical(self, "连接失败", f"保存连接文件时出错: {e}")        
     def open_file_context_menu(self, position):
         item = self.audio_table_widget.itemAt(position);
         if not item: return
         row = item.row(); filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
-        selected_rows_count = len(set(i.row() for i in self.audio_table_widget.selectedItems()))
+        selected_items = self.audio_table_widget.selectedItems()
+        selected_rows_count = len(set(i.row() for i in selected_items))
         
-        menu = QMenu();
+        menu = QMenu(self.audio_table_widget)
         play_action = menu.addAction(self.icon_manager.get_icon("play_audio"), "试听 / 暂停")
-        
-        # [新增] “发送到音频分析”动作
         analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
-        # 只有在主窗口中音频分析页面被成功创建时才启用此按钮
-        analyze_action.setEnabled(hasattr(self.parent_window, 'audio_analysis_page'))
+        analyze_action.setEnabled(hasattr(self.parent_window, 'go_to_audio_analysis') and selected_rows_count == 1)
+        menu.addSeparator()
+
+        add_to_staging_action = menu.addAction(self.icon_manager.get_icon("add_row"), f"将 {selected_rows_count} 个文件添加到暂存区")
+        add_to_staging_action.setEnabled(selected_rows_count > 0)
         menu.addSeparator()
 
         rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名")
+        rename_action.setEnabled(selected_rows_count == 1)
         delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
+        delete_action.setEnabled(selected_rows_count == 1)
         menu.addSeparator()
         
-        if AUDIO_ANALYSIS_AVAILABLE:
-            concatenate_action = menu.addAction(self.icon_manager.get_icon("concatenate"), "连接选中音频")
-            concatenate_action.setEnabled(selected_rows_count > 1)
-            concatenate_action.triggered.connect(self._concatenate_selected)
-            menu.addSeparator()
-
         open_folder_action = menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示")
+        open_folder_action.setEnabled(selected_rows_count == 1)
         
+        # [新增] 设置快捷按钮功能的子菜单
+        menu.addSeparator()
+        shortcut_menu = menu.addMenu(self.icon_manager.get_icon("draw"), "设置快捷按钮")
+        shortcut_actions = {
+            'play': shortcut_menu.addAction(self.icon_manager.get_icon("play_audio"), "试听 / 暂停"),
+            'analyze': shortcut_menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开"),
+            'stage': shortcut_menu.addAction(self.icon_manager.get_icon("add_row"), "添加到暂存区"),
+            'rename': shortcut_menu.addAction(self.icon_manager.get_icon("rename"), "重命名"),
+            'explorer': shortcut_menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示"),
+            'delete': shortcut_menu.addAction(self.icon_manager.get_icon("delete"), "删除 (默认)"),
+        }
+        # 标记当前选中的快捷方式
+        for action_key, q_action in shortcut_actions.items():
+            q_action.setCheckable(True)
+            if self.shortcut_button_action == action_key:
+                q_action.setChecked(True)
+
         action = menu.exec_(self.audio_table_widget.mapToGlobal(position))
         
+        # --- 事件处理 ---
+        # [新增] 处理快捷按钮设置
+        for action_key, q_action in shortcut_actions.items():
+            if action == q_action:
+                self.set_shortcut_button_action(action_key)
+                return # 结束处理
+
         if action == play_action: self.play_selected_item(row)
-        # [新增] 处理新动作的点击事件
-        elif action == analyze_action:
-            if hasattr(self.parent_window, 'go_to_audio_analysis'):
-                self.parent_window.go_to_audio_analysis(filepath)
-        elif action == rename_action: self.rename_selected_file()
+        elif action == analyze_action: self.parent_window.go_to_audio_analysis(filepath)
+        elif action == add_to_staging_action: self._add_selected_to_staging()
+        elif action == rename_action: self.rename_selected_file(row)
         elif action == delete_action: self.delete_file(filepath)
-        elif action == open_folder_action: self.open_in_explorer(self.current_session_path, select_file=os.path.basename(filepath))        
+        elif action == open_folder_action: self.open_in_explorer(os.path.dirname(filepath), select_file=os.path.basename(filepath))
     def closeEvent(self, event):
         self._clear_player_cache();
         if self.temp_preview_file and os.path.exists(self.temp_preview_file):
@@ -582,7 +895,8 @@ class AudioManagerPage(QWidget):
             btn = self.audio_table_widget.cellWidget(row, 3)
             if isinstance(btn, QPushButton): btn.setIcon(self.icon_manager.get_icon("delete"))
         self.set_start_btn.setIcon(self.icon_manager.get_icon("next")); self.set_end_btn.setIcon(self.icon_manager.get_icon("prev")); self.clear_trim_btn.setIcon(self.icon_manager.get_icon("clear_marker")); self.preview_trim_btn.setIcon(self.icon_manager.get_icon("preview")); self.save_trim_btn.setIcon(self.icon_manager.get_icon("save_2"))
-        
+        self.connect_staged_btn.setIcon(self.icon_manager.get_icon("concatenate"))
+        self.clear_staged_btn.setIcon(self.icon_manager.get_icon("clear"))       
     def apply_layout_settings(self):
         config = self.parent_window.config; ui_settings = config.get("ui_settings", {}); width = ui_settings.get("editor_sidebar_width", 350); self.left_panel.setFixedWidth(width)
         
@@ -630,8 +944,39 @@ class AudioManagerPage(QWidget):
         filename = os.path.basename(filepath); file_size = os.path.getsize(filepath); mod_time = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%Y-%m-%d %H:%M')
         item_filename = QTableWidgetItem(filename); item_filename.setData(Qt.UserRole, filepath)
         self.audio_table_widget.setItem(row, 0, item_filename); self.audio_table_widget.setItem(row, 1, QTableWidgetItem(f"{file_size / 1024:.1f} KB")); self.audio_table_widget.setItem(row, 2, QTableWidgetItem(mod_time))
-        delete_btn = QPushButton(); delete_btn.setIcon(self.icon_manager.get_icon("delete")); delete_btn.setToolTip("删除此文件"); delete_btn.setCursor(Qt.PointingHandCursor); delete_btn.setObjectName("LinkButton")
-        delete_btn.clicked.connect(lambda _, f=filepath: self.delete_file(f)); self.audio_table_widget.setCellWidget(row, 3, delete_btn)
+        
+        # [重构] 根据 self.shortcut_button_action 动态创建快捷按钮
+        shortcut_btn = QPushButton()
+        shortcut_btn.setCursor(Qt.PointingHandCursor)
+        shortcut_btn.setObjectName("LinkButton")
+
+        action = self.shortcut_button_action
+        if action == 'delete':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("delete"))
+            shortcut_btn.setToolTip("快捷操作：删除此文件")
+            shortcut_btn.clicked.connect(lambda _, f=filepath: self.delete_file(f))
+        elif action == 'play':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("play_audio"))
+            shortcut_btn.setToolTip("快捷操作：试听此文件")
+            shortcut_btn.clicked.connect(lambda _, r=row: self.play_selected_item(r))
+        elif action == 'analyze':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("analyze"))
+            shortcut_btn.setToolTip("快捷操作：在音频分析中打开")
+            shortcut_btn.clicked.connect(lambda _, f=filepath: self.parent_window.go_to_audio_analysis(f))
+        elif action == 'stage':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("add_row"))
+            shortcut_btn.setToolTip("快捷操作：将此文件添加到暂存区")
+            shortcut_btn.clicked.connect(lambda _, r=row: self._add_single_to_staging(r))
+        elif action == 'rename':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("rename"))
+            shortcut_btn.setToolTip("快捷操作：重命名此文件")
+            shortcut_btn.clicked.connect(lambda _, r=row: self.rename_selected_file(r))
+        elif action == 'explorer':
+            shortcut_btn.setIcon(self.icon_manager.get_icon("show_in_explorer"))
+            shortcut_btn.setToolTip("快捷操作：在文件浏览器中显示")
+            shortcut_btn.clicked.connect(lambda _, f=filepath: self.open_in_explorer(os.path.dirname(f), select_file=os.path.basename(f)))
+            
+        self.audio_table_widget.setCellWidget(row, 3, shortcut_btn)
         
     def on_player_state_changed(self, state):
         if state == QMediaPlayer.PlayingState: self.play_pause_btn.setText("暂停"); self.play_pause_btn.setIcon(self.icon_manager.get_icon("pause"))
@@ -650,17 +995,35 @@ class AudioManagerPage(QWidget):
         self.table_label.setText(f"项目: {selected_items[0].text()}"); self.populate_audio_table()
         
     def rename_folder(self, item, base_dir):
-        old_name = item.text(); old_path = os.path.join(base_dir, old_name); new_name, ok = QInputDialog.getText(self, "重命名文件夹", "请输入新的文件夹名称:", QLineEdit.Normal, old_name)
-        if ok and new_name and new_name != old_name:
+        old_name = item.text()
+        old_path = os.path.join(base_dir, old_name)
+        new_name, ok = QInputDialog.getText(self, "重命名文件夹", "请输入新的文件夹名称:", QLineEdit.Normal, old_name)
+        
+        if ok and new_name and new_name.strip() and new_name != old_name:
             new_path = os.path.join(base_dir, new_name.strip())
-            if os.path.exists(new_path): QMessageBox.warning(self, "错误", "该名称的文件夹已存在。"); return
-            try: os.rename(old_path, new_path); item.setText(new_name)
-            except Exception as e: QMessageBox.critical(self, "错误", f"重命名失败: {e}")
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "错误", "该名称的文件夹已存在。")
+                return
+            
+            try:
+                # [修复] 在重命名文件夹之前，彻底释放所有可能的文件句柄
+                self.reset_player()
+                QApplication.processEvents() # 允许事件循环处理播放器停止
+
+                os.rename(old_path, new_path)
+                item.setText(new_name)
+                
+                # [可选但推荐] 更新 current_session_path，如果重命名的是当前选中的文件夹
+                if self.current_session_path == old_path:
+                    self.current_session_path = new_path
+
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"重命名失败: {e}")
             
     def open_folder_context_menu(self, position):
         selected_items = self.session_list_widget.selectedItems();
         if not selected_items: return
-        menu = QMenu(); delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {len(selected_items)} 个项目"); rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名"); rename_action.setEnabled(len(selected_items) == 1); menu.addSeparator()
+        menu = QMenu(self.audio_table_widget); delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {len(selected_items)} 个项目"); rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名"); rename_action.setEnabled(len(selected_items) == 1); menu.addSeparator()
         open_folder_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中打开"); open_folder_action.setEnabled(len(selected_items) == 1); action = menu.exec_(self.session_list_widget.mapToGlobal(position))
         source_name = self.source_combo.currentText(); base_dir = self.DATA_SOURCES[source_name]["path"]
         if action == delete_action: self.delete_folders(selected_items, base_dir)
@@ -670,22 +1033,69 @@ class AudioManagerPage(QWidget):
     def delete_folders(self, items, base_dir):
         count = len(items); reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除选中的 {count} 个项目及其所有内容吗？\n此操作不可撤销！", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self.parent_window.statusBar().showMessage(f"正在删除 {count} 个项目...", 0); QApplication.processEvents(); error_occurred = False
+            self.status_label.setText(f"正在删除 {count} 个项目...")
+            QApplication.processEvents(); error_occurred = False
             for item in items:
-                try: self.parent_window.statusBar().showMessage(f"正在删除: {item.text()}...", 0); QApplication.processEvents(); shutil.rmtree(os.path.join(base_dir, item.text()))
-                except Exception as e: self.parent_window.statusBar().showMessage(f"删除 '{item.text()}' 时出错。", 5000); QMessageBox.critical(self, "删除失败", f"删除文件夹 '{item.text()}' 时出错: {e}"); error_occurred = True; break
-            if not error_occurred: self.parent_window.statusBar().showMessage(f"成功删除 {count} 个项目。", 4000)
+                try:
+                    self.status_label.setText(f"正在删除: {item.text()}...")
+                    QApplication.processEvents()
+                    shutil.rmtree(os.path.join(base_dir, item.text()))
+                except Exception as e:
+                    error_message = f"删除 '{item.text()}' 时出错。"
+                    self.status_label.setText(error_message)
+                    QMessageBox.critical(self, "删除失败", f"{error_message}\n{e}")
+                    error_occurred = True
+                    break
+            if not error_occurred:
+                success_message = f"成功删除 {count} 个项目。"
+                self.status_label.setText(success_message)
+                QTimer.singleShot(4000, lambda: self.status_label.setText("准备就绪"))
             self.populate_session_list()
             
-    def rename_selected_file(self):
-        selected_items = self.audio_table_widget.selectedItems();
-        if not selected_items: return
-        row = selected_items[0].row(); old_filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole); old_basename, ext = os.path.splitext(os.path.basename(old_filepath)); new_basename, ok = QInputDialog.getText(self, "重命名文件", "请输入新的文件名:", QLineEdit.Normal, old_basename)
+    # [修改] set_shortcut_button_action 方法，增加持久化调用
+    def set_shortcut_button_action(self, action_key):
+        if self.shortcut_button_action != action_key:
+            self.shortcut_button_action = action_key
+            # 调用新的持久化方法
+            self._on_persistent_setting_changed('shortcut_action', action_key)
+            self.populate_audio_table() # 重绘整个表格以应用新按钮
+
+    # [新增] 添加单个文件到暂存区的辅助方法
+    def _add_single_to_staging(self, row):
+        filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+        if filepath not in self.staged_files:
+            display_name = f"{os.path.basename(os.path.dirname(filepath))} / {os.path.basename(filepath)}"
+            self.staged_files[filepath] = display_name
+            self.status_label.setText("已添加 1 个新文件到暂存区。")
+            QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+        else:
+            self.status_label.setText("该文件已在暂存区中。")
+            QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+        self._update_staging_list_widget()
+    
+    # [修改] 重命名文件方法，使其可以接受行号
+    def rename_selected_file(self, row_to_rename=None):
+        if row_to_rename is None:
+            selected_items = self.audio_table_widget.selectedItems()
+            if not selected_items: return
+            row = selected_items[0].row()
+        else:
+            row = row_to_rename
+            
+        old_filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+        old_basename, ext = os.path.splitext(os.path.basename(old_filepath))
+        new_basename, ok = QInputDialog.getText(self, "重命名文件", "请输入新的文件名:", QLineEdit.Normal, old_basename)
         if ok and new_basename and new_basename.strip() and new_basename != old_basename:
             new_filepath = os.path.join(self.current_session_path, new_basename.strip() + ext)
             if os.path.exists(new_filepath): QMessageBox.warning(self, "错误", "文件名已存在。"); return
-            try: os.rename(old_filepath, new_filepath); self.update_table_row(row, new_filepath)
-            except Exception as e: QMessageBox.critical(self, "错误", f"重命名失败: {e}")
+            try:
+                # 同样，在重命名前，重置播放器以释放句柄
+                self.reset_player()
+                QApplication.processEvents()
+                os.rename(old_filepath, new_filepath)
+                self.populate_audio_table() # 重绘表格以更新
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"重命名失败: {e}")
             
     def open_in_explorer(self, path, select_file=None):
         if not path or not os.path.exists(path): return
@@ -698,14 +1108,47 @@ class AudioManagerPage(QWidget):
         except Exception as e: QMessageBox.critical(self, "错误", f"无法打开路径: {e}")
         
     def delete_file(self, filepath):
-        filename = os.path.basename(filepath); reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除文件 '{filename}' 吗？", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        filename = os.path.basename(filepath)
+        reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除文件 '{filename}' 吗？\n此操作不可撤销。", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
         if reply == QMessageBox.Yes:
             try:
-                if self.active_player and self.active_player.media() and self.active_player.media().canonicalUrl() == QUrl.fromLocalFile(filepath): self.reset_player()
-                if filepath in self.player_cache:
-                    player = self.player_cache.pop(filepath); player.stop(); player.deleteLater()
-                os.remove(filepath); self.populate_audio_table()
-            except Exception as e: QMessageBox.critical(self, "错误", f"删除失败: {e}")
+                # 1. 首先，完全重置所有播放器，释放所有文件句柄
+                self.reset_player()
+                QApplication.processEvents()
+
+                # 2. 现在可以安全地删除文件
+                os.remove(filepath)
+
+                # 3. [修复] 在刷新表格前，阻塞可能引发问题的信号
+                self.audio_table_widget.blockSignals(True)
+                
+                self.populate_audio_table()
+                
+                # 4. 刷新完成后，解除信号阻塞
+                self.audio_table_widget.blockSignals(False)
+
+                # 5. [可选但推荐] 手动触发一次选中事件，以恢复UI状态
+                # 因为阻塞期间可能丢失了默认的选中事件
+                if self.audio_table_widget.rowCount() > 0:
+                    self.audio_table_widget.setCurrentCell(0, 0)
+                    self._on_table_selection_changed() # 手动调用
+                else:
+                    # 如果表格空了，确保所有相关UI都重置
+                    self.reset_player_ui()
+
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"删除文件时出错:\n{e}")
+                # 出错后，最好也解除阻塞
+                self.audio_table_widget.blockSignals(False)
+    def reset_player_ui(self):
+        self.playback_slider.setValue(0)
+        self.playback_slider.setEnabled(False)
+        self.duration_label.setText("00:00.00 / 00:00.00")
+        self.play_pause_btn.setEnabled(False)
+        self.on_player_state_changed(QMediaPlayer.StoppedState)
+        self.waveform_widget.clear()
+        self._clear_trim_points()
             
     def on_play_button_clicked(self):
         if self.active_player and self.active_player.state() in [QMediaPlayer.PlayingState, QMediaPlayer.PausedState]: self.toggle_playback()
@@ -739,3 +1182,7 @@ class AudioManagerPage(QWidget):
             self.preview_player = None
         self._clear_player_cache(); self.playback_slider.setValue(0); self.playback_slider.setEnabled(False)
         self.duration_label.setText("00:00.00 / 00:00.00"); self.on_player_state_changed(QMediaPlayer.StoppedState)
+# [新增] 用于处理和保存持久化设置的槽函数
+    def _on_persistent_setting_changed(self, key, value):
+        """当用户更改任何可记忆的设置时，调用此方法以保存状态。"""
+        self.parent_window.update_and_save_module_state('audio_manager', key, value)

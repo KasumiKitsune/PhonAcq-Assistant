@@ -66,12 +66,37 @@ class HelpPage(QWidget):
         # 初始加载由 on_sub_tab_changed -> update_help_content 触发
 
     def show_text_browser_context_menu(self, position):
-        menu = QMenu()
+        menu = QMenu(self.text_browser)
+        
+        # --- 编辑相关 ---
         copy_action = menu.addAction("复制")
+        copy_action.setEnabled(self.text_browser.textCursor().hasSelection()) # 只有选中了内容才能复制
+        
         select_all_action = menu.addAction("全选")
+        menu.addSeparator()
+        
+        # --- 导航相关 ---
+        go_to_top_action = menu.addAction("返回顶部")
+        go_to_bottom_action = menu.addAction("滚动到底部")
+        
+        menu.addSeparator()
+        
+        # --- 内容刷新 ---
+        reload_action = menu.addAction("重新加载文档")
+        
+        # --- 执行菜单并处理动作 ---
         action = menu.exec_(self.text_browser.mapToGlobal(position))
-        if action == copy_action: self.text_browser.copy()
-        elif action == select_all_action: self.text_browser.selectAll()
+        
+        if action == copy_action:
+            self.text_browser.copy()
+        elif action == select_all_action:
+            self.text_browser.selectAll()
+        elif action == go_to_top_action:
+            self.text_browser.verticalScrollBar().setValue(0)
+        elif action == go_to_bottom_action:
+            self.text_browser.verticalScrollBar().setValue(self.text_browser.verticalScrollBar().maximum())
+        elif action == reload_action:
+            self.update_help_content()
         
     def on_toc_item_selected(self, current_item, previous_item):
         if current_item:

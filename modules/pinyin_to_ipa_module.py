@@ -167,7 +167,6 @@ class PinyinToIpaPage(QWidget):
         self.ToggleSwitch = ToggleSwitchClass
         self.schemes = {"标准方案": IPA_SCHEME_Standard, "严式音标": IPA_SCHEME_Yanshi, "宽式音标": IPA_SCHEME_Kuanshi}
         self._init_ui()
-        self.on_scheme_changed(0)
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -179,13 +178,30 @@ class PinyinToIpaPage(QWidget):
         io_layout.addWidget(QLabel("输入文本:")); io_layout.addWidget(self.input_text)
         io_layout.addWidget(QLabel("输出IPA:")); io_layout.addWidget(self.output_text)
         control_group = QGroupBox("转换选项"); control_layout = QFormLayout(control_group)
-        self.scheme_combo = QComboBox(); self.scheme_combo.addItems(self.schemes.keys())
-        self.sandhi_switch = self.ToggleSwitch(); self.sandhi_switch.setChecked(True)
-        sandhi_layout = QHBoxLayout(); sandhi_layout.addWidget(self.sandhi_switch); sandhi_layout.addStretch()
-        self.convert_button = QPushButton("转换"); self.convert_button.setObjectName("AccentButton")
+        # --- [新增] 在创建控件后立即加载配置 ---
+        module_states = self.parent_window.config.get("module_states", {}).get("pinyin_to_ipa", {})
+        
+        # 创建并设置 scheme_combo
+        self.scheme_combo = QComboBox()
+        self.scheme_combo.addItems(self.schemes.keys())
+        saved_scheme = module_states.get("scheme", "标准方案")
+        self.scheme_combo.setCurrentText(saved_scheme)
+        
+        # 创建并设置 sandhi_switch
+        self.sandhi_switch = self.ToggleSwitch()
+        self.sandhi_switch.setChecked(module_states.get("sandhi_enabled", True))
+        sandhi_layout = QHBoxLayout()
+        sandhi_layout.addWidget(self.sandhi_switch)
+        sandhi_layout.addStretch()
+
+        self.convert_button = QPushButton("转换")
+        self.convert_button.setObjectName("AccentButton")
+
         control_layout.addRow("转换方案:", self.scheme_combo)
         control_layout.addRow("考虑普通话音变（测试）:", sandhi_layout)
-        left_layout.addWidget(io_group); left_layout.addWidget(control_group)
+
+        left_layout.addWidget(io_group)
+        left_layout.addWidget(control_group)
         left_layout.addWidget(self.convert_button, 0, Qt.AlignRight)
         right_panel = QSplitter(Qt.Vertical); right_panel.setFixedWidth(400)
         scheme_rules_group = QGroupBox("当前方案规则")
@@ -208,11 +224,19 @@ class PinyinToIpaPage(QWidget):
         right_panel.addWidget(scheme_rules_group); right_panel.addWidget(sandhi_rules_group)
         right_panel.setStretchFactor(0, 2); right_panel.setStretchFactor(1, 1)
         main_layout.addWidget(left_panel, 1); main_layout.addWidget(right_panel)
+        # --- [修改] 将信号连接移到此处并指向新槽函数 ---
         self.convert_button.clicked.connect(self.on_convert_clicked)
-        self.scheme_combo.currentIndexChanged.connect(self.on_scheme_changed)
+        self.scheme_combo.currentIndexChanged.connect(
+            lambda: self._on_persistent_setting_changed('scheme', self.scheme_combo.currentText())
+        )
+        self.sandhi_switch.stateChanged.connect(
+            lambda state: self._on_persistent_setting_changed('sandhi_enabled', bool(state))
+        )
+        
         self.sandhi_rules_table.setMouseTracking(True)
         self.sandhi_rules_table.cellEntered.connect(self.on_sandhi_cell_entered)
         self.populate_sandhi_table()
+        self.on_scheme_changed(self.scheme_combo.currentIndex())
 
     def on_scheme_changed(self, index):
         scheme_name = self.scheme_combo.currentText()
@@ -339,3 +363,13 @@ class PinyinToIpaPage(QWidget):
             import traceback
             error_info = f"发生错误: {e}\n\n详细信息:\n{traceback.format_exc()}"
             QMessageBox.critical(self, "转换失败", error_info)
+# [新增] 用于处理和保存持久化设置的槽函数
+    def _on_persistent_setting_changed(self, key, value):
+        """当用户更改任何可记忆的设置时，调用此方法以保存状态。"""
+        self.parent_window.update_and_save_module_state('pinyin_to_ipa', key, value)
+        
+        if key == 'scheme':
+            # 直接使用 findText 查找新值的索引
+            new_index = self.scheme_combo.findText(value)
+            if new_index != -1:
+                self.on_scheme_changed(new_index)
