@@ -85,14 +85,14 @@ if __name__ == "__main__":
 # ==============================================================================
 # [修改] 导入 IconManager
 from modules.icon_manager import IconManager
-
+from modules.plugin_system import BasePlugin, PluginManager, PluginManagementDialog
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QListWidget, QListWidgetItem, QLineEdit, 
                              QFileDialog, QMessageBox, QComboBox, QSlider, QStyle, 
                              QFormLayout, QGroupBox, QCheckBox, QTabWidget, QScrollArea, 
                              QSpacerItem, QSizePolicy)
 from PyQt5.QtGui import QIntValidator, QPainter, QPen, QBrush
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect
+from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect, QSize
 
 try:
     import pandas as pd
@@ -119,6 +119,7 @@ AUDIO_TTS_DIR = os.path.join(BASE_PATH, "audio_tts")
 AUDIO_RECORD_DIR = os.path.join(BASE_PATH, "audio_record")
 MODULES_DIR = os.path.join(BASE_PATH, "modules")
 DEFAULT_ICON_DIR = os.path.join(BASE_PATH, "assets", "icons") # [新增] 默认图标目录
+PLUGINS_DIR = os.path.join(BASE_PATH, "plugins") # 新增
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 TOOLTIPS_FILE = os.path.join(CONFIG_DIR, "tooltips.json")
 
@@ -167,6 +168,7 @@ def ensure_directories_exist():
     required_paths = [
         CONFIG_DIR, WORD_LIST_DIR, THEMES_DIR, AUDIO_TTS_DIR, AUDIO_RECORD_DIR, MODULES_DIR,
         DEFAULT_ICON_DIR, # [新增] 确保默认图标目录存在
+        PLUGINS_DIR,
         os.path.join(BASE_PATH, "assets", "flags"), 
         os.path.join(BASE_PATH, "assets", "help"),
         os.path.join(BASE_PATH, "assets", "splashes"), 
@@ -535,9 +537,10 @@ def resolve_recording_device(config):
 class MainWindow(QMainWindow):
     def __init__(self, splash_ref=None, tooltips_ref=None):
         super().__init__()
+        self.BASE_PATH = BASE_PATH
         self.splash_ref = splash_ref
         self.tooltips_config = tooltips_ref if tooltips_ref is not None else {}
-        
+        self.ToggleSwitch = ToggleSwitch
         if self.splash_ref:
             self.splash_ref.showMessage("初始化主窗口...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)
             self.splash_ref.progressBar.setValue(75)
@@ -559,10 +562,29 @@ class MainWindow(QMainWindow):
             self.splash_ref.progressBar.setValue(80)
             QApplication.processEvents()
 
-        # [修改] 在创建页面前，确保 icon_manager 已经实例化
+        # 确保这些关键属性在任何其他逻辑之前被设置
         global icon_manager
         if icon_manager is None:
             icon_manager = IconManager(DEFAULT_ICON_DIR)
+        self.icon_manager = icon_manager
+        self.SETTINGS_FILE = SETTINGS_FILE 
+
+        # --- [核心修正] 调整插件系统的初始化顺序 ---
+        
+        # 1. 实例化插件管理器
+        self.plugin_manager = PluginManager(self, PLUGINS_DIR)
+        
+        # 2. 立即扫描插件以获取元数据
+        self.plugin_manager.scan_plugins()
+        
+        # 3. 创建插件栏的UI框架
+        self.setup_plugin_ui()
+        
+        # 4. 根据已扫描到的元数据，首次填充固定的插件
+        self.update_pinned_plugins_ui() 
+        
+        # 5. 延迟加载并启用插件
+        QTimer.singleShot(0, self.plugin_manager.load_enabled_plugins)
 
         # 页面创建
         self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '标准朗读采集', 
@@ -584,8 +606,6 @@ class MainWindow(QMainWindow):
             lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, BASE_PATH, DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
         self.dialect_visual_editor_page = self.create_module_or_placeholder('dialect_visual_editor_module', '图文词表编辑器', 
             lambda m, ts, im: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR, ts, im))
-        self.pinyin_to_ipa_page = self.create_module_or_placeholder('pinyin_to_ipa_module', '拼音转IPA', 
-            lambda m, ts: m.create_page(self, ts))
         self.tts_utility_page = self.create_module_or_placeholder('tts_utility_module', 'TTS 工具',
             lambda m, ts, w, dl, std_wld, im: m.create_page(self, self.config, AUDIO_TTS_DIR, ts, w, dl, std_wld, im))
         self.flashcard_page = self.create_module_or_placeholder('flashcard_module', '速记卡',
@@ -622,7 +642,6 @@ class MainWindow(QMainWindow):
         management_tabs.addTab(self.log_viewer_page, "日志查看器")
         
         utilities_tabs = QTabWidget(); utilities_tabs.setObjectName("SubTabWidget")
-        utilities_tabs.addTab(self.pinyin_to_ipa_page, "拼音转IPA")
         utilities_tabs.addTab(self.tts_utility_page, "TTS 工具")
         utilities_tabs.addTab(self.flashcard_page, "速记卡")
         
@@ -842,8 +861,8 @@ class MainWindow(QMainWindow):
                 self.help_page.update_help_content()
             
     def apply_theme(self):
-        theme_file_path = self.config.get("theme", "Modern_light_tab.qss")
-        if not theme_file_path: theme_file_path = "Modern_light_tab.qss"
+        theme_file_path = self.config.get("theme", "default.qss")
+        if not theme_file_path: theme_file_path = "default.qss"
         absolute_theme_path = os.path.join(THEMES_DIR, theme_file_path)
         
         if os.path.exists(absolute_theme_path):
@@ -898,26 +917,181 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的图标时出错: {e}")
 
-    def update_and_save_module_state(self, module_key, setting_key, value):
+    # [新增] closeEvent 方法，用于安全退出
+    def closeEvent(self, event):
+        """在关闭主窗口前，确保所有插件都已安全卸载。"""
+        print("[主程序] 正在关闭，卸载所有插件...")
+        self.plugin_manager.teardown_all_plugins()
+        super().closeEvent(event)
+
+    # [新增] 插件UI设置
+    def setup_plugin_ui(self):
+        """
+        [重构] 创建插件栏的静态UI框架。
+        这个框架包含一个水平布局，用于容纳固定的插件按钮和主菜单按钮。
+        """
+        # 1. 创建一个容器 QWidget 来作为 cornerWidget
+        self.corner_widget = QWidget()
+        # 2. 创建一个水平布局来排列按钮
+        self.plugin_bar_layout = QHBoxLayout(self.corner_widget)
+        self.plugin_bar_layout.setContentsMargins(0, 5, 15, 5) # 调整边距
+        self.plugin_bar_layout.setSpacing(5) # 按钮间的间距
+
+        # 3. 创建一个占位符，用于动态添加固定的插件按钮
+        self.pinned_plugins_widget = QWidget()
+        self.pinned_plugins_layout = QHBoxLayout(self.pinned_plugins_widget)
+        self.pinned_plugins_layout.setContentsMargins(0, 0, 0, 0)
+        self.pinned_plugins_layout.setSpacing(5)
+        self.pinned_plugins_layout.setAlignment(Qt.AlignRight) # 确保图标从右向左添加
+
+        # 4. 创建主插件菜单按钮
+        self.plugin_menu_button = QPushButton() # [修改] 不再需要文字
+        self.plugin_menu_button.setIcon(self.icon_manager.get_icon("plugin"))
+        self.plugin_menu_button.setToolTip("管理和执行已安装的插件")
+        # [核心样式] 设置为圆形按钮
+        self.plugin_menu_button.setObjectName("PluginMenuButtonCircular")
+        self.plugin_menu_button.setFixedSize(32, 32) # 固定大小以保持圆形
+
+        # 5. 将组件添加到主布局中
+        self.plugin_bar_layout.addWidget(self.pinned_plugins_widget)
+        self.plugin_bar_layout.addWidget(self.plugin_menu_button)
+        
+        # 6. 将整个容器设置为 QTabWidget 的角落控件
+        self.main_tabs.setCornerWidget(self.corner_widget, Qt.TopRightCorner)
+        
+        # 7. 连接信号
+        self.plugin_menu_button.clicked.connect(self._show_plugin_menu)
+    def update_pinned_plugins_ui(self):
+        """
+        根据配置文件，清空并重新创建所有固定的插件快捷按钮。
+        """
+        # 1. 清空现有的所有固定插件按钮
+        while self.pinned_plugins_layout.count():
+            item = self.pinned_plugins_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # 2. 读取配置
+        plugin_settings = self.config.get("plugin_settings", {})
+        pinned_plugins = plugin_settings.get("pinned", [])
+
+        # 3. 遍历并创建新的按钮
+        for plugin_id in pinned_plugins:
+            meta = self.plugin_manager.available_plugins.get(plugin_id)
+            if not meta:
+                continue
+
+            # 创建按钮
+            btn = QPushButton()
+            icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
+            if os.path.exists(icon_path):
+                btn.setIcon(QIcon(icon_path))
+            else:
+                # 如果插件没有图标，使用一个通用后备图标
+                btn.setIcon(self.icon_manager.get_icon("plugin_default"))
+            
+            btn.setToolTip(f"{meta['name']}")
+            btn.setObjectName("PinnedPluginButton") # 用于QSS样式
+            btn.setFixedSize(32, 32) # 与主菜单按钮大小一致
+            
+            # 连接点击事件
+            btn.clicked.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
+            
+            # 添加到布局中
+            self.pinned_plugins_layout.addWidget(btn)
+
+    # [新增] 显示插件菜单的逻辑
+    def _show_plugin_menu(self):
+        # ... (此方法几乎不变, 只是按钮位置现在是相对于主窗口)
+        from PyQt5.QtWidgets import QMenu
+        from PyQt5.QtGui import QIcon
+        from PyQt5.QtCore import QPoint 
+
+        menu = QMenu(self)
+        
+        # [修改] 刷新一下固定的插件列表，以防万一
+        self.update_pinned_plugins_ui()
+
+        if not self.plugin_manager.active_plugins:
+            no_plugins_action = menu.addAction("未启用插件")
+            no_plugins_action.setEnabled(False)
+        else:
+            for plugin_id, instance in self.plugin_manager.active_plugins.items():
+                meta = self.plugin_manager.available_plugins.get(plugin_id)
+                if not meta: continue
+            
+                # 直接从插件目录加载图标
+                icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
+                plugin_icon = QIcon(icon_path)
+            
+                action = menu.addAction(plugin_icon, meta['name'])
+                action.triggered.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
+    
+        menu.addSeparator()
+        manage_action = menu.addAction(self.icon_manager.get_icon("check"), "管理插件...")
+        manage_action.triggered.connect(self._open_plugin_manager_dialog)
+
+        # 在按钮下方弹出菜单
+        # 1. 获取菜单的建议尺寸
+        menu_size = menu.sizeHint()
+        
+        # 2. 获取按钮右下角的全局坐标
+        button_bottom_right = self.plugin_menu_button.mapToGlobal(self.plugin_menu_button.rect().bottomRight())
+        
+        # 3. 计算出菜单左上角的理想坐标
+        #    x = 按钮的右侧x - 菜单的宽度
+        #    y = 按钮的底部y
+        #    这样菜单的右上角就会和按钮的右下角对齐
+        popup_pos = QPoint(button_bottom_right.x() - menu_size.width(), button_bottom_right.y())
+
+        # 执行菜单
+        menu.exec_(popup_pos)
+        self.update_pinned_plugins_ui()
+
+    # [新增] 打开插件管理对话框的逻辑
+    def _open_plugin_manager_dialog(self):
+        """打开插件管理对话框。"""
+        dialog = PluginManagementDialog(self.plugin_manager, self)
+        dialog.exec_()
+    
+        # 对话框关闭后，可以根据需要刷新UI，但目前菜单是动态生成的，所以无需操作。
+
+    def update_and_save_module_state(self, module_key, key_or_value, value=None):
         """
         更新并立即保存一个特定模块的状态到 settings.json。
+        这是一个更灵活的API，支持两种调用模式。
+
+        用法1 (保存单个键值对):
+            update_and_save_module_state('my_module', 'some_setting', 123)
+            
+        用法2 (保存整个模块的设置对象):
+            update_and_save_module_state('my_module', {'setting1': 123, 'setting2': 'abc'})
         """
+        # 确保 module_states 字典存在
         if "module_states" not in self.config:
             self.config["module_states"] = {}
-        if module_key not in self.config["module_states"]:
-            self.config["module_states"][module_key] = {}
-            
-        # 更新内存中的配置字典
-        self.config["module_states"][module_key][setting_key] = value
         
-        # 立即写入文件
+        # 通过检查第三个参数 value 是否被传递来判断调用模式
+        if value is not None:
+            # --- 模式1：传入了三个参数 (module_key, setting_key, value) ---
+            # 这是旧的模式，用于保存单个设置项
+            if module_key not in self.config["module_states"]:
+                self.config["module_states"][module_key] = {}
+            
+            setting_key = key_or_value
+            self.config["module_states"][module_key][setting_key] = value
+        else:
+            # --- 模式2：只传入了两个参数 (module_key, settings_dict) ---
+            # 这是新的模式，用于一次性保存整个模块的配置
+            settings_dict = key_or_value
+            self.config["module_states"][module_key] = settings_dict
+
+        # 立即将更新后的配置写入文件 (此部分逻辑不变)
         try:
-            # SETTINGS_FILE 应该是你已定义的全局变量
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
-            print(f"Error saving module state for {module_key}: {e}", file=sys.stderr)
-
+            print(f"为模块 '{module_key}' 保存状态时出错: {e}", file=sys.stderr)
 # --- 主程序执行块 ---
 if __name__ == "__main__":
     splash.showMessage("加载核心组件...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)

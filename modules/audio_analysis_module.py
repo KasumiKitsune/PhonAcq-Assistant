@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QP
                              QMenu, QAction, QDialog, QDialogButtonBox, QComboBox) # 新增导入 QMenu, QAction
 from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont, QCursor
 
 # 模块级别依赖检查
 try:
@@ -686,21 +686,24 @@ class SpectrogramWidget(QWidget):
             self.update()
         super().mouseReleaseEvent(event)
     
-    # --- 新增: 右键菜单 ---
-    def contextMenuEvent(self, event):
+    # --- [新增] 创建菜单的方法 ---
+    def create_context_menu(self):
+        """创建一个包含所有内置动作的右键菜单。"""
+        # (这里是所有被剪切过来的代码)
         menu = QMenu(self)
         has_selection = self._selection_start_sample is not None and self._selection_end_sample is not None
         has_analysis = self._f0_data is not None or self._intensity_data is not None or self._formants_data
 
-        # --- 核心修复: 在菜单创建时捕获当前信息 ---
-        # 这样即使 leaveEvent 清空了 self._cursor_info_text，复制功能依然有效
         info_to_copy = self._cursor_info_text
         
-        # --- 分析 (Analysis) ---
         analysis_menu = QMenu("分析", self)
         analysis_menu.setIcon(self.icon_manager.get_icon("analyze"))
         
-        sample_pos_at_click = self._pixel_to_sample(event.pos().x())
+        # 注意: 我们需要一个方法来获取 event.pos()，但由于事件不在这个方法里，
+        # 我们需要从 QCursor 获取全局位置，然后映射回控件坐标。
+        click_pos = self.mapFromGlobal(QCursor.pos())
+        sample_pos_at_click = self._pixel_to_sample(click_pos.x())
+
         slice_action = QAction(self.icon_manager.get_icon("spectrum"), "获取此处频谱切片...", self)
         slice_action.triggered.connect(lambda: self.spectrumSliceRequested.emit(sample_pos_at_click))
         analysis_menu.addAction(slice_action)
@@ -708,7 +711,6 @@ class SpectrogramWidget(QWidget):
         menu.addMenu(analysis_menu)
         menu.addSeparator()
 
-        # --- 查看 & 缩放 ---
         if has_selection:
             zoom_icon = self.icon_manager.get_icon("zoom_selection") 
             if zoom_icon.isNull(): zoom_icon = self.icon_manager.get_icon("zoom")
@@ -716,15 +718,12 @@ class SpectrogramWidget(QWidget):
             zoom_to_selection_action.triggered.connect(lambda: self.zoomToSelectionRequested.emit(self._selection_start_sample, self._selection_end_sample))
             menu.addAction(zoom_to_selection_action)
 
-        # --- 复制 (Copy) ---
         copy_action = QAction(self.icon_manager.get_icon("copy"), "复制光标处信息", self)
-        # 修正: 根据捕获的局部变量来判断是否可用和执行复制
         copy_action.setEnabled(bool(info_to_copy.strip()))
         copy_action.triggered.connect(lambda checked, text=info_to_copy: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
         menu.addSeparator()
         
-        # --- 导出 (Export) ---
         export_menu = QMenu("导出", self)
         export_menu.setIcon(self.icon_manager.get_icon("export"))
         
@@ -749,9 +748,20 @@ class SpectrogramWidget(QWidget):
         export_menu.addAction(export_wav_action)
 
         menu.addMenu(export_menu)
+        
+        # (最后一步：返回创建好的菜单对象)
+        return menu
 
+    # --- [修改] 精简后的原始方法 ---
+    def contextMenuEvent(self, event):
+        """
+        默认的右键菜单事件处理器。
+        现在它只负责创建并显示菜单。
+        """
+        menu = self.create_context_menu()
         if not menu.isEmpty():
             menu.exec_(self.mapToGlobal(event.pos()))
+
     # --- 其他方法保持不变 ---
     def set_data(self, S_db, sr, hop_length):
         self.sr, self.hop_length = sr, hop_length; S_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min() + 1e-6); h, w = S_norm.shape; rgba_data = np.zeros((h, w, 4), dtype=np.uint8)

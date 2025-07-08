@@ -310,3 +310,37 @@ QToolTip {
     font-size: 16px;
     font-weight: normal;
 }
+/*
+================================================================================
+【新增】插件栏按钮样式 (Modern Elegance)
+================================================================================ 
+*/
+
+/* --- 主插件菜单圆形按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 15px; /* 关键：半径为按钮尺寸的一半 (32px / 2) */
+    border: 1px solid #DCD0C0; /* 与其他按钮边框颜色一致 */
+    background-color: #FDFBF8; /* 与主背景色一致 */
+    padding: 0px; /* 圆形按钮不需要内边距 */
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #FFFFFF; /* 悬停时变亮 */
+    border-color: #C9A870; /* 主题金色高亮 */
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #F5EDE2; /* 按下时变为高亮米色 */
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 15px;
+    border: 1px solid transparent; /* 默认无边框 */
+    background-color: transparent; /* 默认透明 */
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: #F5EDE2; /* 使用柔和的米色作为悬停背景 */
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: #EAE0D6; /* 使用更深的米色作为按下背景 */
+}

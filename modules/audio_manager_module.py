@@ -825,9 +825,10 @@ class AudioManagerPage(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "连接失败", f"保存连接文件时出错: {e}")        
     def open_file_context_menu(self, position):
-        item = self.audio_table_widget.itemAt(position);
+        item = self.audio_table_widget.itemAt(position)
         if not item: return
-        row = item.row(); filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+        row = item.row()
+        filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
         selected_items = self.audio_table_widget.selectedItems()
         selected_rows_count = len(set(i.row() for i in selected_items))
         
@@ -839,18 +840,30 @@ class AudioManagerPage(QWidget):
 
         add_to_staging_action = menu.addAction(self.icon_manager.get_icon("add_row"), f"将 {selected_rows_count} 个文件添加到暂存区")
         add_to_staging_action.setEnabled(selected_rows_count > 0)
-        menu.addSeparator()
+        
+        # --- [核心修正] 动态检查插件状态 ---
+        process_action = None # 先初始化为 None
+        # 检查插件管理器是否存在，并且ID为 'com.phonacq.batch_processor' 的插件是否在活动插件列表中
+        if hasattr(self.parent_window, 'plugin_manager') and \
+           'com.phonacq.batch_processor' in self.parent_window.plugin_manager.active_plugins:
+            
+            menu.addSeparator() # 只有当插件启用时才添加分隔符和菜单项
+            process_action = menu.addAction(self.icon_manager.get_icon("submit"), f"批量处理选中的 {selected_rows_count} 个文件...")
+            process_action.setEnabled(selected_rows_count > 0)
+            process_action.setToolTip("使用批量音频处理器对所选文件进行格式转换、重采样等操作。")
+        # ------------------------------------
 
+        menu.addSeparator()
         rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名")
         rename_action.setEnabled(selected_rows_count == 1)
         delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
-        delete_action.setEnabled(selected_rows_count == 1)
+        # [修正] 删除操作应该可以多选
+        delete_action.setEnabled(selected_rows_count > 0)
         menu.addSeparator()
         
         open_folder_action = menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示")
         open_folder_action.setEnabled(selected_rows_count == 1)
         
-        # [新增] 设置快捷按钮功能的子菜单
         menu.addSeparator()
         shortcut_menu = menu.addMenu(self.icon_manager.get_icon("draw"), "设置快捷按钮")
         shortcut_actions = {
@@ -861,7 +874,6 @@ class AudioManagerPage(QWidget):
             'explorer': shortcut_menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示"),
             'delete': shortcut_menu.addAction(self.icon_manager.get_icon("delete"), "删除 (默认)"),
         }
-        # 标记当前选中的快捷方式
         for action_key, q_action in shortcut_actions.items():
             q_action.setCheckable(True)
             if self.shortcut_button_action == action_key:
@@ -870,17 +882,21 @@ class AudioManagerPage(QWidget):
         action = menu.exec_(self.audio_table_widget.mapToGlobal(position))
         
         # --- 事件处理 ---
-        # [新增] 处理快捷按钮设置
         for action_key, q_action in shortcut_actions.items():
             if action == q_action:
                 self.set_shortcut_button_action(action_key)
-                return # 结束处理
+                return
 
         if action == play_action: self.play_selected_item(row)
         elif action == analyze_action: self.parent_window.go_to_audio_analysis(filepath)
         elif action == add_to_staging_action: self._add_selected_to_staging()
+        # [核心修正] 只有当 process_action 被创建（即插件启用）时，这个判断才可能为真
+        elif action == process_action: 
+            self._send_to_batch_processor()
         elif action == rename_action: self.rename_selected_file(row)
-        elif action == delete_action: self.delete_file(filepath)
+        elif action == delete_action: 
+            # [修正] 调用一个新的批量删除方法
+            self.delete_selected_files()
         elif action == open_folder_action: self.open_in_explorer(os.path.dirname(filepath), select_file=os.path.basename(filepath))
     def closeEvent(self, event):
         self._clear_player_cache();
@@ -1186,3 +1202,17 @@ class AudioManagerPage(QWidget):
     def _on_persistent_setting_changed(self, key, value):
         """当用户更改任何可记忆的设置时，调用此方法以保存状态。"""
         self.parent_window.update_and_save_module_state('audio_manager', key, value)
+
+    def _send_to_batch_processor(self):
+        """收集所有选中的文件路径，并通过插件管理器执行批量处理插件。"""
+        selected_rows = sorted(list(set(item.row() for item in self.audio_table_widget.selectedItems())))
+        if not selected_rows:
+            return
+        
+        filepaths = [self.audio_table_widget.item(row, 0).data(Qt.UserRole) for row in selected_rows]
+        
+        # [核心修正] 使用 self.parent_window 访问插件管理器
+        self.parent_window.plugin_manager.execute_plugin(
+            'com.phonacq.batch_processor',
+            filepaths=filepaths
+        )

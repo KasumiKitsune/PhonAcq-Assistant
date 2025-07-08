@@ -389,3 +389,37 @@ SpectrogramWidget {
     border: 1px solid #DCD0C0;
     border-radius: 0 0 8px 8px; /* 底部圆角 */
 }
+/*
+================================================================================
+【新增】插件栏按钮样式 (Whispering Woods)
+================================================================================ 
+*/
+
+/* --- 主插件菜单圆形按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 16px;
+    border: 1px solid #B8A990; /* 主题卡其色边框 */
+    background-color: #EAE0C9; /* 与普通按钮背景色一致 */
+    padding: 0px;
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #F5EDE2; /* 悬停时变亮 */
+    border-color: #788C67; /* 悬停时边框变为森林绿 */
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #DCD0C0; /* 按下时颜色变深 */
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 16px;
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(234, 224, 201, 0.7); /* 半透明的按钮背景色 */
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: #EAE0C9; /* 不透明的按钮背景色 */
+}

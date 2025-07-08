@@ -370,3 +370,86 @@ SpectrogramWidget {
     border: 1px solid #C5D9E8; /* 浅天蓝色边框 */
     border-radius: 0px;
 }
+/* --- 欢迎页面左侧导航栏 --- */
+#WelcomeNavList {
+    background-color: #E8EEF4; /* 使用主题中的“浅天蓝”作为背景 */
+    border-right: 1px solid #C5D9E8; /* 使用更浅的边框色 */
+    outline: 0px; /* 移除焦点时的虚线框 */
+}
+
+#WelcomeNavList::item {
+    padding: 12px 20px;
+    border: none;
+    border-bottom: 1px solid #D5E0E8; /* 用更浅的颜色做分隔线 */
+    color: #8AB2D6; /* 未选中时：柔和波浪蓝 */
+    font-size: 17px;
+    font-weight: bold;
+}
+
+#WelcomeNavList::item:hover {
+    background-color: #FFFFFF; /* 悬停时：纯白背景 */
+    color: #3B6894; /* 悬停时：深浪蓝文字 */
+}
+
+#WelcomeNavList::item:selected {
+    background-color: #FFFFFF; /* 选中时：纯白背景，与右侧内容区融为一体 */
+    color: #1C2A40; /* 选中时：深普鲁士蓝(墨色)文字，形成高对比度 */
+    /* [核心] 用一个锐利的左边框来指示选中状态，呼应主题的锐利风格 */
+    border-left: 4px solid #A79B82; /* Driftwood/Sand color */
+    padding-left: 16px; /* 因为左边框占了4px，所以内边距相应调整 */
+}
+
+/* --- 欢迎页面右侧内容区 --- */
+#WelcomeContentStack > QWidget {
+    background-color: #FFFFFF; /* 右侧内容区使用纯白背景 */
+}
+
+/* 右侧内容区内的 QTextBrowser，使其与背景无缝融合 */
+#WelcomeContentStack QTextBrowser {
+    background-color: transparent;
+    border: none;
+}
+
+/* 版本标签的特殊样式 */
+#VersionLabel {
+    color: #A79B82; /* 使用主题中的沙/木色 */
+    font-size: 12px;
+    font-weight: normal;
+}
+
+/* 底部按钮区的分隔线 */
+#WelcomeContentStack QFrame[frameShape="4"] { /* 4是HLine的枚举值 */
+    background-color: #C5D9E8; /* 使用浅天蓝色作为分隔线 */
+    max-height: 1px;
+}
+
+/* --- 在 QSS 文件末尾添加 --- */
+
+/* 主插件菜单圆形按钮 */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 16px; /* 关键：半径为按钮尺寸的一半 */
+    border: 2px solid #C5D9E8; /* 浅色边框 */
+    background-color: #F5F8FA; /* 与背景色稍有区别 */
+    padding: 0px; /* 不需要内边距 */
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #FFFFFF;
+    border-color: #3B6894;
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #E8EEF4;
+}
+
+/* 固定的插件快捷按钮 */
+QPushButton#PinnedPluginButton {
+    border-radius: 16px;
+    border: 1px solid transparent; /* 默认无边框 */
+    background-color: transparent; /* 默认透明 */
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(138, 178, 214, 0.5); /* 半透明悬停效果 */
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: rgba(138, 178, 214, 0.7);
+}

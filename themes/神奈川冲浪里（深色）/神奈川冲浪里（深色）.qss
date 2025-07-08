@@ -403,3 +403,37 @@ SpectrogramWidget {
     border: 1px solid #4A5B78; /* 深灰色边框 */
     border-radius: 0px;
 }
+/*
+================================================================================
+【新增】插件栏按钮样式 (The Great Wave - Dark)
+================================================================================ 
+*/
+
+/* --- 主插件菜单圆形按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 16px;
+    border: 1px solid #A79B82; /* 主题木色边框 */
+    background-color: #1C2A40; /* 深海色背景 */
+    padding: 0px;
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #2A3C58;
+    border-color: #75AADB; /* 主题浪花蓝 */
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #0F1A2C;
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 16px;
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(117, 170, 219, 0.2); /* 半透明的浪花蓝 */
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: rgba(117, 170, 219, 0.4);
+}

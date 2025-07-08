@@ -382,3 +382,37 @@ TimeAxisWidget {
     /* 确保时间轴的背景和文字颜色与主题一致 */
     background-color: #1A1423; /* Darker Indigo */
 }
+/*
+================================================================================
+【新增】插件栏按钮样式 (CyberGlyph Neon)
+================================================================================ 
+*/
+
+/* --- 主插件菜单圆形按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 16px;
+    border: 2px solid #60507F; /* 主题紫色边框，与pane边框宽度一致 */
+    background-color: #1A1423; /* 插件栏背景色 */
+    padding: 0px;
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #221A30;
+    border-color: #00FFFF; /* 主题霓虹青 */
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #120D1A;
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 16px;
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(0, 255, 255, 0.15); /* 半透明的霓虹青辉光 */
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: rgba(0, 255, 255, 0.3);
+}

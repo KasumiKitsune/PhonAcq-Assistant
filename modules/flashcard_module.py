@@ -121,9 +121,9 @@ class FlashcardPage(QWidget):
             self.smart_random_radio.setChecked(True)
             
         # ... (设置 tooltips 的代码不变) ...
-        self.smart_random_radio.setToolTip("...")
-        self.random_radio.setToolTip("...")
-        self.sequential_radio.setToolTip("...")
+        self.smart_random_radio.setToolTip("优先展示未掌握、易错和到期应复习的卡片，是最高效的学习模式。")
+        self.random_radio.setToolTip("在所有卡片中（包括已掌握的）纯粹随机抽取。")
+        self.sequential_radio.setToolTip("严格按照词表文件中的原始顺序显示所有卡片。")
         
         order_layout.addWidget(self.smart_random_radio)
         order_layout.addWidget(self.random_radio)
@@ -135,7 +135,7 @@ class FlashcardPage(QWidget):
         autoplay_layout.addWidget(QLabel("自动播放音频:"))
         self.autoplay_audio_switch = self.ToggleSwitch()
         self.autoplay_audio_switch.setChecked(module_states.get('autoplay_audio', True)) # 默认开启
-        self.autoplay_audio_switch.setToolTip("...")
+        self.autoplay_audio_switch.setToolTip("开启后，在“学习模式”下切换到新卡片时，会自动显示答案，无需手动点击。")
         autoplay_layout.addWidget(self.autoplay_audio_switch)
         autoplay_layout.addStretch()
         
@@ -143,7 +143,7 @@ class FlashcardPage(QWidget):
         hide_list_layout.addWidget(QLabel("隐藏项目列表:"))
         self.hide_list_switch = self.ToggleSwitch()
         self.hide_list_switch.setChecked(module_states.get('hide_list', True)) # 默认开启
-        self.hide_list_switch.setToolTip("...")
+        self.hide_list_switch.setToolTip("开启后，开始学习时将隐藏左侧的卡片列表，以减少干扰，专注于当前卡片。")
         hide_list_layout.addWidget(self.hide_list_switch)
         hide_list_layout.addStretch()
         
@@ -151,7 +151,7 @@ class FlashcardPage(QWidget):
         auto_show_answer_layout.addWidget(QLabel("自动显示答案:"))
         self.auto_show_answer_switch = self.ToggleSwitch()
         self.auto_show_answer_switch.setChecked(module_states.get('auto_show_answer', False)) # 默认关闭
-        self.auto_show_answer_switch.setToolTip("...")
+        self.auto_show_answer_switch.setToolTip("开启后，在“学习模式”下切换到新卡片时，会自动显示答案，无需手动点击。")
         auto_show_answer_layout.addWidget(self.auto_show_answer_switch)
         auto_show_answer_layout.addStretch()
         
