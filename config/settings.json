@@ -47,5 +47,13 @@
             339,
             100
         ]
+    },
+    "plugin_settings": {
+        "enabled": [
+            "com.phonacq.welcome_page"
+        ],
+        "pinned": [
+            "com.phonacq.welcome_page"
+        ]
     }
 }

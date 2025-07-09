@@ -191,6 +191,7 @@ class PluginManagementDialog(QDialog):
         super().__init__(parent)
         self.plugin_manager = plugin_manager
         self.icon_manager = self.plugin_manager.main_window.icon_manager
+        
         self.setWindowTitle("插件管理")
         self.setMinimumSize(800, 500)
         self._init_ui()
@@ -200,25 +201,51 @@ class PluginManagementDialog(QDialog):
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         splitter = QSplitter(Qt.Horizontal)
-        left_widget, right_widget = QWidget(), QWidget()
-        left_layout, right_layout = QVBoxLayout(left_widget), QVBoxLayout(right_widget)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
         left_layout.addWidget(QLabel("已发现的插件:"))
-        self.plugin_list = QListWidget(); self.plugin_list.setSpacing(2); self.plugin_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.plugin_list = QListWidget()
+        self.plugin_list.setSpacing(2)
+        self.plugin_list.setToolTip("所有在 'plugins' 文件夹中找到的插件。\n- 右键单击可进行操作，查看帮助等。")
+        self.plugin_list.setContextMenuPolicy(Qt.CustomContextMenu)
         left_layout.addWidget(self.plugin_list)
+
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
         right_layout.addWidget(QLabel("插件详情:"))
-        self.plugin_details = QTextBrowser(); self.plugin_details.setOpenExternalLinks(True)
+        self.plugin_details = QTextBrowser()
+        self.plugin_details.setToolTip("显示当前选中插件的详细信息。")
+        self.plugin_details.setOpenExternalLinks(True)
         right_layout.addWidget(self.plugin_details)
-        splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(0, 1); splitter.setStretchFactor(1, 1)
+
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        
         main_layout.addWidget(splitter)
+
         bottom_layout = QHBoxLayout()
         self.add_btn = QPushButton("添加插件(.zip)...")
+        self.add_btn.setToolTip("从一个 .zip 压缩包安装新插件。\n压缩包的根目录应只包含一个插件文件夹。")
         self.remove_btn = QPushButton("移除选中插件")
-        self.help_btn = QPushButton("查看帮助")
+        self.remove_btn.setToolTip("永久删除磁盘上选中的插件文件夹。")
+        
+        # [核心修改] 创建一个通用的、可变功能的按钮
+        self.action_btn = QPushButton()
+        
         self.open_folder_btn = QPushButton("打开插件文件夹")
+        self.open_folder_btn.setToolTip("在系统的文件浏览器中打开 'plugins' 文件夹。")
         self.close_btn = QPushButton("关闭")
-        bottom_layout.addWidget(self.add_btn); bottom_layout.addWidget(self.remove_btn); bottom_layout.addWidget(self.help_btn)
+        self.close_btn.setToolTip("关闭此管理对话框。")
+
+        bottom_layout.addWidget(self.add_btn)
+        bottom_layout.addWidget(self.remove_btn)
+        bottom_layout.addWidget(self.action_btn) # 添加通用按钮到布局
         bottom_layout.addStretch()
-        bottom_layout.addWidget(self.open_folder_btn); bottom_layout.addWidget(self.close_btn)
+        bottom_layout.addWidget(self.open_folder_btn)
+        bottom_layout.addWidget(self.close_btn)
         main_layout.addLayout(bottom_layout)
 
     def _connect_signals(self):
@@ -226,9 +253,53 @@ class PluginManagementDialog(QDialog):
         self.plugin_list.customContextMenuRequested.connect(self.show_plugin_context_menu)
         self.add_btn.clicked.connect(self.add_plugin)
         self.remove_btn.clicked.connect(self.remove_plugin)
-        self.help_btn.clicked.connect(self.show_manual_for_current_plugin)
+        
+        # [核心修改] action_btn 的信号连接现在是动态的，在 update_button_states 中处理
+        # self.action_btn.clicked.connect(...) 
+        
         self.open_folder_btn.clicked.connect(self.open_plugins_folder)
         self.close_btn.clicked.connect(self.accept)
+
+    def update_button_states(self):
+        is_item_selected = self.plugin_list.currentItem() is not None
+        self.remove_btn.setEnabled(is_item_selected)
+        
+        # [核心修改] 动态设置 action_btn 的文本、图标、功能和状态
+        
+        # 1. 断开旧的信号连接，防止重复绑定
+        try: self.action_btn.clicked.disconnect()
+        except TypeError: pass
+
+        # 2. 检查插件市场是否已安装并启用
+        nexus_plugin_id = "com.phonacq.plugin_nexus"
+        if nexus_plugin_id in self.plugin_manager.active_plugins:
+            # 如果市场已启用，按钮变为“在线获取插件”
+            self.action_btn.setText("在线获取插件...")
+            self.action_btn.setIcon(self.icon_manager.get_icon("cloud_download")) # 假设有此图标
+            self.action_btn.setToolTip("打开插件市场，发现并安装更多插件。")
+            self.action_btn.clicked.connect(
+                lambda: self.plugin_manager.execute_plugin(nexus_plugin_id, parent_dialog=self)
+            )
+            self.action_btn.setEnabled(True) # 市场按钮总是可用的
+        else:
+            # 如果市场未启用，按钮恢复为“查看帮助”
+            self.action_btn.setText("查看帮助")
+            self.action_btn.setIcon(self.icon_manager.get_icon("help"))
+            self.action_btn.setToolTip("查看选中插件的使用手册。")
+            self.action_btn.clicked.connect(self.show_manual_for_current_plugin)
+
+            # 判断“查看帮助”按钮是否可用
+            has_manual = False
+            if is_item_selected:
+                plugin_id = self.plugin_list.currentItem().data(Qt.UserRole)
+                meta = self.plugin_manager.available_plugins.get(plugin_id, {})
+                manual_file = meta.get('manual_file')
+                if manual_file:
+                    manual_path = os.path.join(meta.get('path', ''), manual_file)
+                    if os.path.exists(manual_path):
+                        has_manual = True
+            
+            self.action_btn.setEnabled(has_manual and MARKDOWN_AVAILABLE)
 
     def populate_plugin_list(self):
         current_id = self.plugin_list.currentItem().data(Qt.UserRole) if self.plugin_list.currentItem() else None
@@ -256,18 +327,6 @@ class PluginManagementDialog(QDialog):
         if not meta: self.plugin_details.clear(); return
         details_html = f"<h3>{meta.get('name', 'N/A')}</h3><p><strong>版本:</strong> {meta.get('version', 'N/A')}<br><strong>作者:</strong> {meta.get('author', 'N/A')}</p><hr><p>{meta.get('description', '无详细描述。')}</p><p><i>ID: {meta.get('id')}</i></p>"
         self.plugin_details.setHtml(details_html); self.update_button_states()
-
-    def update_button_states(self):
-        is_item_selected = self.plugin_list.currentItem() is not None
-        self.remove_btn.setEnabled(is_item_selected)
-        has_manual = False
-        if is_item_selected:
-            plugin_id = self.plugin_list.currentItem().data(Qt.UserRole)
-            meta = self.plugin_manager.available_plugins.get(plugin_id, {})
-            manual_file = meta.get('manual_file')
-            if manual_file and os.path.exists(os.path.join(meta.get('path', ''), manual_file)):
-                has_manual = True
-        self.help_btn.setEnabled(has_manual and MARKDOWN_AVAILABLE)
 
     def show_plugin_context_menu(self, position):
         item = self.plugin_list.itemAt(position);
