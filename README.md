@@ -21,6 +21,41 @@
 ## 注意
 **本项目大部分代码以及 README 由 Gemini 2.5 pro 贡献。**
 
+## 界面截图
+<div align="center">
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/Textgrid标注及元音分析.png" width="100%" alt="TextGrid标注及元音分析界面">
+    <p><strong>TextGrid标注及元音分析界面</strong><br><em>展示了与TextGrid文件集成的元音空间图绘制器，以及标注数据的可视化。</em></p>
+  </div>
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/词表编辑界面.png" width="100%" alt="词表编辑界面">
+    <p><strong>词表编辑界面</strong><br><em>用户可以在这里创建、修改和管理项目的词表数据。</em></p>
+  </div>
+</div>
+
+<div align="center">
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/图文采集界面.png" width="100%" alt="图文采集界面">
+    <p><strong>图文采集界面</strong><br><em>支持结合图片进行语音采集，适用于方言研究等场景。</em></p>
+  </div>
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/音频分析.png" width="100%" alt="音频分析界面">
+    <p><strong>音频分析界面</strong><br><em>提供波形图、语谱图和声学参数的可视化分析功能。</em></p>
+  </div>
+</div>
+
+<div align="center">
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/音频管理界面.png" width="100%" alt="音频管理界面">
+    <p><strong>音频管理界面</strong><br><em>集中管理项目中的所有音频数据，支持批量操作。</em></p>
+  </div>
+  <div style="display: inline-block; width: 48%; vertical-align: top; margin: 10px;">
+    <img src="assets/help/主界面及插件管理.png" width="100%" alt="主界面及插件管理">
+    <p><strong>主界面及插件管理</strong><br><em>展示了应用程序的核心布局以及插件管理对话框。</em></p>
+  </div>
+</div>
+
+
 ## 📖 项目简介
 
 **PhonAcq Assistant (风纳客)** 诞生于解决语言学（特别是音韵学、方言学和第二语言习得领域）研究中常见的数据采集痛点。传统的实验流程往往涉及多个独立的软件、繁琐的文件管理和易错的手动操作。本项目旨在将**语料构建、数据采集、数据管理和实用工具**整合到一个统一、直观、高效的图形化平台中，让研究者能更专注于实验设计与数据分析本身。
