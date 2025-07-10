@@ -945,7 +945,7 @@ class MainWindow(QMainWindow):
         self.pinned_plugins_layout.setAlignment(Qt.AlignRight) # 确保图标从右向左添加
 
         # 4. 创建主插件菜单按钮
-        self.plugin_menu_button = QPushButton() # [修改] 不再需要文字
+        self.plugin_menu_button = QPushButton("插件") 
         self.plugin_menu_button.setIcon(self.icon_manager.get_icon("plugin"))
         self.plugin_menu_button.setToolTip("管理和执行已安装的插件")
         # [核心样式] 设置为圆形按钮
@@ -961,6 +961,7 @@ class MainWindow(QMainWindow):
         
         # 7. 连接信号
         self.plugin_menu_button.clicked.connect(self._show_plugin_menu)
+
     def update_pinned_plugins_ui(self):
         """
         根据配置文件，清空并重新创建所有固定的插件快捷按钮。

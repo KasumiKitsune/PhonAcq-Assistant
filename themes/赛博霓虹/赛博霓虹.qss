@@ -393,7 +393,9 @@ QPushButton#PluginMenuButtonCircular {
     border-radius: 16px;
     border: 2px solid #60507F; /* 主题紫色边框，与pane边框宽度一致 */
     background-color: #1A1423; /* 插件栏背景色 */
-    padding: 0px;
+    /* [核心修改] 调整内边距以容纳图标和文字 */
+    padding: 0px 15px 0px 10px; /* 上 右 下 左 */
+    min-width: 75px; /* 设置一个最小宽度，防止被过度压缩 */
 }
 QPushButton#PluginMenuButtonCircular:hover {
     background-color: #221A30;
@@ -405,7 +407,7 @@ QPushButton#PluginMenuButtonCircular:pressed {
 
 /* --- 固定的插件快捷按钮 --- */
 QPushButton#PinnedPluginButton {
-    border-radius: 16px;
+    border-radius: 15px;
     border: 1px solid transparent;
     background-color: transparent;
     padding: 0px;

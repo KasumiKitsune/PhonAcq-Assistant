@@ -46,11 +46,11 @@ QTabWidget#MainTabWidget QTabBar::tab {
     border: 1px solid #C5D9E8;
     border-bottom: none;
     font-size: 20px;
-    margin-right: -1px; 
-    min-width: 190px;
+    margin-right: 2px; 
+    min-width: 180px;
     padding: 12px 25px 12px 15px; 
-    border-top-left-radius: 10px;
-    border-top-right-radius: 0px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 10px;
 }
 QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
     background-color: #FFFFFF; 
@@ -427,10 +427,12 @@ SpectrogramWidget {
 
 /* 主插件菜单圆形按钮 */
 QPushButton#PluginMenuButtonCircular {
-    border-radius: 16px; /* 关键：半径为按钮尺寸的一半 */
+    border-radius: 18px; /* 关键：半径为按钮尺寸的一半 */
     border: 2px solid #C5D9E8; /* 浅色边框 */
     background-color: #F5F8FA; /* 与背景色稍有区别 */
-    padding: 0px; /* 不需要内边距 */
+    /* [核心修改] 调整内边距以容纳图标和文字 */
+    padding: 2px 15px 2px 10px; /* 上 右 下 左 */
+    min-width: 75px; /* 设置一个最小宽度，防止被过度压缩 */
 }
 QPushButton#PluginMenuButtonCircular:hover {
     background-color: #FFFFFF;
@@ -445,7 +447,7 @@ QPushButton#PinnedPluginButton {
     border-radius: 16px;
     border: 1px solid transparent; /* 默认无边框 */
     background-color: transparent; /* 默认透明 */
-    padding: 0px;
+    padding: 0;
 }
 QPushButton#PinnedPluginButton:hover {
     background-color: rgba(138, 178, 214, 0.5); /* 半透明悬停效果 */

@@ -400,7 +400,9 @@ QPushButton#PluginMenuButtonCircular {
     border-radius: 16px;
     border: 1px solid #B8A990; /* 主题卡其色边框 */
     background-color: #EAE0C9; /* 与普通按钮背景色一致 */
-    padding: 0px;
+    /* [核心修改] 调整内边距以容纳图标和文字 */
+    padding: 2px 15px 2px 10px; /* 上 右 下 左 */
+    min-width: 75px; /* 设置一个最小宽度，防止被过度压缩 */
 }
 QPushButton#PluginMenuButtonCircular:hover {
     background-color: #F5EDE2; /* 悬停时变亮 */

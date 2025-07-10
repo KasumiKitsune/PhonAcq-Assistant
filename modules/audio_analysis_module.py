@@ -91,19 +91,49 @@ class AudioTaskWorker(QObject):
         start_sample, end_sample = self.kwargs.get('start_sample', 0), self.kwargs.get('end_sample', len(self.y))
         hop_length = self.kwargs.get('hop_length', 128)
         pre_emphasis = self.kwargs.get('pre_emphasis', False)
+        
         y_view_orig = self.y[start_sample:end_sample]
         y_view = librosa.effects.preemphasis(y_view_orig) if pre_emphasis else y_view_orig
+        
         frame_length = int(self.sr * 0.025)
         order = 2 + self.sr // 1000
         formant_points = []
+
+        # --- [核心修改] 新增：计算RMS能量和阈值 ---
+        # 1. 计算整个视图区域的RMS能量，用于确定一个动态的阈值
+        rms = librosa.feature.rms(y=y_view_orig, frame_length=frame_length, hop_length=hop_length)[0]
+        
+        # 2. 设置一个动态能量阈值。例如，最大能量的10%。
+        # 这个百分比可以根据需要调整，0.05到0.15是比较常用的范围。
+        # 我们使用一个较低的阈值（如5%）以避免切掉弱元音，但足以过滤掉大部分静音。
+        energy_threshold = np.max(rms) * 0.05 
+        
+        # 确保RMS数组和我们接下来的循环是对齐的
+        frame_index = 0
+
         for i in range(0, len(y_view) - frame_length, hop_length):
+            # --- [核心修改] 在分析前检查能量 ---
+            # 3. 检查当前帧的能量是否高于阈值
+            if frame_index < len(rms) and rms[frame_index] < energy_threshold:
+                frame_index += 1
+                continue # 能量太低，跳过此帧，不进行分析
+
             y_frame = y_view[i : i + frame_length]
-            if np.max(np.abs(y_frame)) < 1e-5 or not np.isfinite(y_frame).all(): continue
+
+            # 之前的检查（如np.max, np.isfinite）仍然保留，作为双重保障
+            if np.max(np.abs(y_frame)) < 1e-5 or not np.isfinite(y_frame).all():
+                frame_index += 1
+                continue
+
             try:
                 a = librosa.lpc(y_frame, order=order)
-                if not np.isfinite(a).all(): continue
+                if not np.isfinite(a).all(): 
+                    frame_index += 1
+                    continue
                 roots = [r for r in np.roots(a) if np.imag(r) >= 0]
                 freqs = sorted(np.angle(roots) * (self.sr / (2 * np.pi)))
+                
+                # ... (后续的共振峰筛选逻辑保持不变) ...
                 found_formants, formant_ranges = [], [(250, 800), (800, 2200), (2200, 3000), (3000, 4000)]
                 candidate_freqs = list(freqs)
                 for f_min, f_max in formant_ranges:
@@ -112,9 +142,15 @@ class AudioTaskWorker(QObject):
                         best_f = band_freqs[0]; found_formants.append(best_f); candidate_freqs.remove(best_f)
                 if found_formants:
                     formant_points.append((start_sample + i + frame_length // 2, found_formants))
-            except Exception: continue
-        self.finished.emit({'formants_view': formant_points})
+            except Exception:
+                # 即使出错也要增加索引
+                frame_index += 1
+                continue
+            
+            # 成功处理完一帧后，增加帧索引
+            frame_index += 1
 
+        self.finished.emit({'formants_view': formant_points})
 
 class ExportDialog(QDialog):
     """一个让用户选择导出图片分辨率和样式的对话框。"""
@@ -686,24 +722,28 @@ class SpectrogramWidget(QWidget):
             self.update()
         super().mouseReleaseEvent(event)
     
-    # --- [新增] 创建菜单的方法 ---
     def create_context_menu(self):
-        """创建一个包含所有内置动作的右键菜单。"""
-        # (这里是所有被剪切过来的代码)
+        """
+        创建一个包含所有内置动作和潜在插件动作的右键菜单。
+        此方法通过检查预定义的钩子属性来动态添加插件功能。
+        """
         menu = QMenu(self)
         has_selection = self._selection_start_sample is not None and self._selection_end_sample is not None
         has_analysis = self._f0_data is not None or self._intensity_data is not None or self._formants_data
 
         info_to_copy = self._cursor_info_text
         
-        analysis_menu = QMenu("分析", self)
-        analysis_menu.setIcon(self.icon_manager.get_icon("analyze"))
-        
-        # 注意: 我们需要一个方法来获取 event.pos()，但由于事件不在这个方法里，
-        # 我们需要从 QCursor 获取全局位置，然后映射回控件坐标。
         click_pos = self.mapFromGlobal(QCursor.pos())
         sample_pos_at_click = self._pixel_to_sample(click_pos.x())
 
+        # ==========================================================
+        # 第一部分：添加所有原生菜单项
+        # ==========================================================
+
+        # 1. "分析" 子菜单
+        analysis_menu = QMenu("分析", self)
+        analysis_menu.setIcon(self.icon_manager.get_icon("analyze"))
+        
         slice_action = QAction(self.icon_manager.get_icon("spectrum"), "获取此处频谱切片...", self)
         slice_action.triggered.connect(lambda: self.spectrumSliceRequested.emit(sample_pos_at_click))
         analysis_menu.addAction(slice_action)
@@ -711,6 +751,7 @@ class SpectrogramWidget(QWidget):
         menu.addMenu(analysis_menu)
         menu.addSeparator()
 
+        # 2. 选区相关操作
         if has_selection:
             zoom_icon = self.icon_manager.get_icon("zoom_selection") 
             if zoom_icon.isNull(): zoom_icon = self.icon_manager.get_icon("zoom")
@@ -718,12 +759,13 @@ class SpectrogramWidget(QWidget):
             zoom_to_selection_action.triggered.connect(lambda: self.zoomToSelectionRequested.emit(self._selection_start_sample, self._selection_end_sample))
             menu.addAction(zoom_to_selection_action)
 
+        # 3. 复制信息
         copy_action = QAction(self.icon_manager.get_icon("copy"), "复制光标处信息", self)
         copy_action.setEnabled(bool(info_to_copy.strip()))
         copy_action.triggered.connect(lambda checked, text=info_to_copy: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
-        menu.addSeparator()
         
+        # 4. "导出" 子菜单 (原生导出功能)
         export_menu = QMenu("导出", self)
         export_menu.setIcon(self.icon_manager.get_icon("export"))
         
@@ -749,8 +791,76 @@ class SpectrogramWidget(QWidget):
 
         menu.addMenu(export_menu)
         
-        # (最后一步：返回创建好的菜单对象)
+        # ==========================================================
+        # 第二部分：在末尾添加由插件注入的菜单项
+        # ==========================================================
+        
+        # 检查是否有任何插件被注入
+        plotter_plugin = getattr(self, 'vowel_plotter_plugin_active', None)
+        exporter_plugin = getattr(self, 'praat_exporter_plugin_active', None)
+        
+        # 如果至少有一个插件被注入，则添加一个主分隔符
+        if plotter_plugin or exporter_plugin:
+            menu.addSeparator()
+
+        # 钩子检查点: Praat 导出器插件
+        if exporter_plugin:
+            # 从插件实例动态创建菜单动作
+            exporter_action = exporter_plugin.create_action_for_menu(self)
+            menu.addAction(exporter_action)
+        
+        # 钩子检查点: 元音空间图绘制器插件
+        if plotter_plugin:
+            # 创建菜单动作
+            plotter_action = QAction(self.icon_manager.get_icon("chart"), "发送数据到元音绘制器...", self)
+            
+            # 检查动作的可用性
+            has_formants_in_selection = False
+            if has_selection:
+                start_sample, end_sample = self._selection_start_sample, self._selection_end_sample
+                has_formants_in_selection = any(start_sample <= point[0] < end_sample for point in self._formants_data)
+            
+            plotter_action.setEnabled(has_formants_in_selection)
+            if not has_formants_in_selection:
+                plotter_action.setToolTip("请先在选区内运行共振峰分析。")
+
+            # 连接信号
+            plotter_action.triggered.connect(self._send_data_to_plotter)
+            
+            # 将动作添加到菜单的末尾
+            menu.addAction(plotter_action)
+        
+        # 返回最终构建好的菜单
         return menu
+
+    # --- [新增] _send_data_to_plotter 辅助方法 ---
+    def _send_data_to_plotter(self):
+        """收集选区内的共振峰数据，并通过钩子调用插件的execute方法。"""
+        if not self.vowel_plotter_plugin_active:
+            return
+        
+        start_sample, end_sample = self._selection_start_sample, self._selection_end_sample
+        
+        # 1. 筛选出选区内的数据点
+        data_points = []
+        for sample_pos, formants in self._formants_data:
+            if start_sample <= sample_pos < end_sample:
+                # 只取前两个共振峰 F1, F2
+                if len(formants) >= 2:
+                    # --- [核心修改] 把时间戳也加进去 ---
+                    timestamp = sample_pos / self.sr
+                    data_points.append({'timestamp': timestamp, 'F1': formants[0], 'F2': formants[1]})
+        
+        if not data_points:
+            QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F1/F2 数据点。")
+            return
+            
+        # 2. 转换为 Pandas DataFrame
+        import pandas as pd
+        df = pd.DataFrame(data_points)
+        
+        # 3. 通过插件实例的 execute 方法传递数据
+        self.vowel_plotter_plugin_active.execute(dataframe=df)
 
     # --- [修改] 精简后的原始方法 ---
     def contextMenuEvent(self, event):

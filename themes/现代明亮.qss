@@ -321,7 +321,9 @@ QPushButton#PluginMenuButtonCircular {
     border-radius: 15px; /* 关键：半径为按钮尺寸的一半 (32px / 2) */
     border: 1px solid #DCD0C0; /* 与其他按钮边框颜色一致 */
     background-color: #FDFBF8; /* 与主背景色一致 */
-    padding: 0px; /* 圆形按钮不需要内边距 */
+    /* [核心修改] 调整内边距以容纳图标和文字 */
+    padding: 2px 15px 2px 10px; /* 上 右 下 左 */
+    min-width: 75px; /* 设置一个最小宽度，防止被过度压缩 */
 }
 QPushButton#PluginMenuButtonCircular:hover {
     background-color: #FFFFFF; /* 悬停时变亮 */
