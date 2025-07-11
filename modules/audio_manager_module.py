@@ -825,45 +825,91 @@ class AudioManagerPage(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "连接失败", f"保存连接文件时出错: {e}")        
     def open_file_context_menu(self, position):
+        # 1. 获取上下文信息 (保持不变)
         item = self.audio_table_widget.itemAt(position)
         if not item: return
-        row = item.row()
-        filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+        
         selected_items = self.audio_table_widget.selectedItems()
         selected_rows_count = len(set(i.row() for i in selected_items))
+
+        # --- [核心重构] 使用纯信号/槽模式构建菜单 ---
         
         menu = QMenu(self.audio_table_widget)
+        
+        # 2. 创建所有QAction，并立即连接它们的triggered信号
+        
+        # 试听 / 暂停
         play_action = menu.addAction(self.icon_manager.get_icon("play_audio"), "试听 / 暂停")
+        play_action.triggered.connect(lambda: self.play_selected_item(item.row()))
+
+        # 在音频分析中打开 (仅单选时可用)
         analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
-        analyze_action.setEnabled(hasattr(self.parent_window, 'go_to_audio_analysis') and selected_rows_count == 1)
+        if selected_rows_count == 1:
+            filepath = self.audio_table_widget.item(item.row(), 0).data(Qt.UserRole)
+            analyze_action.triggered.connect(lambda: self.parent_window.go_to_audio_analysis(filepath))
+        else:
+            analyze_action.setEnabled(False)
+        
         menu.addSeparator()
 
+        # 添加到暂存区 (可多选)
         add_to_staging_action = menu.addAction(self.icon_manager.get_icon("add_row"), f"将 {selected_rows_count} 个文件添加到暂存区")
-        add_to_staging_action.setEnabled(selected_rows_count > 0)
-        
-        # --- [核心修正] 动态检查插件状态 ---
-        process_action = None # 先初始化为 None
-        # 检查插件管理器是否存在，并且ID为 'com.phonacq.batch_processor' 的插件是否在活动插件列表中
-        if hasattr(self.parent_window, 'plugin_manager') and \
-           'com.phonacq.batch_processor' in self.parent_window.plugin_manager.active_plugins:
-            
-            menu.addSeparator() # 只有当插件启用时才添加分隔符和菜单项
-            process_action = menu.addAction(self.icon_manager.get_icon("submit"), f"批量处理选中的 {selected_rows_count} 个文件...")
-            process_action.setEnabled(selected_rows_count > 0)
-            process_action.setToolTip("使用批量音频处理器对所选文件进行格式转换、重采样等操作。")
-        # ------------------------------------
+        if selected_rows_count > 0:
+            add_to_staging_action.triggered.connect(self._add_selected_to_staging)
+        else:
+            add_to_staging_action.setEnabled(False)
 
+        # --- [核心修正] 恢复并完善批量处理器插件的入口 ---
+        if hasattr(self, 'batch_processor_plugin_active'):
+            menu.addSeparator()
+            plugin_icon = self.icon_manager.get_icon("submit")
+            process_action = menu.addAction(plugin_icon, f"批量处理选中的 {selected_rows_count} 个文件...")
+            if selected_rows_count > 0:
+                process_action.triggered.connect(self._send_to_batch_processor)
+            else:
+                process_action.setEnabled(False)
+        # ----------------------------------------------------
+
+        # 外部工具启动器 (Praat) 插件入口 (动态添加)
+        if hasattr(self, 'external_launcher_plugin_active'):
+            launcher_plugin = self.external_launcher_plugin_active
+            if launcher_plugin.config_manager.get_praat_path():
+                menu.addSeparator()
+                praat_icon = self.icon_manager.get_icon("export") or self.icon_manager.get_icon("external_link")
+                open_with_praat_action = menu.addAction(praat_icon, f"用 Praat 打开 {selected_rows_count} 个文件...")
+                if selected_rows_count > 0:
+                    open_with_praat_action.triggered.connect(self._send_to_external_launcher)
+                else:
+                    open_with_praat_action.setEnabled(False)
+        
         menu.addSeparator()
+        
+        # 重命名 (仅单选)
         rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名")
-        rename_action.setEnabled(selected_rows_count == 1)
-        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
-        # [修正] 删除操作应该可以多选
-        delete_action.setEnabled(selected_rows_count > 0)
+        if selected_rows_count == 1:
+            rename_action.triggered.connect(lambda: self.rename_selected_file(item.row()))
+        else:
+            rename_action.setEnabled(False)
+            
+        # 删除 (可多选)
+        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {selected_rows_count} 个文件")
+        if selected_rows_count > 0:
+            delete_action.triggered.connect(self.delete_selected_files)
+        else:
+            delete_action.setEnabled(False)
+        
         menu.addSeparator()
         
+        # 在文件浏览器中显示 (仅单选)
         open_folder_action = menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示")
-        open_folder_action.setEnabled(selected_rows_count == 1)
+        if selected_rows_count == 1:
+            folder_path = os.path.dirname(self.audio_table_widget.item(item.row(), 0).data(Qt.UserRole))
+            file_name = os.path.basename(self.audio_table_widget.item(item.row(), 0).data(Qt.UserRole))
+            open_folder_action.triggered.connect(lambda: self.open_in_explorer(folder_path, select_file=file_name))
+        else:
+            open_folder_action.setEnabled(False)
         
+        # 快捷按钮设置菜单
         menu.addSeparator()
         shortcut_menu = menu.addMenu(self.icon_manager.get_icon("draw"), "设置快捷按钮")
         shortcut_actions = {
@@ -878,26 +924,89 @@ class AudioManagerPage(QWidget):
             q_action.setCheckable(True)
             if self.shortcut_button_action == action_key:
                 q_action.setChecked(True)
+            q_action.triggered.connect(lambda checked, key=action_key: self.set_shortcut_button_action(key))
 
-        action = menu.exec_(self.audio_table_widget.mapToGlobal(position))
+        # 3. 执行菜单
+        menu.exec_(self.audio_table_widget.mapToGlobal(position))
+    def delete_selected_files(self):
+        """
+        [新增] 删除所有在表格中被选中的文件。
+        """
+        # 1. 获取所有选中的、不重复的文件路径
+        selected_items = self.audio_table_widget.selectedItems()
+        if not selected_items:
+            return
+            
+        selected_filepaths = sorted(list(set(
+            self.audio_table_widget.item(i.row(), 0).data(Qt.UserRole) for i in selected_items
+        )))
         
-        # --- 事件处理 ---
-        for action_key, q_action in shortcut_actions.items():
-            if action == q_action:
-                self.set_shortcut_button_action(action_key)
-                return
+        count = len(selected_filepaths)
+        
+        # 2. 弹窗向用户进行最终确认
+        # 显示前几个文件名作为示例
+        file_examples = "\n".join(f"- {os.path.basename(p)}" for p in selected_filepaths[:3])
+        if count > 3:
+            file_examples += "\n- ..."
+            
+        reply = QMessageBox.question(self, "确认删除", 
+                                     f"您确定要永久删除这 {count} 个文件吗？\n\n{file_examples}\n\n此操作不可撤销！", 
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.No:
+            return
 
-        if action == play_action: self.play_selected_item(row)
-        elif action == analyze_action: self.parent_window.go_to_audio_analysis(filepath)
-        elif action == add_to_staging_action: self._add_selected_to_staging()
-        # [核心修正] 只有当 process_action 被创建（即插件启用）时，这个判断才可能为真
-        elif action == process_action: 
-            self._send_to_batch_processor()
-        elif action == rename_action: self.rename_selected_file(row)
-        elif action == delete_action: 
-            # [修正] 调用一个新的批量删除方法
-            self.delete_selected_files()
-        elif action == open_folder_action: self.open_in_explorer(os.path.dirname(filepath), select_file=os.path.basename(filepath))
+        # 3. 准备删除操作
+        error_files = []
+        self.status_label.setText(f"正在删除 {count} 个文件...")
+        QApplication.processEvents()
+
+        # [关键] 在删除任何文件之前，重置所有播放器以释放文件句柄
+        self.reset_player()
+        QApplication.processEvents() # 确保事件循环处理完播放器停止的请求
+
+        # 4. 循环删除文件
+        for i, filepath in enumerate(selected_filepaths):
+            filename = os.path.basename(filepath)
+            self.status_label.setText(f"正在删除 ({i+1}/{count}): {filename}")
+            QApplication.processEvents()
+            
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                error_files.append(f"{filename}: {e}")
+        
+        # 5. 报告结果
+        if error_files:
+            error_details = "\n".join(error_files)
+            QMessageBox.critical(self, "部分文件删除失败", f"以下文件未能成功删除:\n\n{error_details}")
+            self.status_label.setText("部分文件删除失败。")
+        else:
+            self.status_label.setText(f"成功删除 {count} 个文件。")
+            QTimer.singleShot(4000, lambda: self.status_label.setText("准备就绪"))
+
+        # 6. 刷新UI
+        self.populate_audio_table()
+        # [可选] 刷新后，如果列表不为空，可以自动选中第一项
+        if self.audio_table_widget.rowCount() > 0:
+            self.audio_table_widget.setCurrentCell(0, 0)
+
+    def _send_to_external_launcher(self):
+        """收集所有选中的文件路径，并调用插件的 execute 方法。"""
+        selected_items = self.audio_table_widget.selectedItems()
+        # 使用 set 来自动去重行号，然后获取每行的文件路径
+        selected_filepaths = list(set(
+            self.audio_table_widget.item(i.row(), 0).data(Qt.UserRole) for i in selected_items
+        ))
+        
+        if not selected_filepaths: return
+
+        # 获取插件实例
+        launcher_plugin = getattr(self, 'external_launcher_plugin_active', None)
+        if launcher_plugin:
+            # [修改] 调用插件的 execute 方法，并通过 kwargs 传递文件列表
+            launcher_plugin.execute(filepaths=selected_filepaths)
+
     def closeEvent(self, event):
         self._clear_player_cache();
         if self.temp_preview_file and os.path.exists(self.temp_preview_file):
@@ -1043,6 +1152,8 @@ class AudioManagerPage(QWidget):
         open_folder_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中打开"); open_folder_action.setEnabled(len(selected_items) == 1); action = menu.exec_(self.session_list_widget.mapToGlobal(position))
         source_name = self.source_combo.currentText(); base_dir = self.DATA_SOURCES[source_name]["path"]
         if action == delete_action: self.delete_folders(selected_items, base_dir)
+        elif action == getattr(self, 'last_praat_action', None) and action is not None:
+            self._send_to_external_launcher()
         elif action == rename_action: self.rename_folder(selected_items[0], base_dir)
         elif action == open_folder_action: self.open_in_explorer(os.path.join(base_dir, selected_items[0].text()))
         

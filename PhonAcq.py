@@ -1001,51 +1001,129 @@ class MainWindow(QMainWindow):
             # 添加到布局中
             self.pinned_plugins_layout.addWidget(btn)
 
-    # [新增] 显示插件菜单的逻辑
+    # [修改] _show_plugin_menu 方法，实现多列菜单和自适应宽度
     def _show_plugin_menu(self):
-        # ... (此方法几乎不变, 只是按钮位置现在是相对于主窗口)
-        from PyQt5.QtWidgets import QMenu
-        from PyQt5.QtGui import QIcon
-        from PyQt5.QtCore import QPoint 
+        # 确保导入必要的类
+        from PyQt5.QtWidgets import QMenu, QAction, QToolButton, QGridLayout, QWidget, QWidgetAction, QSizePolicy
+        from PyQt5.QtCore import QPoint, Qt, QSize
+        from PyQt5.QtGui import QIcon, QFontMetrics
 
         menu = QMenu(self)
-        
-        # [修改] 刷新一下固定的插件列表，以防万一
         self.update_pinned_plugins_ui()
 
-        if not self.plugin_manager.active_plugins:
+        active_plugins_sorted = sorted(self.plugin_manager.active_plugins.items(), 
+                                       key=lambda item: self.plugin_manager.available_plugins.get(item[0], {}).get('name', item[0]))
+        
+        num_active_plugins = len(active_plugins_sorted)
+        
+        # --- [核心修改 1] 统一插件显示模式 ---
+        if num_active_plugins == 0:
             no_plugins_action = menu.addAction("未启用插件")
             no_plugins_action.setEnabled(False)
         else:
-            for plugin_id, instance in self.plugin_manager.active_plugins.items():
-                meta = self.plugin_manager.available_plugins.get(plugin_id)
-                if not meta: continue
-            
-                # 直接从插件目录加载图标
-                icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
-                plugin_icon = QIcon(icon_path)
-            
-                action = menu.addAction(plugin_icon, meta['name'])
-                action.triggered.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
-    
-        menu.addSeparator()
-        manage_action = menu.addAction(self.icon_manager.get_icon("check"), "管理插件...")
-        manage_action.triggered.connect(self._open_plugin_manager_dialog)
+            grid_widget = QWidget()
+            grid_layout = QGridLayout(grid_widget)
+            grid_layout.setContentsMargins(10, 10, 10, 10) 
+            grid_layout.setSpacing(10) 
 
-        # 在按钮下方弹出菜单
-        # 1. 获取菜单的建议尺寸
+            PLUGINS_PER_COLUMN = 6 
+            num_cols = (num_active_plugins - 1) // PLUGINS_PER_COLUMN + 1 if num_active_plugins > 0 else 1
+            MAX_COLUMNS = 3 # 修复：之前是 MAX_cols，现在统一为 MAX_COLUMNS
+            if num_cols > MAX_COLUMNS:
+                num_cols = MAX_COLUMNS # 修复：使用正确的常量名
+                PLUGINS_PER_COLUMN = (num_active_plugins - 1) // MAX_COLUMNS + 1
+
+            for col_idx in range(num_cols):
+                grid_layout.setColumnStretch(col_idx, 1)
+
+            longest_plugin_name = ""
+            for plugin_id, _ in active_plugins_sorted:
+                meta = self.plugin_manager.available_plugins.get(plugin_id)
+                if meta and len(meta['name']) > len(longest_plugin_name):
+                    longest_plugin_name = meta['name']
+
+            font_metrics = QFontMetrics(self.font())
+            estimated_text_width = font_metrics.width(longest_plugin_name) 
+            min_btn_width = estimated_text_width + 24 + 5 + 10 
+            if min_btn_width < 100: min_btn_width = 100 
+
+            grid_widget.setMinimumWidth(min_btn_width * num_cols + grid_layout.spacing() * (num_cols - 1) + 
+                                        grid_layout.contentsMargins().left() + grid_layout.contentsMargins().right())
+
+            for i, (plugin_id, instance) in enumerate(active_plugins_sorted):
+                btn = QToolButton()
+                btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon) 
+                btn.setAutoRaise(True) 
+                btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum) 
+                btn.setMinimumSize(QSize(min_btn_width, 36)) 
+
+                meta = self.plugin_manager.available_plugins.get(plugin_id)
+                if not meta: continue 
+
+                icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
+                plugin_icon = QIcon(icon_path) if os.path.exists(icon_path) else self.icon_manager.get_icon("plugin_default")
+                
+                btn.setIcon(plugin_icon)
+                btn.setIconSize(QSize(24, 24)) 
+                btn.setText(meta['name'])
+                btn.setToolTip(meta['description'])
+
+                btn.setObjectName("PluginMenuItemToolButton") 
+                btn.clicked.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
+                
+                row = i % PLUGINS_PER_COLUMN
+                col = (num_cols - 1) - (i // PLUGINS_PER_COLUMN) # 从右到左填充
+
+                grid_layout.addWidget(btn, row, col)
+            
+            widget_action = QWidgetAction(menu)
+            widget_action.setDefaultWidget(grid_widget)
+            menu.addAction(widget_action)
+
+        # --- [核心修改 2] “管理插件”按钮样式统一 ---
+        menu.addSeparator() # 分隔线
+
+        # 创建“管理插件”的 QToolButton
+        manage_btn = QToolButton()
+        manage_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        manage_btn.setAutoRaise(True)
+        manage_btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed) # 垂直方向不需要伸展
+        
+        # 按钮的宽度可以与插件按钮一致，但高度固定为标准菜单项高度
+        manage_btn_width = menu.sizeHint().width() - 20 # 估算菜单宽度减去边距
+        if manage_btn_width < 150: manage_btn_width = 150 # 确保最小宽度
+        
+        manage_btn.setMinimumSize(QSize(manage_btn_width, 36)) # 与插件按钮高度保持一致
+        
+        # 使用“管理”图标
+        manage_btn.setIcon(self.icon_manager.get_icon("check")) 
+        manage_btn.setIconSize(QSize(24, 24))
+        manage_btn.setText("管理插件...")
+        manage_btn.setToolTip("打开插件管理对话框，安装、卸载、启用或禁用插件。")
+        manage_btn.setObjectName("PluginMenuItemToolButton") # 应用相同 QSS 样式
+
+        manage_btn.clicked.connect(self._open_plugin_manager_dialog)
+        
+        # 将 manage_btn 包装成 QWidgetAction
+        manage_widget_action = QWidgetAction(menu)
+        manage_widget_action.setDefaultWidget(manage_btn)
+        menu.addAction(manage_widget_action)
+
+        # 在按钮下方弹出菜单 (调整弹出位置的健壮性代码，保持不变)
         menu_size = menu.sizeHint()
-        
-        # 2. 获取按钮右下角的全局坐标
         button_bottom_right = self.plugin_menu_button.mapToGlobal(self.plugin_menu_button.rect().bottomRight())
-        
-        # 3. 计算出菜单左上角的理想坐标
-        #    x = 按钮的右侧x - 菜单的宽度
-        #    y = 按钮的底部y
-        #    这样菜单的右上角就会和按钮的右下角对齐
         popup_pos = QPoint(button_bottom_right.x() - menu_size.width(), button_bottom_right.y())
 
-        # 执行菜单
+        desktop = QApplication.desktop()
+        screen_geometry = desktop.screenGeometry(desktop.screenNumber(popup_pos))
+        
+        if popup_pos.x() < screen_geometry.left():
+            popup_pos.setX(screen_geometry.left() + 5) 
+        if popup_pos.y() + menu_size.height() > screen_geometry.bottom():
+            popup_pos.setY(screen_geometry.bottom() - menu_size.height() - 5)
+            if popup_pos.y() < button_bottom_right.y() - menu_size.height(): 
+                 popup_pos.setY(button_bottom_right.y() - menu_size.height() - 5)
+
         menu.exec_(popup_pos)
         self.update_pinned_plugins_ui()
 
