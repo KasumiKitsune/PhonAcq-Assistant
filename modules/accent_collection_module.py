@@ -495,11 +495,28 @@ class AccentCollectionPage(QWidget):
             self.reset_ui()
         
     def _find_existing_audio(self, word):
-        # 辅助函数，用于查找给定单词的已存在音频文件
-        if not self.recordings_folder: return None
-        for ext in ['.mp3', '.wav']: # 优先使用会话中录制的格式
-             path = os.path.join(self.recordings_folder, f"{word}{ext}")
-             if os.path.exists(path): return path
+        """
+        辅助函数，用于查找给定单词的已存在音频文件。
+        会检查所有支持的录音格式。
+        """
+        # [核心修复] 将所有可能的录音格式添加到一个列表中
+        supported_formats = ['.wav', '.mp3', '.flac', '.ogg'] 
+        
+        # 优先在当前会话的录音文件夹中查找
+        if self.recordings_folder:
+            for ext in supported_formats:
+                path = os.path.join(self.recordings_folder, f"{word}{ext}")
+                if os.path.exists(path):
+                    return path
+
+        # 如果在会话文件夹中找不到，可以考虑在一个更通用的地方查找（此部分为可选扩展）
+        # wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
+        # record_path_base = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name)
+        # for ext in supported_formats:
+        #    path = os.path.join(record_path_base, f"{word}{ext}")
+        #    if os.path.exists(path):
+        #        return path
+                
         return None
 
     def prepare_word_list(self):
@@ -602,15 +619,39 @@ class AccentCollectionPage(QWidget):
     def replay_audio(self, item=None):
         self.play_audio_logic()
     
-    def play_audio_logic(self,index=None):
-        if not self.session_active: return
-        if index is None: index = self.list_widget.currentRow()
-        if index == -1 or index >= len(self.current_word_list): return
-        word = self.current_word_list[index]['word']; wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
-        record_path = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name, f"{word}.mp3"); tts_path = os.path.join(self.AUDIO_TTS_DIR, wordlist_name, f"{word}.mp3")
-        final_path = record_path if os.path.exists(record_path) else tts_path
-        if os.path.exists(final_path): threading.Thread(target=self.play_sound_task, args=(final_path,), daemon=True).start()
-        else: self.status_label.setText(f"状态：找不到 '{word}' 的提示音！")
+    def play_audio_logic(self, index=None):
+        if not self.session_active:
+            return
+        if index is None:
+            index = self.list_widget.currentRow()
+        if index == -1 or index >= len(self.current_word_list):
+            return
+
+        word = self.current_word_list[index]['word']
+        wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
+        
+        # [核心修复] 定义一个搜索路径和格式的列表
+        search_paths = [
+            (self.recordings_folder, ['.wav', '.mp3', '.flac', '.ogg']),  # 1. 优先在当前会话的录音文件夹中查找
+            (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']), # 2. 其次在旧的录音库中查找
+            (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3']) # 3. 最后查找自动生成的TTS提示音
+        ]
+
+        final_path = None
+        for folder, extensions in search_paths:
+            if not folder: continue
+            for ext in extensions:
+                path_to_check = os.path.join(folder, f"{word}{ext}")
+                if os.path.exists(path_to_check):
+                    final_path = path_to_check
+                    break  # 找到后立即退出内层循环
+            if final_path:
+                break  # 找到后立即退出外层循环
+
+        if final_path:
+            threading.Thread(target=self.play_sound_task, args=(final_path,), daemon=True).start()
+        else:
+            self.status_label.setText(f"状态：找不到 '{word}' 的提示音或录音！")
         
     def play_sound_task(self,path):
         try:data,sr=sf.read(path,dtype='float32');sd.play(data,sr);sd.wait()

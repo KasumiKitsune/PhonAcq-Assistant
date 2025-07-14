@@ -266,18 +266,70 @@ class DialectVisualCollectorPage(QWidget):
         self.show_notes_switch = self.ToggleSwitch(); self.show_notes_switch.setToolTip("控制是否显示研究者备注。\n此备注信息仅研究者可见，不会展示给被试者。")
         show_notes_layout = QHBoxLayout(); show_notes_layout.addWidget(QLabel("显示备注:")); show_notes_layout.addStretch(); show_notes_layout.addWidget(self.show_notes_switch); options_layout.addRow(show_notes_layout)
 
-        image_tools_group = QGroupBox("图片工具"); image_tools_layout = QFormLayout(image_tools_group)
-        zoom_layout = QHBoxLayout(); self.zoom_slider = QSlider(Qt.Horizontal); self.zoom_slider.setRange(100, 800); self.zoom_slider.setToolTip("拖动以缩放图片"); self.zoom_label = QLabel("1.0x"); self.zoom_label.setFixedWidth(40); zoom_layout.addWidget(self.zoom_slider); zoom_layout.addWidget(self.zoom_label); image_tools_layout.addRow("缩放:", zoom_layout)
-        self.draw_button = QPushButton("圈划"); self.draw_button.setCheckable(True); self.draw_button.setToolTip("启用/禁用临时绘图模式\n右键单击可选择画笔颜色"); self.draw_button.setContextMenuPolicy(Qt.CustomContextMenu)
-        pen_width_layout = QHBoxLayout(); self.pen_width_slider = QSlider(Qt.Horizontal); self.pen_width_slider.setRange(2, 16); self.pen_width_slider.setValue(8); self.pen_width_slider.setToolTip("调整画笔粗细"); self.pen_width_label = QLabel("8"); self.pen_width_label.setFixedWidth(30); pen_width_layout.addWidget(self.pen_width_slider); pen_width_layout.addWidget(self.pen_width_label); image_tools_layout.addRow(self.draw_button, pen_width_layout)
+        # --- 创建可折叠的图片工具栏 ---
+        self.image_tools_toggle_btn = QPushButton("▶ 图片工具") # 使用箭头符号作为视觉提示
+        self.image_tools_toggle_btn.setCheckable(True)
+        self.image_tools_toggle_btn.setChecked(False) # 默认不勾选（即折叠）
+        self.image_tools_toggle_btn.setStyleSheet("QPushButton { text-align: left; font-weight: bold; padding: 5px; }") # 让它看起来像个标题
+        
+        self.image_tools_container = QWidget() # 这个是真正容纳工具的容器
+        image_tools_layout = QFormLayout(self.image_tools_container)
+        image_tools_layout.setContentsMargins(10, 5, 5, 5) # 添加一些边距让它看起来更好
+
+        # --- 将所有工具放入新的容器中 ---
+        zoom_layout = QHBoxLayout()
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setRange(100, 800)
+        self.zoom_slider.setToolTip("拖动以缩放图片")
+        self.zoom_label = QLabel("1.0x")
+        self.zoom_label.setFixedWidth(40)
+        zoom_layout.addWidget(self.zoom_slider)
+        zoom_layout.addWidget(self.zoom_label)
+        image_tools_layout.addRow("缩放:", zoom_layout)
+
+        self.draw_button = QPushButton("圈划")
+        self.draw_button.setCheckable(True)
+        self.draw_button.setToolTip("启用/禁用临时绘图模式\n右键单击可选择画笔颜色")
+        self.draw_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        
+        pen_width_layout = QHBoxLayout()
+        self.pen_width_slider = QSlider(Qt.Horizontal)
+        self.pen_width_slider.setRange(2, 16)
+        self.pen_width_slider.setValue(8)
+        self.pen_width_slider.setToolTip("调整画笔粗细")
+        self.pen_width_label = QLabel("8")
+        self.pen_width_label.setFixedWidth(30)
+        pen_width_layout.addWidget(self.pen_width_slider)
+        pen_width_layout.addWidget(self.pen_width_label)
+        image_tools_layout.addRow(self.draw_button, pen_width_layout)
+
+        # --- 默认隐藏工具容器 ---
+        self.image_tools_container.setVisible(False)
 
         self.recording_status_panel = QGroupBox("录音状态"); status_panel_layout = QVBoxLayout(self.recording_status_panel)
         self.recording_indicator = QLabel("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;"); self.volume_label = QLabel("当前音量:"); self.volume_meter = QProgressBar(); self.volume_meter.setRange(0,100); self.volume_meter.setValue(0); self.volume_meter.setTextVisible(False); status_panel_layout.addWidget(self.recording_indicator); status_panel_layout.addWidget(self.volume_label); status_panel_layout.addWidget(self.volume_meter); self.update_timer = QTimer(); self.update_timer.timeout.connect(self.update_volume_meter)
         
         self.record_btn = QPushButton("开始录音"); self.record_btn.setEnabled(False); self.record_btn.setFixedHeight(50); self.record_btn.setStyleSheet("QPushButton {font-size: 18px; font-weight: bold;}"); self.record_btn.setToolTip("点击开始录制当前项目。")
         
-        right_panel_layout.addWidget(control_group); right_panel_layout.addWidget(options_group); right_panel_layout.addWidget(image_tools_group); right_panel_layout.addWidget(self.recording_status_panel); right_panel_layout.addStretch(); right_panel_layout.addWidget(self.record_btn)
-        main_layout.addWidget(self.left_panel); main_layout.addWidget(center_panel, 1); main_layout.addWidget(self.right_panel); self.setLayout(main_layout)
+        right_panel_layout.addWidget(control_group)
+        right_panel_layout.addWidget(options_group)
+        right_panel_layout.addWidget(self.image_tools_toggle_btn)
+        right_panel_layout.addWidget(self.image_tools_container)
+        right_panel_layout.addWidget(self.recording_status_panel)
+        right_panel_layout.addStretch()
+        right_panel_layout.addWidget(self.record_btn)
+        main_layout.addWidget(self.left_panel)
+        main_layout.addWidget(center_panel, 1)
+        main_layout.addWidget(self.right_panel)
+        self.setLayout(main_layout)
+
+    def _toggle_image_tools_visibility(self, checked):
+        # checked 参数是按钮当前的勾选状态
+        self.image_tools_container.setVisible(checked)
+        if checked:
+            self.image_tools_toggle_btn.setText("▼ 图片工具") # 展开状态
+        else:
+            self.image_tools_toggle_btn.setText("▶ 图片工具") # 折叠状态
 
     def _connect_signals(self):
         self.start_btn.clicked.connect(self.start_session)
@@ -300,6 +352,7 @@ class DialectVisualCollectorPage(QWidget):
         self.random_order_switch.stateChanged.connect(self.on_order_mode_changed)
         self.recording_device_error_signal.connect(self.show_recording_device_error)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.image_tools_toggle_btn.toggled.connect(self._toggle_image_tools_visibility) 
         self.zoom_slider.valueChanged.connect(self.image_viewer.set_zoom_level)
         self.image_viewer.zoom_changed.connect(self.on_zoom_changed_by_viewer)
         self.draw_button.toggled.connect(self.on_draw_button_toggled)

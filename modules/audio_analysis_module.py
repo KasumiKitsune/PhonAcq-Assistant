@@ -77,9 +77,26 @@ class AudioTaskWorker(QObject):
         spectrogram_window_s = 0.005 if is_wide_band else narrow_band_window_s
         n_fft_spectrogram = 1 << (int(self.sr * spectrogram_window_s) - 1).bit_length()
         f0_frame_length = 1 << (int(self.sr * 0.040) - 1).bit_length()
-        f0_raw, voiced_flag, _ = librosa.pyin(y_analyzed, fmin=f0_min, fmax=f0_max, frame_length=f0_frame_length, hop_length=hop_length)
+        
+        # ↓↓↓ 核心修改在此 ↓↓↓
+        # 1. 使用旧版 librosa.pyin，它不接受 voicing_threshold 参数
+        #    但它会返回 f0, voiced_flag(基于默认阈值), 和 voiced_probs(浊音概率)
+        f0_raw, _, voiced_probs = librosa.pyin(
+            y_analyzed,
+            fmin=f0_min,
+            fmax=f0_max,
+            frame_length=f0_frame_length,
+            hop_length=hop_length
+        )
+ 
+        # 2. 我们忽略它返回的 voiced_flag，根据 voiced_probs 和我们自己的阈值来重新生成一个
+        voicing_threshold = 0.03  # 我们自定义的灵敏度阈值
+        custom_voiced_flag = voiced_probs > voicing_threshold
+ 
+        # 3. 使用我们自己生成的 custom_voiced_flag 来过滤 F0 值
         times = librosa.times_like(f0_raw, sr=self.sr, hop_length=hop_length)
-        f0_raw[~voiced_flag] = np.nan
+        f0 = f0_raw.copy()
+        f0[~custom_voiced_flag] = np.nan # 只保留被我们判断为浊音的帧
         f0_series = pd.Series(f0_raw)
         f0_interpolated = f0_series.interpolate(method='linear', limit_direction='both').to_numpy()
         intensity = librosa.feature.rms(y=self.y, frame_length=n_fft_spectrogram, hop_length=hop_length)[0]
@@ -339,93 +356,129 @@ class SpectrogramWidget(QWidget):
         
         # 选区相关属性
         self._is_selecting = False
-        self._selection_start_pos = None
-        self._selection_end_pos = None
-        self._selection_start_sample = None
-        self._selection_end_sample = None
-        self._selection_color = QColor(135, 206, 250, 70) # 淡蓝色半透明
+        self._selection_start_x = 0  # 存储起始点的像素X坐标 (用于拖动绘制)
+        self._selection_end_x = 0    # 存储结束点的像素X坐标 (用于拖动绘制)
+        self._selection_start_sample = None # 最终确定的起始采样点
+        self._selection_end_sample = None   # 最终确定的结束采样点
+        
+        # 新增: 选区颜色属性
+        self._selectionColor = QColor(135, 206, 250, 60) # 淡蓝色半透明填充
+        self._selectionBorderColor = QColor(255, 0, 0, 200) # 醒目的红色边界
 
         # --- 其他所有旧属性保持不变 ---
         self.spectrogram_image = None
-        self._view_start_sample, self._view_end_sample = 0, 1
-        self.sr, self.hop_length = 1, 256
-        self._playback_pos_sample = -1
-        self._f0_data, self._intensity_data, self._formants_data = None, None, []
-        self._f0_derived_data = None
+        self._view_start_sample, self._view_end_sample = 0, 1 # 当前视图窗口的采样点范围
+        self.sr, self.hop_length = 1, 256 # 采样率和语谱图跳跃长度
+        self._playback_pos_sample = -1 # 播放光标位置 (采样点)
+        
+        # 分析数据
+        self._f0_data = None # (times, f0_raw_values)
+        self._intensity_data = None # numpy array
+        self._formants_data = [] # [(sample_pos, [F1, F2, F3...]), ...]
+        self._f0_derived_data = None # (times, f0_interpolated_values)
+
+        # 叠加层可见性控制
         self._show_f0, self._show_f0_points, self._show_f0_derived = False, True, True
         self._show_intensity, self._smooth_intensity = False, False
         self._show_formants, self._highlight_f1, self._highlight_f2, self._show_other_formants = False, True, True, True
-        self.max_display_freq = 5000
-        self._cursor_info_text = ""
-        self.waveform_sibling = None
-        self._f0_display_min, self._f0_display_max = 75, 400
-        self._f0_axis_enabled = False
+        
+        self.max_display_freq = 5000 # 语谱图Y轴最大显示频率
+        self._cursor_info_text = "" # 鼠标悬停时显示的信息
+        self.waveform_sibling = None # 引用波形控件，用于滚动同步
+        self._f0_display_min, self._f0_display_max = 75, 400 # F0 Y轴显示范围
+        self._f0_axis_enabled = False # 是否显示F0右侧轴
+        self._info_box_position = 'top_left' # 悬浮信息框位置
+
+        # QSS可控颜色属性 (确保这些属性在QSS中可以被覆盖)
         self._backgroundColor = Qt.white
-        self._spectrogramMinColor, self._spectrogramMaxColor = Qt.white, Qt.black
-        self._intensityColor = QColor("#4CAF50")
-        self._f0Color = QColor("#FFA726")
-        self._f0DerivedColor = QColor(150, 150, 255, 150)
-        self._f1Color = QColor("#FF6F00")
-        self._f2Color = QColor("#9C27B0")
-        self._formantColor = QColor("#29B6F6")
-        self._cursorColor = QColor("red")
-        self._infoTextColor, self._infoBackgroundColor = Qt.white, QColor(0, 0, 0, 150)
-        self._f0AxisColor = QColor(150, 150, 150)
-        self._info_box_position = 'top_left' # 'top_left' or 'bottom_right'
+        self._spectrogramMinColor, self._spectrogramMaxColor = Qt.white, Qt.black # 语谱图颜色映射
+        self._intensityColor = QColor("#4CAF50") # 强度曲线颜色
+        self._f0Color = QColor("#FFA726") # 原始F0点颜色
+        self._f0DerivedColor = QColor(150, 150, 255, 150) # 派生F0曲线颜色
+        self._f1Color = QColor("#FF6F00") # F1共振峰颜色
+        self._f2Color = QColor("#9C27B0") # F2共振峰颜色
+        self._formantColor = QColor("#29B6F6") # 其他共振峰颜色
+        self._cursorColor = QColor("red") # 播放/鼠标光标颜色
+        self._infoTextColor = Qt.white # 信息框文字颜色
+        self._infoBackgroundColor = QColor(0, 0, 0, 150) # 信息框背景颜色
+        self._f0AxisColor = QColor(150, 150, 150) # F0轴/网格线颜色
+
 
     # --- 所有 @pyqtProperty 装饰器和 set_overlay_visibility 方法保持不变 ---
     @pyqtProperty(QColor)
     def backgroundColor(self): return self._backgroundColor
     @backgroundColor.setter
     def backgroundColor(self, color): self._backgroundColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def spectrogramMinColor(self): return self._spectrogramMinColor
     @spectrogramMinColor.setter
     def spectrogramMinColor(self, color): self._spectrogramMinColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def spectrogramMaxColor(self): return self._spectrogramMaxColor
     @spectrogramMaxColor.setter
     def spectrogramMaxColor(self, color): self._spectrogramMaxColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def intensityColor(self): return self._intensityColor
     @intensityColor.setter
     def intensityColor(self, color): self._intensityColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def f0Color(self): return self._f0Color
     @f0Color.setter
     def f0Color(self, color): self._f0Color = color; self.update()
+    
     @pyqtProperty(QColor)
     def f0DerivedColor(self): return self._f0DerivedColor
     @f0DerivedColor.setter
     def f0DerivedColor(self, color): self._f0DerivedColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def f1Color(self): return self._f1Color
     @f1Color.setter
     def f1Color(self, color): self._f1Color = color; self.update()
+    
     @pyqtProperty(QColor)
     def f2Color(self): return self._f2Color
     @f2Color.setter
     def f2Color(self, color): self._f2Color = color; self.update()
+    
     @pyqtProperty(QColor)
     def formantColor(self): return self._formantColor
     @formantColor.setter
     def formantColor(self, color): self._formantColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def cursorColor(self): return self._cursorColor
     @cursorColor.setter
     def cursorColor(self, color): self._cursorColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def infoTextColor(self): return self._infoTextColor
     @infoTextColor.setter
     def infoTextColor(self, color): self._infoTextColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def infoBackgroundColor(self): return self._infoBackgroundColor
     @infoBackgroundColor.setter
     def infoBackgroundColor(self, color): self._infoBackgroundColor = color; self.update()
+    
     @pyqtProperty(QColor)
     def f0AxisColor(self): return self._f0AxisColor
     @f0AxisColor.setter
     def f0AxisColor(self, color): self._f0AxisColor = color; self.update()
+
+    @pyqtProperty(QColor) # 新增属性
+    def selectionColor(self): return self._selectionColor
+    @selectionColor.setter
+    def selectionColor(self, color): self._selectionColor = color; self.update()
+
+    @pyqtProperty(QColor) # 新增属性
+    def selectionBorderColor(self): return self._selectionBorderColor
+    @selectionBorderColor.setter
+    def selectionBorderColor(self, color): self._selectionBorderColor = color; self.update()
     
     def set_overlay_visibility(self, show_f0, show_f0_points, show_f0_derived,
                                show_intensity, smooth_intensity,
@@ -436,30 +489,33 @@ class SpectrogramWidget(QWidget):
         self.update()
 
     def _get_plot_rect(self):
-        """[新增] 辅助函数，获取绘图安全区"""
+        """辅助函数，获取绘图安全区"""
         padding_left, padding_right = 45, 45
         padding_top, padding_bottom = 10, 10
         return self.rect().adjusted(padding_left, padding_top, -padding_right, -padding_bottom)
 
     def _pixel_to_sample(self, x_pixel):
-        """[新增] 辅助函数，将绘图区内的像素X坐标转换为音频采样点索引"""
+        """辅助函数，将绘图区内的像素X坐标转换为音频采样点索引"""
         plot_rect = self._get_plot_rect()
-        if not plot_rect.isValid() or plot_rect.width() == 0:
+        if not plot_rect.isValid() or plot_rect.width() <= 0:
             return 0
         
+        # 将输入x限制在绘图区内
+        x_clamped = max(plot_rect.left(), min(x_pixel, plot_rect.right()))
+        
         view_width_samples = self._view_end_sample - self._view_start_sample
-        x_ratio = (x_pixel - plot_rect.left()) / plot_rect.width()
+        x_ratio = (x_clamped - plot_rect.left()) / plot_rect.width()
         sample_offset = x_ratio * view_width_samples
         return int(self._view_start_sample + sample_offset)
 
     def _sample_to_pixel(self, sample_index):
-        """[新增] 辅助函数，将音频采样点索引转换为绘图区内的像素X坐标"""
+        """辅助函数，将音频采样点索引转换为绘图区内的像素X坐标"""
         plot_rect = self._get_plot_rect()
         if not plot_rect.isValid():
             return 0
         
         view_width_samples = self._view_end_sample - self._view_start_sample
-        if view_width_samples == 0:
+        if view_width_samples <= 0: # 避免除以零
             return plot_rect.left()
 
         sample_offset = sample_index - self._view_start_sample
@@ -467,7 +523,8 @@ class SpectrogramWidget(QWidget):
         return int(plot_rect.left() + x_ratio * plot_rect.width())
 
     def paintEvent(self, event):
-        painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(), self._backgroundColor)
 
         plot_rect = self._get_plot_rect()
@@ -488,13 +545,19 @@ class SpectrogramWidget(QWidget):
                 painter.drawImage(plot_rect, self.spectrogram_image, source_rect)
 
         # --- 绘制坐标轴和网格线 ---
-        painter.setPen(QPen(self._f0AxisColor, 1, Qt.DotLine)); font = self.font(); font.setPointSize(8); painter.setFont(font)
+        painter.setPen(QPen(self._f0AxisColor, 1, Qt.DotLine))
+        font = self.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        
         # 左侧频率轴 (Hz)
         for freq in range(0, int(self.max_display_freq) + 1, 1000):
-            if freq == 0 and self.max_display_freq > 0: continue
+            if freq == 0 and self.max_display_freq > 0: # 避免0Hz刻度文本与底部重叠
+                continue
             y = plot_rect.bottom() - (freq / self.max_display_freq * h)
             painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y)) 
             painter.drawText(QPointF(plot_rect.left() - 35, int(y) + 4), f"{freq}")
+        
         # 右侧基频轴 (Hz)
         if self._f0_axis_enabled:
             f0_display_range = self._f0_display_max - self._f0_display_min
@@ -509,7 +572,8 @@ class SpectrogramWidget(QWidget):
         # --- 在plot_rect内绘制所有叠加层 ---
         # 强度曲线
         if self._show_intensity and self._intensity_data is not None:
-            painter.setPen(QPen(self._intensityColor, 2)); intensity_points = []
+            painter.setPen(QPen(self._intensityColor, 2))
+            intensity_points = []
             data_to_plot = self._intensity_data
             if self._smooth_intensity:
                 data_to_plot = pd.Series(data_to_plot).rolling(window=5, center=True, min_periods=1).mean().to_numpy()
@@ -526,7 +590,8 @@ class SpectrogramWidget(QWidget):
         # 基频曲线
         if self._show_f0 and self._f0_axis_enabled and f0_display_range > 0:
             if self._show_f0_derived and self._f0_derived_data:
-                painter.setPen(QPen(self._f0DerivedColor, 1.5, Qt.DashLine)); derived_points = []
+                painter.setPen(QPen(self._f0DerivedColor, 1.5, Qt.DashLine))
+                derived_points = []
                 derived_times, derived_f0 = self._f0_derived_data
                 for i, t in enumerate(derived_times):
                     sample_pos = t * self.sr
@@ -536,7 +601,8 @@ class SpectrogramWidget(QWidget):
                         derived_points.append(QPointF(x, y))
                 if len(derived_points) > 1: painter.drawPolyline(*derived_points)
             if self._show_f0_points and self._f0_data:
-                painter.setPen(Qt.NoPen); painter.setBrush(self._f0Color)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(self._f0Color)
                 raw_times, raw_f0 = self._f0_data
                 for i, t in enumerate(raw_times):
                     sample_pos = t * self.sr
@@ -564,37 +630,56 @@ class SpectrogramWidget(QWidget):
                             y = plot_rect.bottom() - (f / max_freq_y_axis * h)
                             if plot_rect.top() <= y <= plot_rect.bottom():
                                 if is_highlighted:
-                                    painter.setPen(QPen(Qt.red, 1)); painter.setBrush(Qt.NoBrush)
+                                    painter.setPen(QPen(Qt.red, 1)) # F1/F2高亮描边
+                                    painter.setBrush(Qt.NoBrush)
                                     painter.drawEllipse(QPointF(x, y), 3, 3)
-                                painter.setPen(Qt.NoPen); painter.setBrush(brush)
+                                painter.setPen(Qt.NoPen)
+                                painter.setBrush(brush)
                                 painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
         
         # 播放光标
         if self._view_start_sample <= self._playback_pos_sample < self._view_end_sample:
             pos_x = plot_rect.left() + (self._playback_pos_sample - self._view_start_sample) * w / view_width_samples
-            painter.setPen(QPen(self._cursorColor, 2)); painter.drawLine(int(pos_x), 0, int(pos_x), self.height())
+            painter.setPen(QPen(self._cursorColor, 2))
+            painter.drawLine(int(pos_x), 0, int(pos_x), self.height())
 
-        # --- 新增: 绘制选区 ---
-        selection_rect = QRect()
-        if self._is_selecting and self._selection_start_pos and self._selection_end_pos:
-            # 在拖动时，使用原始像素位置绘制
-            selection_rect = QRect(self._selection_start_pos, self._selection_end_pos).normalized()
+        # --- 核心修改: 绘制一维区间选区 ---
+        start_x_pixel, end_x_pixel = 0, 0
+        # 判断是正在拖动中，还是已有一个确定的选区
+        if self._is_selecting:
+            start_x_pixel = self._selection_start_x
+            end_x_pixel = self._selection_end_x
         elif self._selection_start_sample is not None and self._selection_end_sample is not None:
-            # 在静态显示时，将采样点位置转换回像素位置
-            start_x = self._sample_to_pixel(self._selection_start_sample)
-            end_x = self._sample_to_pixel(self._selection_end_sample)
-            selection_rect = QRect(start_x, plot_rect.top(), end_x - start_x, plot_rect.height()).normalized()
-        
-        if not selection_rect.isEmpty():
+            start_x_pixel = self._sample_to_pixel(self._selection_start_sample)
+            end_x_pixel = self._sample_to_pixel(self._selection_end_sample)
+
+        if start_x_pixel != end_x_pixel:
+            # 保证 x1 < x2
+            x1 = min(start_x_pixel, end_x_pixel)
+            x2 = max(start_x_pixel, end_x_pixel)
+            
+            # 1. 绘制半透明的填充矩形 (覆盖整个控件高度)
+            selection_fill_rect = QRect(x1, 0, x2 - x1, self.height())
             painter.setPen(Qt.NoPen)
-            painter.setBrush(self._selection_color)
-            # 将矩形限制在绘图区域内
-            painter.drawRect(selection_rect.intersected(plot_rect))
+            painter.setBrush(self._selectionColor)
+            painter.drawRect(selection_fill_rect) # 不再限制在plot_rect，覆盖整个垂直区域
+
+            # 2. 绘制两侧的红色边界线 (覆盖整个控件高度)
+            pen = QPen(self._selectionBorderColor, 1.5) # 粗细1.5像素的红色线
+            painter.setPen(pen)
+            
+            # 左边界线
+            painter.drawLine(x1, 0, x1, self.height())
+            # 右边界线
+            painter.drawLine(x2, 0, x2, self.height())
 
 
         # --- 悬浮信息框的绘制保持不变 ---
         if self._cursor_info_text:
-            font = self.font(); font.setPointSize(10); painter.setFont(font); metrics = painter.fontMetrics()
+            font = self.font()
+            font.setPointSize(10)
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
             
             # 先计算文本矩形的大小
             text_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text)
@@ -615,80 +700,111 @@ class SpectrogramWidget(QWidget):
             painter.setPen(self._infoTextColor)
             painter.drawText(text_rect, Qt.AlignCenter, self._cursor_info_text)
 
-    # --- 新增: 鼠标事件处理 ---
+    # --- 核心修改: 鼠标事件处理 ---
     def mousePressEvent(self, event):
         if self.spectrogram_image is None:
             return
         
         # 只响应绘图区域内的点击
         plot_rect = self._get_plot_rect()
+        # 注意：这里不再用plot_rect.contains(event.pos())严格限制，
+        # 因为我们允许在整个控件高度上进行选择，但起始拖动点还是最好在绘图区内。
+        # 如果你希望在整个控件上都能开始拖动，可以移除这个判断。
+        # 这里保持在plot_rect内开始拖动，但选区可以超出。
         if not plot_rect.contains(event.pos()):
-            return
+            # 但如果鼠标点击在左侧或右侧的轴上，清空选区。
+            if event.x() < plot_rect.left() or event.x() > plot_rect.right():
+                if self._selection_start_sample is not None:
+                    self._selection_start_sample = None
+                    self._selection_end_sample = None
+                    self.selectionChanged.emit(None) # 通知上层选区已清除
+                    self.update()
+                return
 
         if event.button() == Qt.LeftButton:
             self._is_selecting = True
-            self._selection_start_pos = event.pos()
-            self._selection_end_pos = event.pos()
-            # 清除旧的采样点选区，并通知上层
+            # 只记录X坐标
+            self._selection_start_x = event.pos().x()
+            self._selection_end_x = event.pos().x()
+            
+            # 开始新的选择时，清除旧的采样点选区
             if self._selection_start_sample is not None:
                 self._selection_start_sample = None
                 self._selection_end_sample = None
-                self.selectionChanged.emit(None)
+                self.selectionChanged.emit(None) # 通知上层选区已清除
             self.update()
         
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._is_selecting:
-            self._selection_end_pos = event.pos()
+            self._selection_end_x = event.pos().x()
             self.update()
         
         # 原有的悬停信息逻辑保持不变
         if self.spectrogram_image is None: super().mouseMoveEvent(event); return
         plot_rect = self._get_plot_rect()
-        w, h = self.width(), self.height() # 使用总宽高计算比例
-        view_width_samples = self._view_end_sample - self._view_start_sample
-        if view_width_samples <= 0: super().mouseMoveEvent(event); return
-
+        
         # 将鼠标位置的坐标转换为数据坐标
         x_ratio = (event.x() - plot_rect.left()) / plot_rect.width()
         y_ratio = (plot_rect.bottom() - event.y()) / plot_rect.height()
-        x_ratio = max(0, min(1, x_ratio)) # 限制在0-1之间
-        y_ratio = max(0, min(1, y_ratio)) # 限制在0-1之间
         
+        # 限制在0-1之间，避免鼠标移出绘图区时数据异常
+        x_ratio = max(0.0, min(1.0, x_ratio)) 
+        y_ratio = max(0.0, min(1.0, y_ratio)) 
+        
+        view_width_samples = self._view_end_sample - self._view_start_sample
+        if view_width_samples <= 0: return # 避免除以零
+
         current_sample = self._view_start_sample + x_ratio * view_width_samples
         current_time_s = current_sample / self.sr
         current_freq_hz = y_ratio * self.max_display_freq
 
         info_parts = [f"Time: {current_time_s:.3f} s", f"Freq: {current_freq_hz:.0f} Hz"]
+        
+        # F0 信息
         if self._show_f0 and self._f0_data and self._show_f0_points:
             times, f0_values = self._f0_data
             if len(times) > 0:
-                time_diffs = np.abs(times - current_time_s); closest_idx = np.argmin(time_diffs)
-                if time_diffs[closest_idx] < (self.hop_length / self.sr) and np.isfinite(f0_values[closest_idx]): info_parts.append(f"F0: {f0_values[closest_idx]:.1f} Hz")
+                # 找到最接近当前时间点的F0值
+                time_diffs = np.abs(times - current_time_s)
+                closest_idx = np.argmin(time_diffs)
+                # 如果时间点足够接近并且F0值有效
+                if time_diffs[closest_idx] < (self.hop_length / self.sr) and np.isfinite(f0_values[closest_idx]):
+                    info_parts.append(f"F0: {f0_values[closest_idx]:.1f} Hz")
+        
+        # 共振峰信息
         if self._show_formants and self._formants_data:
             closest_formant_dist, closest_formants = float('inf'), None
             for sample_pos, formants in self._formants_data:
                 dist = abs(sample_pos - current_sample)
-                if dist < closest_formant_dist: closest_formant_dist, closest_formants = dist, formants
-            if closest_formants and closest_formant_dist < (self.hop_length * 3): info_parts.append(" | ".join([f"F{i+1}: {int(f)}" for i, f in enumerate(closest_formants)]))
-        self._cursor_info_text = "\n".join(info_parts);
-                # --- 新增: 动态调整信息框位置的逻辑 ---
+                # 如果鼠标距离共振峰点足够近（例如3个hop_length的范围），则显示
+                if dist < (self.hop_length * 3): 
+                    if dist < closest_formant_dist: # 找最近的点
+                        closest_formant_dist, closest_formants = dist, formants
+            if closest_formants: # 确保找到了共振峰且距离在阈值内
+                 info_parts.append(" | ".join([f"F{i+1}: {int(f)}" for i, f in enumerate(closest_formants)]))
+        
+        self._cursor_info_text = "\n".join(info_parts)
+        
+        # --- 新增: 动态调整信息框位置的逻辑 ---
         if self._cursor_info_text:
             metrics = self.fontMetrics()
-            # 计算左上角的位置
-            top_left_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text).adjusted(-5, -5, 5, 5)
-            top_left_rect.moveTo(10, 10)
+            # 计算左上角信息框的理论位置和大小
+            top_left_text_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text).adjusted(-5, -5, 5, 5)
+            top_left_text_rect.moveTo(10, 10) # 固定左上角位置
 
-            if top_left_rect.contains(event.pos()):
+            # 如果鼠标当前在左上角信息框的区域内，则将信息框切换到右下角
+            if top_left_text_rect.contains(event.pos()):
                 self._info_box_position = 'bottom_right'
             else:
                 # 仅当鼠标也不在右下角区域时，才恢复到左上角
-                bottom_right_rect = top_left_rect.translated(
-                    self.width() - top_left_rect.width() - 20,
-                    self.height() - top_left_rect.height() - 20
+                # 计算右下角信息框的理论位置
+                bottom_right_text_rect = top_left_text_rect.translated(
+                    self.width() - top_left_text_rect.width() - 20, # X轴偏移量
+                    self.height() - top_left_text_rect.height() - 20 # Y轴偏移量
                 )
-                if not bottom_right_rect.contains(event.pos()):
+                if not bottom_right_text_rect.contains(event.pos()):
                     self._info_box_position = 'top_left'
 
         self.update() # 触发重绘
@@ -699,27 +815,27 @@ class SpectrogramWidget(QWidget):
         if event.button() == Qt.LeftButton and self._is_selecting:
             self._is_selecting = False
             
-            # 检查是否只是单击 (拖动距离很小)
-            if (self._selection_end_pos - self._selection_start_pos).manhattanLength() < 5:
-                # 单击，清除选区
-                self._selection_start_pos = None
-                self._selection_end_pos = None
+            # 检查拖动距离，如果很小则视为单击
+            if abs(self._selection_end_x - self._selection_start_x) < 5:
+                # 单击操作，清除所有选区状态
+                self._selection_start_x = 0
+                self._selection_end_x = 0
                 self._selection_start_sample = None
                 self._selection_end_sample = None
-                self.selectionChanged.emit(None)
+                self.selectionChanged.emit(None) # 通知上层选区已清除
             else:
                 # 拖动结束，计算并保存最终的采样点选区
-                start_sample = self._pixel_to_sample(self._selection_start_pos.x())
-                end_sample = self._pixel_to_sample(self._selection_end_pos.x())
+                start_sample = self._pixel_to_sample(self._selection_start_x)
+                end_sample = self._pixel_to_sample(self._selection_end_x)
                 
-                # 保证start < end
+                # 保证 start < end
                 self._selection_start_sample = min(start_sample, end_sample)
                 self._selection_end_sample = max(start_sample, end_sample)
                 
                 # 发射信号，通知控制器选区已确定
                 self.selectionChanged.emit((self._selection_start_sample, self._selection_end_sample))
             
-            self.update()
+            self.update() # 触发重绘以显示最终选区
         super().mouseReleaseEvent(event)
     
     def create_context_menu(self):
@@ -733,8 +849,9 @@ class SpectrogramWidget(QWidget):
 
         info_to_copy = self._cursor_info_text
         
-        click_pos = self.mapFromGlobal(QCursor.pos())
-        sample_pos_at_click = self._pixel_to_sample(click_pos.x())
+        click_pos = self.mapFromGlobal(QCursor.pos()) # 获取相对于当前widget的鼠标点击位置
+        sample_pos_at_click = self._pixel_to_sample(click_pos.x()) # 将像素X坐标转换为采样点
+
 
         # ==========================================================
         # 第一部分：添加所有原生菜单项
@@ -761,7 +878,7 @@ class SpectrogramWidget(QWidget):
 
         # 3. 复制信息
         copy_action = QAction(self.icon_manager.get_icon("copy"), "复制光标处信息", self)
-        copy_action.setEnabled(bool(info_to_copy.strip()))
+        copy_action.setEnabled(bool(info_to_copy.strip())) # 只有当有信息时才启用
         copy_action.triggered.connect(lambda checked, text=info_to_copy: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
         
@@ -776,7 +893,7 @@ class SpectrogramWidget(QWidget):
         csv_icon = self.icon_manager.get_icon("csv")
         if csv_icon.isNull(): csv_icon = self.icon_manager.get_icon("document")
         export_csv_action = QAction(csv_icon, "将选区内分析数据导出为CSV...", self)
-        export_csv_action.setEnabled(has_selection and has_analysis)
+        export_csv_action.setEnabled(has_selection and has_analysis) # 只有有选区和分析数据时才启用
         export_csv_action.setToolTip("需要存在选区和已运行的分析数据。")
         export_csv_action.triggered.connect(self.exportAnalysisToCsvRequested.emit)
         export_menu.addAction(export_csv_action)
@@ -784,7 +901,7 @@ class SpectrogramWidget(QWidget):
         wav_icon = self.icon_manager.get_icon("audio")
         if wav_icon.isNull(): wav_icon = self.icon_manager.get_icon("save")
         export_wav_action = QAction(wav_icon, "将选区音频导出为WAV...", self)
-        export_wav_action.setEnabled(has_selection)
+        export_wav_action.setEnabled(has_selection) # 只有有选区时才启用
         export_wav_action.setToolTip("需要存在一个有效的选区。")
         export_wav_action.triggered.connect(self.exportSelectionAsWavRequested.emit)
         export_menu.addAction(export_wav_action)
@@ -798,14 +915,29 @@ class SpectrogramWidget(QWidget):
         # 检查是否有任何插件被注入
         plotter_plugin = getattr(self, 'vowel_plotter_plugin_active', None)
         exporter_plugin = getattr(self, 'praat_exporter_plugin_active', None)
+        intonation_plugin = getattr(self, 'intonation_visualizer_plugin_active', None)
         
         # 如果至少有一个插件被注入，则添加一个主分隔符
-        if plotter_plugin or exporter_plugin:
+        if plotter_plugin or exporter_plugin or intonation_plugin:
             menu.addSeparator()
+ 
+        # 钩子检查点: 语调可视化与建模插件
+        if intonation_plugin:
+            action = QAction(self.icon_manager.get_icon("chart2"), "发送到语调可视化器...", self)
+            
+            # 检查可用性：需要有选区和F0数据
+            has_f0_data = self._f0_data is not None and len(self._f0_data[0]) > 0
+            action.setEnabled(has_selection and has_f0_data)
+            if not (has_selection and has_f0_data):
+                action.setToolTip("请先在选区内运行F0分析。")
+            
+            action.triggered.connect(self._send_data_to_intonation_visualizer)
+            menu.addAction(action)
 
         # 钩子检查点: Praat 导出器插件
         if exporter_plugin:
-            # 从插件实例动态创建菜单动作
+            # 从插件实例动态创建菜单动作 (假设插件提供了这样的方法)
+            # 这里是 Praat 插件的示例用法，具体实现依赖于 Praat 插件的 API
             exporter_action = exporter_plugin.create_action_for_menu(self)
             menu.addAction(exporter_action)
         
@@ -816,8 +948,9 @@ class SpectrogramWidget(QWidget):
             
             # 检查动作的可用性
             has_formants_in_selection = False
-            if has_selection:
+            if has_selection and self._formants_data:
                 start_sample, end_sample = self._selection_start_sample, self._selection_end_sample
+                # 检查选区内是否有共振峰数据点
                 has_formants_in_selection = any(start_sample <= point[0] < end_sample for point in self._formants_data)
             
             plotter_action.setEnabled(has_formants_in_selection)
@@ -833,36 +966,70 @@ class SpectrogramWidget(QWidget):
         # 返回最终构建好的菜单
         return menu
 
-    # --- [新增] _send_data_to_plotter 辅助方法 ---
     def _send_data_to_plotter(self):
         """收集选区内的共振峰数据，并通过钩子调用插件的execute方法。"""
-        if not self.vowel_plotter_plugin_active:
+        if not hasattr(self, 'vowel_plotter_plugin_active') or self.vowel_plotter_plugin_active is None:
+            QMessageBox.warning(self, "插件未启用", "元音空间图绘制器插件未启用或加载失败。")
             return
         
+        if self._selection_start_sample is None or self._selection_end_sample is None:
+            QMessageBox.warning(self, "无选区", "请先在语谱图上选择一个区域以提取共振峰数据。")
+            return
+
         start_sample, end_sample = self._selection_start_sample, self._selection_end_sample
         
-        # 1. 筛选出选区内的数据点
         data_points = []
         for sample_pos, formants in self._formants_data:
             if start_sample <= sample_pos < end_sample:
                 # 只取前两个共振峰 F1, F2
                 if len(formants) >= 2:
-                    # --- [核心修改] 把时间戳也加进去 ---
-                    timestamp = sample_pos / self.sr
+                    timestamp = sample_pos / self.sr # 添加时间戳
                     data_points.append({'timestamp': timestamp, 'F1': formants[0], 'F2': formants[1]})
         
         if not data_points:
-            QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F1/F2 数据点。")
+            QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F1/F2 数据点。请确保已运行共振峰分析。")
             return
             
-        # 2. 转换为 Pandas DataFrame
-        import pandas as pd
+        # 转换为 Pandas DataFrame
         df = pd.DataFrame(data_points)
         
-        # 3. 通过插件实例的 execute 方法传递数据
+        # 通过插件实例的 execute 方法传递数据
         self.vowel_plotter_plugin_active.execute(dataframe=df)
 
-    # --- [修改] 精简后的原始方法 ---
+    def _send_data_to_intonation_visualizer(self):
+        """收集选区内的F0数据，并通过钩子调用语调可视化插件。"""
+        if not hasattr(self, 'intonation_visualizer_plugin_active') or self.intonation_visualizer_plugin_active is None:
+            QMessageBox.warning(self, "插件未启用", "语调可视化器插件未启用或加载失败。")
+            return
+ 
+        if self._selection_start_sample is None or self._f0_data is None:
+            QMessageBox.warning(self, "无数据", "请先在语谱图上选择一个区域，并确保已运行F0分析。")
+            return
+        
+        start_sample = self._selection_start_sample
+        end_sample = self._selection_end_sample
+ 
+        selection_start_s = start_sample / self.sr
+        selection_end_s = end_sample / self.sr
+ 
+        times, f0_values = self._f0_data
+        data_points = []
+        for t, f0 in zip(times, f0_values):
+            if selection_start_s <= t < selection_end_s:
+                # 直接添加，包括 NaN 值，可视化器会处理它们
+                data_points.append({'timestamp': t, 'f0_hz': f0})
+ 
+        if not data_points:
+            QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F0 数据点。")
+            return
+            
+        # 转换为 Pandas DataFrame
+        df = pd.DataFrame(data_points)
+        
+        # 通过插件实例的 execute 方法传递数据
+        self.intonation_visualizer_plugin_active.execute(dataframe=df)
+
+    # --- 默认的右键菜单事件处理器 ---
     def contextMenuEvent(self, event):
         """
         默认的右键菜单事件处理器。
@@ -874,49 +1041,107 @@ class SpectrogramWidget(QWidget):
 
     # --- 其他方法保持不变 ---
     def set_data(self, S_db, sr, hop_length):
-        self.sr, self.hop_length = sr, hop_length; S_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min() + 1e-6); h, w = S_norm.shape; rgba_data = np.zeros((h, w, 4), dtype=np.uint8)
-        min_color_obj, max_color_obj = QColor(self._spectrogramMinColor), QColor(self._spectrogramMaxColor); min_c, max_c = np.array(min_color_obj.getRgb()), np.array(max_color_obj.getRgb())
-        interpolated_colors = min_c + (max_c - min_c) * (S_norm[..., np.newaxis]); rgba_data[..., :4] = interpolated_colors.astype(np.uint8); image_data = np.flipud(rgba_data)
-        self.spectrogram_image = QImage(image_data.tobytes(), w, h, QImage.Format_RGBA8888).copy(); self.update()
-    def set_waveform_sibling(self, widget): self.waveform_sibling = widget
+        """设置语谱图图像数据。"""
+        self.sr, self.hop_length = sr, hop_length
+        S_norm = (S_db - S_db.min()) / (S_db.max() - S_db.min() + 1e-6) # 归一化到0-1
+        h, w = S_norm.shape # 高度是频率bin，宽度是帧数
+        rgba_data = np.zeros((h, w, 4), dtype=np.uint8)
+        
+        # 根据min/max颜色进行插值
+        min_color_obj, max_color_obj = QColor(self._spectrogramMinColor), QColor(self._spectrogramMaxColor)
+        min_c, max_c = np.array(min_color_obj.getRgb()), np.array(max_color_obj.getRgb())
+        
+        # 对每个像素进行颜色插值
+        interpolated_colors = min_c + (max_c - min_c) * (S_norm[..., np.newaxis])
+        rgba_data[..., :3] = interpolated_colors[..., :3].astype(np.uint8) # 复制RGB
+        rgba_data[..., 3] = 255 # 完全不透明
+        
+        # 垂直翻转数据，因为QImage的0,0点在左上角，而语谱图的0频率在底部
+        image_data = np.flipud(rgba_data)
+        
+        # 创建QImage
+        self.spectrogram_image = QImage(image_data.tobytes(), w, h, QImage.Format_RGBA8888).copy()
+        self.update()
+
+    def set_waveform_sibling(self, widget):
+        """设置关联的波形控件，用于共享滚动事件。"""
+        self.waveform_sibling = widget
+
     def wheelEvent(self, event):
-        if self.waveform_sibling: self.waveform_sibling.wheelEvent(event)
-        else: super().wheelEvent(event)
+        """将滚轮事件传递给波形控件进行缩放。"""
+        if self.waveform_sibling:
+            self.waveform_sibling.wheelEvent(event)
+        else:
+            super().wheelEvent(event)
+
     def leaveEvent(self, event):
+        """鼠标离开时清除悬浮信息。"""
         if self._cursor_info_text:
             self._cursor_info_text = ""
-            self._info_box_position = 'top_left' # --- 新增: 重置位置 ---
+            self._info_box_position = 'top_left' # 重置位置
             self.update()
         super().leaveEvent(event)
+
     def set_analysis_data(self, f0_data=None, f0_derived_data=None, intensity_data=None, formants_data=None, clear_previous_formants=True):
+        """设置和更新叠加分析数据。"""
         if f0_data is not None:
-            self._f0_data = f0_data; times, f0_values = f0_data; valid_f0 = f0_values[np.isfinite(f0_values)]
+            self._f0_data = f0_data
+            times, f0_values = f0_data
+            valid_f0 = f0_values[np.isfinite(f0_values)] # 过滤掉NaN值来计算范围
             if len(valid_f0) > 1:
-                default_min, default_max = 50, 500; actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
-                self._f0_display_min, self._f0_display_max = min(default_min, actual_min - 20), max(default_max, actual_max + 20); self._f0_axis_enabled = True
-            else: self._f0_display_min, self._f0_display_max = 50, 500; self._f0_axis_enabled = False
+                # 动态调整F0轴的显示范围，以包含所有F0点，并留出一些裕量
+                default_min, default_max = 50, 500 # 默认F0显示范围
+                actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
+                # F0轴的实际范围取默认值和实际值的并集，并向外扩展20Hz
+                self._f0_display_min = min(default_min, actual_min - 20)
+                self._f0_display_max = max(default_max, actual_max + 20)
+                self._f0_axis_enabled = True
+            else: # 如果F0数据太少或无效，则使用默认范围且不显示轴
+                self._f0_display_min, self._f0_display_max = 50, 500
+                self._f0_axis_enabled = False
+        
         if f0_derived_data is not None: self._f0_derived_data = f0_derived_data
         if intensity_data is not None: self._intensity_data = intensity_data
+        
         if formants_data is not None:
-            if clear_previous_formants: self._formants_data = formants_data
-            else: self._formants_data.extend(formants_data)
+            if clear_previous_formants: # 重新加载共振峰时清除旧数据
+                self._formants_data = formants_data
+            else: # 在现有数据基础上添加（用于分批分析）
+                self._formants_data.extend(formants_data)
+        
         self.update()
+
     def update_playback_position(self, position_ms):
-        if self.sr > 1: self._playback_pos_sample = int(position_ms / 1000 * self.sr); self.update()
-    def set_view_window(self, start_sample, end_sample): self._view_start_sample, self._view_end_sample = start_sample, end_sample; self.update()
+        """更新播放光标位置。"""
+        if self.sr > 1:
+            self._playback_pos_sample = int(position_ms / 1000 * self.sr)
+            self.update()
+
+    def set_view_window(self, start_sample, end_sample):
+        """设置当前显示视图的采样点范围。"""
+        self._view_start_sample, self._view_end_sample = start_sample, end_sample
+        self.update()
+
     def clear(self):
-        # 在原有clear逻辑上新增对选区状态的重置
+        """清除所有数据和选区状态。"""
+        # 重置选区状态
         self._is_selecting = False
-        self._selection_start_pos = None
-        self._selection_end_pos = None
+        self._selection_start_x = 0
+        self._selection_end_x = 0
         self._selection_start_sample = None
         self._selection_end_sample = None
         
-        # 原有逻辑
-        self.spectrogram_image, self._f0_data, self._intensity_data = None, None, None
+        # 清除数据
+        self.spectrogram_image = None
+        self._f0_data = None
+        self._intensity_data = None
         self._formants_data = []
+        self._f0_derived_data = None # 新增，确保派生F0也清除
+        
         self._playback_pos_sample = -1
-        self._info_box_position = 'top_left' # --- 新增: 重置位置 ---
+        self._cursor_info_text = ""
+        self._info_box_position = 'top_left' # 重置信息框位置
+
         self.update()
 
     def render_to_pixmap(self):
@@ -925,7 +1150,6 @@ class SpectrogramWidget(QWidget):
         pixmap.fill(Qt.transparent) # 使用透明背景，以便保存为PNG
         self.render(pixmap)
         return pixmap
-
 
 # --- 波形控件 (无变化) ---
 class WaveformWidget(QWidget):
@@ -999,7 +1223,10 @@ def create_page(parent_window, icon_manager, ToggleSwitchClass):
     return AudioAnalysisPage(parent_window, icon_manager, ToggleSwitchClass)
 
 class AudioAnalysisPage(QWidget):
-    DENSITY_LABELS = {1: "最快", 2: "较快", 3: "标准", 4: "精细", 5: "最高（速度慢）"}
+    DENSITY_LABELS = {
+            1: "最低 (极速)", 2: "很低", 3: "较低", 4: "标准", 5: "较高",
+            6: "精细", 7: "很高", 8: "极高", 9: "最高 (极慢)"
+        }
     REQUIRES_ANALYSIS_HINT = '<b><font color="#e57373">注意：更改此项需要重新运行分析才能生效。</font></b>'
 
     def __init__(self, parent_window, icon_manager, ToggleSwitchClass):
@@ -1015,11 +1242,10 @@ class AudioAnalysisPage(QWidget):
         self.is_playing_selection = False # 标记是否正在播放选区
         self.is_player_ready = False # [新增] 标志，用于检查播放器是否已预热
         self._pending_csv_path = None # 用于在加载音频后应用CSV数据
-        self.player = QMediaPlayer(); self.player.setNotifyInterval(30)
+        self.player = QMediaPlayer(); self.player.setNotifyInterval(10)
         self.known_duration = 0
         self.task_thread, self.worker = None, None
         self.is_task_running = False
-        self.recommended_density = 3
         self._init_ui()
         self._connect_signals()
         self.update_icons()
@@ -1029,6 +1255,7 @@ class AudioAnalysisPage(QWidget):
             1: "最低 (极速)", 2: "很低", 3: "较低", 4: "标准", 5: "较高",
             6: "精细", 7: "很高", 8: "极高", 9: "最高 (极慢)"
         }
+
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -1158,16 +1385,12 @@ class AudioAnalysisPage(QWidget):
         self.density_slider.setToolTip(f"调整语谱图分析帧的重叠率，决定了图像在时间轴上的平滑度。<br>值越高，图像越精细平滑，但计算也越慢。<br>{self.REQUIRES_ANALYSIS_HINT}")
         self.density_label = QLabel()
         self._update_density_label(4)
-        self.accept_recommendation_btn = QPushButton("建议")
-        self.accept_recommendation_btn.setToolTip("根据您的设备性能和当前音频长度，自动设置一个最佳的精细度等级。")
-        self.accept_recommendation_btn.setVisible(False)
-        self.accept_recommendation_btn.setMinimumWidth(120)
         self.spectrogram_type_checkbox = QCheckBox("宽带模式")
         self.spectrogram_type_checkbox.setToolTip(f"切换语谱图的分析窗长，决定了时间和频率分辨率的取舍。<br><li><b>宽带 (勾选)</b>: 短窗，时间分辨率高，能清晰看到声门的每一次振动（垂直线），但频率分辨率低。</li><li><b>窄带 (不勾选)</b>: 长窗，频率分辨率高，能清晰看到基频的各次谐波（水平线），但时间分辨率低。</li><br>{self.REQUIRES_ANALYSIS_HINT}")
         spec_settings_layout.addRow("精细度:", self.density_slider)
         spec_settings_layout.addRow("", self.density_label)
-        spec_settings_layout.addRow("", self.accept_recommendation_btn)
         spec_settings_layout.addRow(self.spectrogram_type_checkbox)
+
         
         settings_layout.addWidget(self.visualization_group)
         settings_layout.addWidget(self.advanced_params_group)
@@ -1202,7 +1425,6 @@ class AudioAnalysisPage(QWidget):
         for toggle in all_toggles:
             toggle.stateChanged.connect(self._update_dependent_widgets)
             toggle.stateChanged.connect(self.update_overlays)
-        self.accept_recommendation_btn.clicked.connect(self.apply_recommended_density)
 
         all_checkboxes = [self.show_f0_points_checkbox, self.show_f0_derived_checkbox,
                           self.smooth_intensity_checkbox, self.highlight_f1_checkbox,
@@ -1409,7 +1631,6 @@ class AudioAnalysisPage(QWidget):
         self.current_selection = None
         self.is_playing_selection = False
         self.time_axis_widget.hide() # 确保时间轴隐藏
-        self.accept_recommendation_btn.setVisible(False)
 
 
     # --- 其他所有方法保持不变 ---
@@ -1420,33 +1641,9 @@ class AudioAnalysisPage(QWidget):
         info = sf.info(self.current_filepath); self.filename_label.setText(os.path.basename(self.current_filepath)); self.known_duration = info.duration * 1000; self.duration_label.setText(self.format_time(self.known_duration)); self.time_label.setText(f"00:00.00 / {self.format_time(self.known_duration)}"); self.samplerate_label.setText(f"{info.samplerate} Hz")
         channel_desc = {1: "Mono", 2: "Stereo"}.get(info.channels, f"{info.channels} Channels"); self.channels_label.setText(f"{info.channels} ({channel_desc})"); bit_depth_str = info.subtype.replace('PCM_', '') + "-bit PCM" if 'PCM' in info.subtype else info.subtype; self.bitdepth_label.setText(bit_depth_str if bit_depth_str else "N/A")
         self.waveform_widget.set_audio_data(self.audio_data, self.sr, self.overview_data); self.player.setMedia(QMediaContent(QUrl.fromLocalFile(self.current_filepath))); self.playback_slider.setRange(0, int(self.known_duration)); self.play_pause_btn.setEnabled(True); self.playback_slider.setEnabled(True); self.analysis_actions_group.setEnabled(True)
-        self.calculate_and_show_recommendation()
         if self._pending_csv_path:
             self._apply_csv_data(self._pending_csv_path)
             self._pending_csv_path = None # 清除状态
-    def calculate_and_show_recommendation(self):
-        try:
-            cpu_cores = os.cpu_count() or 4; duration_sec = self.known_duration / 1000
-            if duration_sec < 2: duration_score = 7
-            elif duration_sec < 5: duration_score = 6
-            elif duration_sec < 30: duration_score = 5
-            elif duration_sec < 60: duration_score = 3
-            else: duration_score = 1
-            if cpu_cores >= 12: cpu_score = 7
-            elif cpu_cores >= 8: cpu_score = 6
-            elif cpu_cores >= 4: cpu_score = 5
-            else: cpu_score = 3
-            recommended = round(duration_score * 0.6 + cpu_score * 0.4)
-            final_recommendation = max(1, min(recommended, 7))
-            self.recommended_density = final_recommendation
-            self.accept_recommendation_btn.setText(f"建议 (Lvl {self.recommended_density})")
-            self.accept_recommendation_btn.setVisible(True)
-        except Exception as e:
-            print(f"智能密度推荐计算失败: {e}")
-            self.accept_recommendation_btn.setVisible(False)
-    def apply_recommended_density(self):
-        self.density_slider.setValue(self.recommended_density)
-        self.accept_recommendation_btn.setVisible(False)
     def run_full_analysis(self):
         if self.audio_data is None: return
         try:
@@ -1468,6 +1665,7 @@ class AudioAnalysisPage(QWidget):
         if self.progress_dialog: self.progress_dialog.close()
         formant_data = results.get('formants_view', [])
         self.spectrogram_widget.set_analysis_data(formants_data=formant_data, clear_previous_formants=False); QMessageBox.information(self, "分析完成", f"已在可见区域找到并显示了 {len(formant_data)} 个有效音框的共振峰。")
+
     def on_scrollbar_moved(self, value):
         if self.audio_data is None: return
         view_width = self.waveform_widget._view_end_sample - self.waveform_widget._view_start_sample

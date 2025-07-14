@@ -200,6 +200,13 @@ class WordlistEditorPage(QWidget):
 
         menu = QMenu(self.file_list_widget)
         show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
+        # --- [新增] 分割器集成 ---
+        # 检查是否有分割器插件的钩子
+        if hasattr(self, 'tts_splitter_plugin_active'):
+            menu.addSeparator()
+            splitter_action = menu.addAction(self.icon_manager.get_icon("cut"), "发送到批量分割器")
+            splitter_action.triggered.connect(lambda: self.send_to_splitter(item))
+
         menu.addSeparator()
         duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
         delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
@@ -212,6 +219,17 @@ class WordlistEditorPage(QWidget):
             self._duplicate_file(item)
         elif action == delete_action:
             self._delete_file(item)
+
+    # [新增] 发送到分割器的辅助方法
+    def send_to_splitter(self, item):
+        if not item: return
+        
+        # 获取插件实例
+        splitter_plugin = getattr(self, 'tts_splitter_plugin_active', None)
+        if splitter_plugin:
+            wordlist_path = os.path.join(self.WORD_LIST_DIR, item.text())
+            # 通过 execute 方法传递词表路径
+            splitter_plugin.execute(wordlist_path=wordlist_path)
 
     def _show_in_explorer(self, item):
         if not item: return

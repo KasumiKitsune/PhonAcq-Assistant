@@ -421,13 +421,65 @@ class FlashcardPage(QWidget):
         msg_box.exec_()
 
     def play_current_audio(self):
-        if not self.session_active or self.current_card_index < 0: return
-        card = self.cards[self.current_card_index]; audio_key = card.get('id'); paths_to_check = []
-        for ext in ['.wav', '.mp3']: paths_to_check.append(os.path.join(self.GLOBAL_RECORD_DIR, self.current_wordlist_name_no_ext, f"{audio_key}{ext}"))
-        paths_to_check.append(os.path.join(self.TTS_DIR, self.current_wordlist_name_no_ext, f"{audio_key}.mp3")); paths_to_check.append(os.path.join(self.GLOBAL_TTS_DIR, self.current_wordlist_name_no_ext, f"{audio_key}.mp3"))
-        final_path = next((path for path in paths_to_check if os.path.exists(path)), None)
-        if final_path: self.player.setMedia(QMediaContent(QUrl.fromLocalFile(final_path))); self.player.play()
-        else: self.parent_window.statusBar().showMessage(f"找不到 '{audio_key}' 的音频文件", 2000)
+        if not self.session_active or self.current_card_index < 0:
+            return
+
+        card = self.cards[self.current_card_index]
+        audio_key = card.get('id')
+        if not audio_key:
+            return
+
+        # [核心修复] 扩展搜索逻辑，使其更灵活且能识别多种格式
+        
+        # 定义要检查的通用音频扩展名列表
+        common_audio_exts = ['.wav', '.mp3', '.flac', '.ogg']
+
+        # 定义一个清晰、有优先级的搜索路径列表
+        # 既搜索词表子文件夹，也搜索根文件夹，以提高灵活性
+        search_locations = [
+            # --- 最高优先级: 用户录音 ---
+            # 1. 在全局录音文件夹的特定词表子目录中查找
+            os.path.join(self.GLOBAL_RECORD_DIR, self.current_wordlist_name_no_ext),
+            # 2. 直接在全局录音文件夹的根目录中查找
+            self.GLOBAL_RECORD_DIR,
+            
+            # --- 次高优先级: 模块专属的TTS音频 ---
+            # 3. 在模块TTS文件夹的特定词表子目录中查找
+            os.path.join(self.TTS_DIR, self.current_wordlist_name_no_ext),
+            # 4. 直接在模块TTS文件夹 (audio_tts) 的根目录中查找 (解决当前问题的关键)
+            self.TTS_DIR,
+
+            # --- 最低优先级: 全局TTS音频 ---
+            # 5. 在全局TTS文件夹的特定词表子目录中查找
+            os.path.join(self.GLOBAL_TTS_DIR, self.current_wordlist_name_no_ext),
+            # 6. 直接在全局TTS文件夹的根目录中查找
+            self.GLOBAL_TTS_DIR,
+        ]
+
+        final_path = None
+        for folder in search_locations:
+            if not folder or not os.path.isdir(folder):
+                continue
+            
+            # 在每个地点检查所有可能的扩展名
+            for ext in common_audio_exts:
+                path_to_check = os.path.join(folder, f"{audio_key}{ext}")
+                if os.path.exists(path_to_check):
+                    final_path = path_to_check
+                    break  # 找到后立即退出内层循环
+            
+            if final_path:
+                break  # 找到后立即退出外层循环
+
+        if final_path:
+            try:
+                self.player.setMedia(QMediaContent(QUrl.fromLocalFile(final_path)))
+                self.player.play()
+            except Exception as e:
+                print(f"Error playing audio file {final_path}: {e}")
+                self.parent_window.statusBar().showMessage(f"播放音频 '{audio_key}' 失败", 3000)
+        else:
+            self.parent_window.statusBar().showMessage(f"找不到 '{audio_key}' 的音频文件", 2000)
 
     def show_prev_card(self):
         if not self.session_active or self.current_card_index <= 0: return

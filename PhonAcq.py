@@ -547,7 +547,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             
         self.setWindowTitle("PhonAcq - 风纳客")
-        self.setGeometry(100, 100, 1200, 850)
+        # [新增] 定义默认和紧凑两种最小尺寸
+        self.DEFAULT_MIN_SIZE = (1350, 1000)
+        self.COMPACT_MIN_SIZE = (1100, 800)
+        
+        self.setGeometry(100, 100, self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+        self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+
         icon_path = os.path.join(BASE_PATH, "config", "icon.ico") 
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -865,16 +871,27 @@ class MainWindow(QMainWindow):
         if not theme_file_path: theme_file_path = "default.qss"
         absolute_theme_path = os.path.join(THEMES_DIR, theme_file_path)
         
+        is_compact_theme = False # [新增] 默认不为紧凑主题
+
         if os.path.exists(absolute_theme_path):
             with open(absolute_theme_path, "r", encoding="utf-8") as f:
                 stylesheet = f.read()
+                
+                # --- [核心修改] 解析主题元属性 ---
+                # 解析图标路径
                 theme_icon_path_to_set = None
-                match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
-                if match:
-                    relative_icon_path_str = match.group(1).replace("\\", "/")
+                icon_match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
+                if icon_match:
+                    relative_icon_path_str = icon_match.group(1).replace("\\", "/")
                     qss_file_directory = os.path.dirname(absolute_theme_path)
                     absolute_icon_path = os.path.join(qss_file_directory, relative_icon_path_str)
                     theme_icon_path_to_set = os.path.normpath(absolute_icon_path)
+                
+                # [新增] 解析紧凑模式属性
+                compact_match = re.search(r'/\*\s*@theme-property-compact:\s*true\s*\*/', stylesheet)
+                if compact_match:
+                    is_compact_theme = True
+                # --- 结束核心修改 ---
                 
                 # 1. 首先设置IconManager的路径
                 icon_manager.set_theme_icon_path(theme_icon_path_to_set)
@@ -885,13 +902,21 @@ class MainWindow(QMainWindow):
             print(f"主题文件未找到: {absolute_theme_path}", file=sys.stderr)
             self.setStyleSheet("") 
             icon_manager.set_theme_icon_path(None)
-            
+        
+        # [新增] 根据是否为紧凑主题，调整窗口最小尺寸
+        if is_compact_theme:
+            self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
+        else:
+            self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+            # 如果当前窗口尺寸小于默认最小尺寸，则将其放大
+            if self.width() < self.DEFAULT_MIN_SIZE[0] or self.height() < self.DEFAULT_MIN_SIZE[1]:
+                self.resize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+
         # 3. (关键) 通知所有相关模块刷新它们的图标
         self.update_all_module_icons()
         
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
-
     def update_all_module_icons(self):
         """遍历所有已创建的页面，如果它们有 update_icons 方法，就调用它。"""
         # [修改] 将 dialect_visual_collector_module 添加到通知列表
