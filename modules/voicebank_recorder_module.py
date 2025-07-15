@@ -380,6 +380,10 @@ class VoicebankRecorderPage(QWidget):
         if isinstance(waveform_widget, WaveformWidget):
             filepath = self._find_existing_audio(self.current_word_list[self.current_word_index]['word'])
             if filepath: waveform_widget.set_waveform_data(filepath)
+
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        if analyzer_plugin and filepath:
+            analyzer_plugin.analyze_and_update_ui('voicebank_recorder', filepath, self.current_word_index)
             
         if self.current_word_index + 1 < len(self.current_word_list):
             self.list_widget.setCurrentCell(self.current_word_index + 1, 0)

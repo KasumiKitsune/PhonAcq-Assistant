@@ -578,34 +578,69 @@ class AccentCollectionPage(QWidget):
             self.record_btn.setToolTip("点击开始录制当前选中的词语。"); self.record_btn.setEnabled(False); self.status_label.setText("状态：正在保存录音...")
             
     def on_recording_saved(self, result):
-        self.status_label.setText("状态：录音已保存。"); self.list_widget.setEnabled(True); self.replay_btn.setEnabled(True)
-        self.random_switch.setEnabled(True);self.full_list_switch.setEnabled(True)
+        self.status_label.setText("状态：录音已保存。")
+        self.list_widget.setEnabled(True)
+        self.replay_btn.setEnabled(True)
+        self.random_switch.setEnabled(True)
+        self.full_list_switch.setEnabled(True)
+    
         if result == "save_failed_mp3_encoder":
-            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。..."); self.status_label.setText("状态：MP3保存失败！"); return
+            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。...")
+            self.status_label.setText("状态：MP3保存失败！")
+            return
+        
         if self.current_word_index < 0 or self.current_word_index >= len(self.current_word_list):
-             if self.logger: self.logger.log(f"[ERROR] current_word_index ({self.current_word_index}) out of bounds in on_recording_saved.")
-             self.record_btn.setEnabled(True); return
-        item_data=self.current_word_list[self.current_word_index]; item_data['recorded']=True
+            if self.logger: self.logger.log(f"[ERROR] current_word_index ({self.current_word_index}) out of bounds in on_recording_saved.")
+            self.record_btn.setEnabled(True)
+            return
         
-        # [修改] 更新表格中的图标和波形
+        item_data = self.current_word_list[self.current_word_index]
+        item_data['recorded'] = True
+    
         list_item = self.list_widget.item(self.current_word_index, 0)
-        if list_item: list_item.setIcon(self.icon_manager.get_icon("success"))
-        
+        if list_item:
+            list_item.setIcon(self.icon_manager.get_icon("success"))
+    
+        filepath = self._find_existing_audio(item_data['word'])
+    
         waveform_widget = self.list_widget.cellWidget(self.current_word_index, 2)
         if isinstance(waveform_widget, WaveformWidget):
-            filepath = self._find_existing_audio(item_data['word'])
-            if filepath: waveform_widget.set_waveform_data(filepath)
+            if filepath:
+                waveform_widget.set_waveform_data(filepath)
+    
+        # =================================================================
+        # --- [核心修改] 在此处添加钩子调用 ---
+        # =================================================================
+        # 检查质量分析器插件的钩子是否存在
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        if analyzer_plugin and filepath:
+            # 调用插件的API，传递模块ID、文件路径和行号
+            analyzer_plugin.analyze_and_update_ui('accent_collection', filepath, self.current_word_index)
+        # =================================================================
+        # --- [核心修改] 结束 ---
+        # =================================================================
+
+        all_recorded = all(item['recorded'] for item in self.current_word_list)
+        if all_recorded:
+            self.handle_session_completion()
+            return
         
-        all_recorded=all(item['recorded'] for item in self.current_word_list)
-        if all_recorded: self.handle_session_completion(); return
-        next_index=-1; indices=list(range(len(self.current_word_list)))
-        for i in indices[self.current_word_index+1:]+indices[:self.current_word_index]:
-            if not self.current_word_list[i]['recorded']:next_index=i;break
-        if next_index!=-1:
-            self.list_widget.setCurrentCell(next_index, 0); self.record_btn.setEnabled(True); self.record_btn.setToolTip("点击开始录制当前选中的词语。")
+        # ... (后续寻找下一个词条的逻辑保持不变) ...
+        next_index = -1
+        indices = list(range(len(self.current_word_list)))
+        for i in indices[self.current_word_index+1:] + indices[:self.current_word_index]:
+            if not self.current_word_list[i]['recorded']:
+                next_index = i
+                break
+            
+        if next_index != -1:
+            self.list_widget.setCurrentCell(next_index, 0)
+            self.record_btn.setEnabled(True)
+            self.record_btn.setToolTip("点击开始录制当前选中的词语。")
             recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
             self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
-        else: self.handle_session_completion()
+        else:
+            self.handle_session_completion()
 
     def handle_session_completion(self):
         unrecorded_count=sum(1 for item in self.current_word_list if not item['recorded'])

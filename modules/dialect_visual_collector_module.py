@@ -583,21 +583,55 @@ class DialectVisualCollectorPage(QWidget):
              if selected_item_to_display: self.on_item_selected(selected_item_to_display, None)
 
     def on_recording_saved(self, result):
-        self.record_btn.setText("开始录音"); self.record_btn.setToolTip("点击开始录制当前项目。"); self.record_btn.setEnabled(True)
-        self.item_list_widget.setEnabled(True); self.left_panel.setEnabled(True); self.random_order_switch.setEnabled(True)
+        # 1. 恢复UI状态
+        self.record_btn.setText("开始录音")
+        self.record_btn.setToolTip("点击开始录制当前项目。")
+        self.record_btn.setEnabled(True)
+        self.item_list_widget.setEnabled(True)
+        self.left_panel.setEnabled(True)
+        self.random_order_switch.setEnabled(True)
+    
+        # 2. 处理保存失败的情况
         if result == "save_failed_mp3_encoder":
-            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。\n\n建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。"); self.log("MP3保存失败！请检查编码器或设置。"); return
-        self.log("录音已保存。"); self.update_list_widget_icons()
+            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。\n\n建议：请在“程序设置”中将录音格式切换为 WAV (高质量)，或为您的系统安装 LAME 编码器。")
+            self.log("MP3保存失败！请检查编码器或设置。")
+            return
+        
+        self.log("录音已保存。")
+    
+        # 3. [关键步骤] 模块自身先更新UI，打上基础的“完成”对勾
+        self.update_list_widget_icons()
+
+        # 4. [关键步骤] 调用插件进行精细化分析
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        if analyzer_plugin and self.current_audio_folder:
+            recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+            item_id = self.current_items_list[self.current_item_index].get('id')
+            filepath = os.path.join(self.current_audio_folder, f"{item_id}.{recording_format}")
+        
+            if not os.path.exists(filepath) and recording_format != 'wav':
+                filepath = os.path.join(self.current_audio_folder, f"{item_id}.wav")
+
+            if os.path.exists(filepath):
+                analyzer_plugin.analyze_and_update_ui('dialect_visual_collector', filepath, self.current_item_index)
+            
+        # 5. 移动到下一个项目
         if self.current_item_index + 1 < len(self.current_items_list):
             self.item_list_widget.setCurrentRow(self.current_item_index + 1)
         else:
-            all_done = True; recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+            # 检查是否所有项目都已录制完毕
+            all_done = True
+            recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             for item_data in self.current_items_list:
-                main_audio_filename = f"{item_data.get('id')}.{recording_format}"; wav_fallback_filename = f"{item_data.get('id')}.wav"
-                if not os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) and not os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename)): all_done = False; break
-            if all_done: QMessageBox.information(self,"完成","所有项目已录制完毕！");
-            if self.session_active: self.end_session()
-
+                main_audio_filename = f"{item_data.get('id')}.{recording_format}"
+                wav_fallback_filename = f"{item_data.get('id')}.wav"
+                if not os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) and not os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename)):
+                    all_done = False
+                    break
+            if all_done:
+                QMessageBox.information(self, "完成", "所有项目已录制完毕！")
+                if self.session_active:
+                    self.end_session()
     def _persistent_recorder_task(self):
         try:
             # [修改] 调用解析函数来获取设备索引，而不是直接读取配置

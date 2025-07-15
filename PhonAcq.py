@@ -1051,7 +1051,7 @@ class MainWindow(QMainWindow):
             grid_layout.setContentsMargins(10, 10, 10, 10) 
             grid_layout.setSpacing(10) 
 
-            PLUGINS_PER_COLUMN = 6 
+            PLUGINS_PER_COLUMN = 6
             num_cols = (num_active_plugins - 1) // PLUGINS_PER_COLUMN + 1 if num_active_plugins > 0 else 1
             MAX_COLUMNS = 3 # 修复：之前是 MAX_cols，现在统一为 MAX_COLUMNS
             if num_cols > MAX_COLUMNS:

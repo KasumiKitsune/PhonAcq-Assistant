@@ -64,23 +64,31 @@ class AudioTaskWorker(QObject):
 
     def _run_analyze_task(self):
         is_wide_band = self.kwargs.get('is_wide_band', False)
-        density_level = self.kwargs.get('density_level', 3)
+        density_level = self.kwargs.get('density_level', 3) # 直接获取UI设置的精细度
         pre_emphasis = self.kwargs.get('pre_emphasis', False)
         f0_min = self.kwargs.get('f0_min', librosa.note_to_hz('C2'))
         f0_max = self.kwargs.get('f0_max', librosa.note_to_hz('C7'))
+    
         y_analyzed = librosa.effects.preemphasis(self.y) if pre_emphasis else self.y
-        analysis_density_level = min(density_level, 5)
+    
+        # --- 核心修复在此 ---
+        # 移除 min(density_level, 5) 的限制，直接使用从UI传递过来的值。
+        # analysis_density_level = min(density_level, 5) # <--- 旧的限制代码，已移除
+        analysis_density_level = density_level # <--- 直接使用
+        # --- 修复结束 ---
+    
         narrow_band_window_s = 0.035
         base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
+    
+        # 根据新的、无限制的精细度计算重叠率和 hop_length
         overlap_ratio = 1 - (1 / (2**analysis_density_level))
         hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1
+    
         spectrogram_window_s = 0.005 if is_wide_band else narrow_band_window_s
         n_fft_spectrogram = 1 << (int(self.sr * spectrogram_window_s) - 1).bit_length()
         f0_frame_length = 1 << (int(self.sr * 0.040) - 1).bit_length()
-        
-        # ↓↓↓ 核心修改在此 ↓↓↓
-        # 1. 使用旧版 librosa.pyin，它不接受 voicing_threshold 参数
-        #    但它会返回 f0, voiced_flag(基于默认阈值), 和 voiced_probs(浊音概率)
+    
+        # ↓↓↓ 后续的 pyin 和其他分析代码保持不变 ↓↓↓
         f0_raw, _, voiced_probs = librosa.pyin(
             y_analyzed,
             fmin=f0_min,
@@ -88,20 +96,19 @@ class AudioTaskWorker(QObject):
             frame_length=f0_frame_length,
             hop_length=hop_length
         )
- 
-        # 2. 我们忽略它返回的 voiced_flag，根据 voiced_probs 和我们自己的阈值来重新生成一个
-        voicing_threshold = 0.03  # 我们自定义的灵敏度阈值
+
+        voicing_threshold = 0.03
         custom_voiced_flag = voiced_probs > voicing_threshold
- 
-        # 3. 使用我们自己生成的 custom_voiced_flag 来过滤 F0 值
+
         times = librosa.times_like(f0_raw, sr=self.sr, hop_length=hop_length)
         f0 = f0_raw.copy()
-        f0[~custom_voiced_flag] = np.nan # 只保留被我们判断为浊音的帧
+        f0[~custom_voiced_flag] = np.nan
         f0_series = pd.Series(f0_raw)
         f0_interpolated = f0_series.interpolate(method='linear', limit_direction='both').to_numpy()
         intensity = librosa.feature.rms(y=self.y, frame_length=n_fft_spectrogram, hop_length=hop_length)[0]
         D = librosa.stft(y_analyzed, hop_length=hop_length, n_fft=n_fft_spectrogram)
         S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+    
         self.finished.emit({'f0_raw': (times, f0_raw), 'f0_derived': (times, f0_interpolated), 'intensity': intensity, 'S_db': S_db, 'hop_length': hop_length})
 
     def _run_formant_view_task(self):
@@ -1382,7 +1389,7 @@ class AudioAnalysisPage(QWidget):
         spec_settings_layout = QFormLayout(self.spectrogram_settings_group)
         self.spectrogram_settings_group.setToolTip(f"调整语谱图本身的生成方式，影响其外观和分辨率。<br>{self.REQUIRES_ANALYSIS_HINT}")
         self.density_slider = QSlider(Qt.Horizontal); self.density_slider.setRange(1, 9); self.density_slider.setValue(4)
-        self.density_slider.setToolTip(f"调整语谱图分析帧的重叠率，决定了图像在时间轴上的平滑度。<br>值越高，图像越精细平滑，但计算也越慢。<br>{self.REQUIRES_ANALYSIS_HINT}")
+        self.density_slider.setToolTip(f"调整语谱图分析帧的重叠率，决定了图像在时间轴上的平滑度。<br>值越高，图像越精细平滑，但计算也越慢。过高的精细度会导致F0计算错误。<br>{self.REQUIRES_ANALYSIS_HINT}")
         self.density_label = QLabel()
         self._update_density_label(4)
         self.spectrogram_type_checkbox = QCheckBox("宽带模式")
@@ -1662,10 +1669,29 @@ class AudioAnalysisPage(QWidget):
         hop_length = results.get('hop_length', 256); self.spectrogram_widget.set_data(results.get('S_db'), self.sr, hop_length)
         self.spectrogram_widget.set_analysis_data(f0_data=results.get('f0_raw'), f0_derived_data=results.get('f0_derived'), intensity_data=results.get('intensity'))
     def on_formant_view_finished(self, results):
-        if self.progress_dialog: self.progress_dialog.close()
+        """
+        [v_next 修改] 当仅分析视图内共振峰的任务完成时调用。
+        现在会自动清除旧的共振峰点再添加新的。
+        """
+        if self.progress_dialog:
+            self.progress_dialog.close()
+    
         formant_data = results.get('formants_view', [])
-        self.spectrogram_widget.set_analysis_data(formants_data=formant_data, clear_previous_formants=False); QMessageBox.information(self, "分析完成", f"已在可见区域找到并显示了 {len(formant_data)} 个有效音框的共振峰。")
-
+    
+        # --- 核心修改在此 ---
+        # 将 clear_previous_formants 参数设置为 True
+        # 这会告诉语谱图控件在添加新数据前，先清空旧的共振峰列表。
+        self.spectrogram_widget.set_analysis_data(
+            formants_data=formant_data, 
+            clear_previous_formants=True
+        )
+        # --- 修改结束 ---
+    
+        QMessageBox.information(
+            self, 
+            "分析完成", 
+            f"已在可见区域找到并显示了 {len(formant_data)} 个有效音框的共振峰。"
+        )
     def on_scrollbar_moved(self, value):
         if self.audio_data is None: return
         view_width = self.waveform_widget._view_end_sample - self.waveform_widget._view_start_sample
