@@ -1,0 +1,33 @@
+{
+    "ui_settings": {
+        "collector_sidebar_width": 320,
+        "editor_sidebar_width": 280,
+        "hide_all_tooltips": false,
+        "wordlist_editor_col_widths": [
+            80,
+            -1,
+            -1,
+            -1
+        ]
+    },
+    "audio_settings": {
+        "sample_rate": 44100,
+        "channels": 1,
+        "recording_gain": 1.0,
+        "input_device_index": null,
+        "recording_format": "wav"
+    },
+    "file_settings": {
+        "word_list_file": "",
+        "participant_base_name": "participant",
+        "results_dir": "D:\\project\\PhonAcq-Assistant\\Results"
+    },
+    "gtts_settings": {
+        "default_lang": "en-us",
+        "auto_detect": true
+    },
+    "app_settings": {
+        "enable_logging": true
+    },
+    "theme": "default.qss"
+}

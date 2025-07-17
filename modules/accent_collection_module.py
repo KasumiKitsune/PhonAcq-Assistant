@@ -493,6 +493,45 @@ class AccentCollectionPage(QWidget):
             error_msg = result.get('error', '未知错误')
             QMessageBox.critical(self, "准备失败", f"无法开始会话: {error_msg}")
             self.reset_ui()
+
+    def update_item_quality_status(self, row, warnings):
+        """
+        由质量分析器插件在分析完成后调用。
+        此方法负责更新内部状态并触发UI刷新。
+        """
+        if not (0 <= row < len(self.current_word_list)):
+            return
+
+        # 获取对应的QTableWidgetItem
+        list_item = self.list_widget.item(row, 0) # 词语列的QTableWidgetItem
+        if not list_item:
+            return
+
+        original_tooltip_text = self.current_word_list[row]['word'] # 获取原始词语文本作为Tooltip基础
+
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        if not analyzer_plugin: # 如果插件不存在，则默认显示成功图标
+            list_item.setIcon(self.icon_manager.get_icon("success"))
+            list_item.setToolTip(original_tooltip_text)
+            return
+
+        if not warnings:
+            list_item.setIcon(self.icon_manager.get_icon("success"))
+            list_item.setToolTip(original_tooltip_text)
+        else:
+            # 根据警告类型设置不同图标
+            has_critical = any(w['type'] in analyzer_plugin.critical_warnings for w in warnings)
+            list_item.setIcon(analyzer_plugin.warning_icon if has_critical else analyzer_plugin.info_icon)
+            
+            # 构建详细的Tooltip
+            html = f"<b>{original_tooltip_text}</b><hr>"
+            html += "<b>质量报告:</b><br>"
+            warning_list_html = [
+                f"• <b>{analyzer_plugin.warning_type_map.get(w['type'], w['type'])}:</b> {w['details']}"
+                for w in warnings
+            ]
+            html += "<br>".join(warning_list_html)
+            list_item.setToolTip(html)
         
     def _find_existing_audio(self, word):
         """
@@ -598,10 +637,21 @@ class AccentCollectionPage(QWidget):
         item_data['recorded'] = True
     
         list_item = self.list_widget.item(self.current_word_index, 0)
-        if list_item:
-            list_item.setIcon(self.icon_manager.get_icon("success"))
-    
         filepath = self._find_existing_audio(item_data['word'])
+
+        waveform_widget = self.list_widget.cellWidget(self.current_word_index, 2)
+        if isinstance(waveform_widget, WaveformWidget):
+            if filepath:
+                waveform_widget.set_waveform_data(filepath)
+
+        # 确保这里调用了质量分析插件的回调
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        if analyzer_plugin and filepath:
+            analyzer_plugin.analyze_and_update_ui('accent_collection', filepath, self.current_word_index)
+        else:
+            # 如果插件不存在或文件路径无效，仍然需要更新为成功图标
+            if list_item: list_item.setIcon(self.icon_manager.get_icon("success"))
+            list_item.setToolTip(item_data['word']) # 确保Tooltip也被重置为原始词语
     
         waveform_widget = self.list_widget.cellWidget(self.current_word_index, 2)
         if isinstance(waveform_widget, WaveformWidget):
@@ -667,9 +717,8 @@ class AccentCollectionPage(QWidget):
         
         # [核心修复] 定义一个搜索路径和格式的列表
         search_paths = [
-            (self.recordings_folder, ['.wav', '.mp3', '.flac', '.ogg']),  # 1. 优先在当前会话的录音文件夹中查找
-            (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']), # 2. 其次在旧的录音库中查找
-            (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3']) # 3. 最后查找自动生成的TTS提示音
+            (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']), # 1. 优先在旧的录音库中查找
+            (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3']) # 2. 最后查找自动生成的TTS提示音
         ]
 
         final_path = None
@@ -842,8 +891,11 @@ class AccentCollectionPage(QWidget):
                 user_recorded_exists = False
                 for ext in ['.wav', '.mp3', '.flac', '.ogg']:
                     if os.path.exists(os.path.join(self.AUDIO_RECORD_DIR, wordlist_name, f"{w}{ext}")): user_recorded_exists = True; break
-                tts_exists = os.path.exists(os.path.join(tts_audio_folder, f"{w}.mp3"))
-                if not user_recorded_exists and not tts_exists: missing.append(w)
+                    prompt_formats = ['.wav', '.mp3'] # WAV 优先级更高
+                    tts_exists = any(os.path.exists(os.path.join(tts_audio_folder, f"{w}{ext}")) for ext in prompt_formats)
+ 
+                    if not user_recorded_exists and not tts_exists:
+                        missing.append(w)
 
             if not missing:
                 if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")

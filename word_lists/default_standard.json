@@ -1,0 +1,222 @@
+{
+    "meta": {
+        "format": "standard_wordlist",
+        "version": "1.0",
+        "name": "PhonAcq 英语核心音素与音变示范词表",
+        "description": "一个综合性的标准词表，用于演示和测试。包含了英语核心元音、辅音的最小音对，以及常见的语流音变现象和多语言示例。"
+    },
+    "groups": [
+        {
+            "id": 1,
+            "name": "前元音 - 最小音对 (/ɪ/ vs /i:/)",
+            "items": [
+                {
+                    "text": "ship",
+                    "note": "/ʃɪp/",
+                    "lang": "en-uk"
+                },
+                {
+                    "text": "sheep",
+                    "note": "/ʃiːp/",
+                    "lang": "en-uk"
+                },
+                {
+                    "text": "sit",
+                    "note": "/sɪt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "seat",
+                    "note": "/siːt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "live",
+                    "note": "/lɪv/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "leave",
+                    "note": "/liːv/",
+                    "lang": "en-us"
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "name": "中元音 - 最小音对 (/æ/ vs /ʌ/ vs /ɑ:/)",
+            "items": [
+                {
+                    "text": "cat",
+                    "note": "/kæt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "cut",
+                    "note": "/kʌt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "cart",
+                    "note": "/kɑːrt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "match",
+                    "note": "/mætʃ/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "much",
+                    "note": "/mʌtʃ/",
+                    "lang": "en-us"
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "name": "后元音 - 最小音对 (/ʊ/ vs /u:/)",
+            "items": [
+                {
+                    "text": "pull",
+                    "note": "/pʊl/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "pool",
+                    "note": "/puːl/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "full",
+                    "note": "/fʊl/",
+                    "lang": "en-uk"
+                },
+                {
+                    "text": "fool",
+                    "note": "/fuːl/",
+                    "lang": "en-uk"
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "name": "爆破音 - 清浊音对",
+            "items": [
+                {
+                    "text": "pin",
+                    "note": "/pɪn/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "bin",
+                    "note": "/bɪn/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "ten",
+                    "note": "/tɛn/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "den",
+                    "note": "/dɛn/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "coat",
+                    "note": "/koʊt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "goat",
+                    "note": "/ɡoʊt/",
+                    "lang": "en-us"
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "name": "摩擦音 - 齿龈/齿龈后音",
+            "items": [
+                {
+                    "text": "sip",
+                    "note": "/sɪp/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "zip",
+                    "note": "/zɪp/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "mission",
+                    "note": "/ˈmɪʃən/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "vision",
+                    "note": "/ˈvɪʒən/",
+                    "lang": "en-us"
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "name": "语流音变 - 连读/同化",
+            "items": [
+                {
+                    "text": "an apple",
+                    "note": "/ən ˈæpəl/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "read it",
+                    "note": "/ˈriːd‿ɪt/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "what's up",
+                    "note": "/wʌtsˈʌp/",
+                    "lang": "en-us"
+                },
+                {
+                    "text": "don't you",
+                    "note": "/ˈdoʊntʃu/",
+                    "lang": "en-uk"
+                },
+                {
+                    "text": "would you",
+                    "note": "/ˈwʊdʒu/",
+                    "lang": "en-uk"
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "name": "多语言功能展示",
+            "items": [
+                {
+                    "text": "你好，世界",
+                    "note": "nǐ hǎo, shì jiè",
+                    "lang": "zh-cn"
+                },
+                {
+                    "text": "こんにちは",
+                    "note": "konnichiwa",
+                    "lang": "ja"
+                },
+                {
+                    "text": "石头",
+                    "note": "shí tou",
+                    "lang": "zh-cn"
+                },
+                {
+                    "text": "狮子",
+                    "note": "shī zi",
+                    "lang": "zh-cn"
+                }
+            ]
+        }
+    ]
+}

@@ -384,16 +384,59 @@ class DialectVisualCollectorPage(QWidget):
         self.record_btn.setIcon(self.icon_manager.get_icon("record")); self.draw_button.setIcon(self.icon_manager.get_icon("draw")); self.update_list_widget_icons()
 
     def update_list_widget_icons(self):
+        """[核心修改] 重构为智能的、基于状态的图标更新函数。"""
         if not self.session_active: return
-        recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
+        
+        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
+        
         for index, item_data in enumerate(self.current_items_list):
             list_item = self.item_list_widget.item(index)
             if not list_item: continue
+            
+            # 1. 检查录音文件是否存在
+            recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             main_audio_filename = f"{item_data.get('id')}.{recording_format}"
             wav_fallback_filename = f"{item_data.get('id')}.wav"
-            if self.current_audio_folder and (os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) or os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename))):
+            is_recorded = self.current_audio_folder and \
+                          (os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) or \
+                           os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename)))
+            
+            if not is_recorded:
+                list_item.setIcon(QIcon()) # 未录制，无图标
+                list_item.setToolTip(item_data.get('id', ''))
+                continue
+
+            # 2. 如果已录制，检查质量警告
+            warnings = item_data.get('quality_warnings', [])
+            original_tooltip = item_data.get('id', '')
+
+            if not warnings:
                 list_item.setIcon(self.icon_manager.get_icon("success"))
-            else: list_item.setIcon(QIcon())
+                list_item.setToolTip(original_tooltip)
+            else:
+                if analyzer_plugin: # 确保插件已加载
+                    has_critical = any(w['type'] in analyzer_plugin.critical_warnings for w in warnings)
+                    list_item.setIcon(analyzer_plugin.warning_icon if has_critical else analyzer_plugin.info_icon)
+                    
+                    # 构建详细的Tooltip
+                    html = f"<b>{original_tooltip}</b><hr>"
+                    html += "<b>质量报告:</b><br>"
+                    warning_list_html = [f"• <b>{analyzer_plugin.warning_type_map.get(w['type'], w['type'])}:</b> {w['details']}" for w in warnings]
+                    html += "<br>".join(warning_list_html)
+                    list_item.setToolTip(html)
+                else: # 插件未加载时的后备方案
+                    list_item.setIcon(self.icon_manager.get_icon("success"))
+                    list_item.setToolTip(original_tooltip)
+
+    # [新增] 插件回调接口
+    def update_item_quality_status(self, row, warnings):
+        """
+        由质量分析器插件在分析完成后调用。
+        此方法负责更新内部状态并触发UI刷新。
+        """
+        if 0 <= row < len(self.current_items_list):
+            self.current_items_list[row]['quality_warnings'] = warnings
+            self.update_list_widget_icons() # 状态更新后，刷新整个列表的图标
 
     def apply_layout_settings(self):
         ui_settings = self.config.get("ui_settings", {}); width = ui_settings.get("collector_sidebar_width", 320); self.left_panel.setFixedWidth(width)
@@ -472,13 +515,21 @@ class DialectVisualCollectorPage(QWidget):
     def on_order_mode_changed(self, state):
         if not self.session_active or not self.current_items_list: return
         current_id = None
-        if 0 <= self.current_item_index < len(self.current_items_list): current_id = self.current_items_list[self.current_item_index].get('id')
-        mode_text = "随机" if state == Qt.Checked else "顺序"; self.log(f"项目顺序已切换为: {mode_text}")
+        current_item = self.current_items_list[self.current_item_index] if 0 <= self.current_item_index < len(self.current_items_list) else None
+
+        mode_text = "随机" if state else "顺序"; self.log(f"项目顺序已切换为: {mode_text}")
         if self.logger: self.logger.log(f"[SESSION_CONFIG_CHANGE] Order changed to: {mode_text}")
-        if state == Qt.Checked: random.shuffle(self.current_items_list)
-        else: self.current_items_list = list(self.original_items_list)
-        new_row_index = next((i for i, item in enumerate(self.current_items_list) if item.get('id') == current_id), 0)
-        self.current_item_index = new_row_index; self.update_list_widget()
+        
+        # [核心修改] 确保随机排序时，警告状态跟随意图项
+        if state:
+            random.shuffle(self.current_items_list)
+        else:
+            # 按原始ID顺序恢复
+            self.current_items_list.sort(key=lambda x: [item.get('id') for item in self.original_items_list].index(x.get('id')))
+
+        new_row_index = next((i for i, item in enumerate(self.current_items_list) if item == current_item), 0) if current_item else 0
+        self.current_item_index = new_row_index
+        self.update_list_widget()
 
     def on_item_selected(self, current_item, previous_item):
         if not current_item or not self.session_active:
@@ -539,7 +590,11 @@ class DialectVisualCollectorPage(QWidget):
         participant_name = self.participant_input.text().strip()
         if not participant_name: QMessageBox.warning(self, "输入错误", "请输入被试者名称。"); return
         try:
-            self.current_wordlist_name = wordlist_file; self.original_items_list = self.load_word_list_logic(wordlist_file) 
+            self.current_wordlist_name = wordlist_file
+            # [核心修改] 初始化时为每个项目增加 quality_warnings 键
+            original_items = self.load_word_list_logic(wordlist_file)
+            self.original_items_list = [{'quality_warnings': [], **item} for item in original_items]
+            
             if not self.original_items_list: QMessageBox.warning(self, "错误", f"词表 '{wordlist_file}' 为空或加载失败。"); return
             self.current_items_list = list(self.original_items_list)
             if self.random_order_switch.isChecked(): random.shuffle(self.current_items_list)
@@ -599,39 +654,42 @@ class DialectVisualCollectorPage(QWidget):
         
         self.log("录音已保存。")
     
-        # 3. [关键步骤] 模块自身先更新UI，打上基础的“完成”对勾
-        self.update_list_widget_icons()
-
-        # 4. [关键步骤] 调用插件进行精细化分析
+        # 3. 准备调用插件
         analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
         if analyzer_plugin and self.current_audio_folder:
             recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             item_id = self.current_items_list[self.current_item_index].get('id')
             filepath = os.path.join(self.current_audio_folder, f"{item_id}.{recording_format}")
         
+            # 处理回退保存为WAV的情况
             if not os.path.exists(filepath) and recording_format != 'wav':
                 filepath = os.path.join(self.current_audio_folder, f"{item_id}.wav")
 
             if os.path.exists(filepath):
+                # 4. [核心修改] 调用插件进行分析，分析结果将通过回调函数返回
                 analyzer_plugin.analyze_and_update_ui('dialect_visual_collector', filepath, self.current_item_index)
+            else:
+                # 如果文件都找不到，直接刷新UI显示成功对勾
+                self.update_list_widget_icons()
+        else:
+            # 如果插件不存在，也刷新UI显示成功对勾
+            self.update_list_widget_icons()
             
         # 5. 移动到下一个项目
         if self.current_item_index + 1 < len(self.current_items_list):
             self.item_list_widget.setCurrentRow(self.current_item_index + 1)
         else:
-            # 检查是否所有项目都已录制完毕
             all_done = True
             recording_format = self.config['audio_settings'].get('recording_format', 'wav').lower()
             for item_data in self.current_items_list:
                 main_audio_filename = f"{item_data.get('id')}.{recording_format}"
                 wav_fallback_filename = f"{item_data.get('id')}.wav"
                 if not os.path.exists(os.path.join(self.current_audio_folder, main_audio_filename)) and not os.path.exists(os.path.join(self.current_audio_folder, wav_fallback_filename)):
-                    all_done = False
-                    break
+                    all_done = False; break
             if all_done:
                 QMessageBox.information(self, "完成", "所有项目已录制完毕！")
-                if self.session_active:
-                    self.end_session()
+                if self.session_active: self.end_session()
+
     def _persistent_recorder_task(self):
         try:
             # [修改] 调用解析函数来获取设备索引，而不是直接读取配置

@@ -1,0 +1,52 @@
+{
+    "meta": {
+        "format": "visual_wordlist",
+        "version": "1.0",
+        "author": "PhonAcq Assistant",
+        "save_date": "2025-07-16T17:05:49.305078"
+    },
+    "items": [
+        {
+            "id": "person_laughing",
+            "image_path": "default_visual/person_laughing.png",
+            "prompt_text": "请用您的语言描述一下图片里这个人的表情和心情。",
+            "notes": "目标：诱导描述情感状态的词汇（如：笑、开心、高兴），以及相关的面部表情描述。"
+        },
+        {
+            "id": "cat_sleeping",
+            "image_path": "default_visual/cat_sleeping.png",
+            "prompt_text": "图里是什么动物？它在做什么？",
+            "notes": "目标：诱导动物名称（猫）和状态动词（睡觉、打盹）。可以观察量词的使用。"
+        },
+        {
+            "id": "making_dumplings",
+            "image_path": "default_visual/making_dumplings.png",
+            "prompt_text": "描述一下图片里的人在做什么食物？你们那里管这个叫什么？",
+            "notes": "目标：诱导特定食物名称（饺子、馄饨、抄手等）和相关的动作（包、捏、擀皮）。"
+        },
+        {
+            "id": "various_fruits",
+            "image_path": "default_visual/various_fruits.png",
+            "prompt_text": "请用你们的话说说图里都有哪些水果？",
+            "notes": "目标：诱导多种水果的方言名称，如苹果、香蕉、草莓、橙子等。"
+        },
+        {
+            "id": "person_running",
+            "image_path": "default_visual/person_running.png",
+            "prompt_text": "这个人正在做什么动作？请描述一下。",
+            "notes": "目标：诱导动作动词（跑、奔跑）以及可能的速度、姿态描述。"
+        },
+        {
+            "id": "busy_street_market",
+            "image_path": "default_visual/busy_street_market.jpg",
+            "prompt_text": "这是一个什么样的场景？描述一下你看到了什么，听到了什么。",
+            "notes": "目标：诱导对复杂场景的综合描述，可能包含“市场、集市、买卖、人多、热闹”等词汇。"
+        },
+        {
+            "id": "rice_paddy_field",
+            "image_path": "default_visual/rice_paddy_field.png",
+            "prompt_text": "这是农村常见的什么地方？描述一下这个景色。",
+            "notes": "目标：诱导与农业相关的词汇，如“稻田、田地、秧苗、绿色”等。"
+        }
+    ]
+}

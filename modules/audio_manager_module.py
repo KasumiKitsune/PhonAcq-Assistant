@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from datetime import datetime
 import subprocess 
+from copy import deepcopy
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
@@ -306,6 +307,242 @@ class WaveformWidget(QWidget):
             pos_x = int(self._playback_pos_ratio * w)
             painter.setPen(QPen(self._cursorColor, 2)); painter.drawLine(pos_x, 0, pos_x, h)
 
+class ManageSourcesDialog(QDialog):
+    """一个用于批量管理自定义数据源的对话框。"""
+    def __init__(self, sources, parent=None, icon_manager=None):
+        super().__init__(parent)
+        self.setWindowTitle("管理自定义数据源")
+        self.setMinimumSize(600, 400)
+        
+        self.sources = deepcopy(sources) # 使用深拷贝，避免直接修改原始列表
+        self.icon_manager = icon_manager # 保存实例
+
+        layout = QVBoxLayout(self)
+        
+        layout.addWidget(QLabel("在这里添加、编辑或删除您的自定义数据源快捷方式。"))
+
+        # 表格
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["源名称", "文件夹路径"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection) # 一次只操作一个
+        self.populate_table()
+        
+        # 按钮栏
+        btn_layout = QHBoxLayout()
+        self.add_btn = QPushButton("添加新源...")
+        self.edit_btn = QPushButton("编辑...")
+        self.remove_btn = QPushButton("删除")
+        if self.icon_manager:
+            self.add_btn.setIcon(self.icon_manager.get_icon("add_row"))
+            self.edit_btn.setIcon(self.icon_manager.get_icon("edit"))
+            self.remove_btn.setIcon(self.icon_manager.get_icon("delete"))
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.edit_btn)
+        btn_layout.addWidget(self.remove_btn)
+        btn_layout.addStretch()
+        
+        # 确定/取消按钮
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+
+        layout.addWidget(self.table)
+        layout.addLayout(btn_layout)
+        layout.addWidget(self.button_box)
+        
+        # 连接信号
+        self.add_btn.clicked.connect(self.add_source)
+        self.edit_btn.clicked.connect(self.edit_source)
+        self.remove_btn.clicked.connect(self.remove_source)
+        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+    def _validate_and_get_source_path(self, initial_path=""):
+        """
+        打开文件对话框让用户选择路径，并进行有效性检查。
+        如果用户选择了音频文件夹，则提示使用其父目录。
+        """
+        path = QFileDialog.getExistingDirectory(self, "选择数据源文件夹 (应包含多个音频项目文件夹)", initial_path)
+        
+        if not path:
+            return None # 用户取消
+
+        # 检查所选目录是否直接包含音频文件
+        supported_exts = ('.wav', '.mp3', '.flac', '.ogg')
+        try:
+            if any(f.lower().endswith(supported_exts) for f in os.listdir(path)):
+                reply = QMessageBox.question(self, "路径可能不正确",
+                                             f"您选择的文件夹 '{os.path.basename(path)}'似乎直接包含音频文件。\n\n"
+                                             "数据源通常是一个包含多个【项目文件夹】的目录。\n\n"
+                                             "是否要使用它的上一级目录作为数据源？",
+                                             QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                                             QMessageBox.Yes)
+                
+                if reply == QMessageBox.Yes:
+                    parent_dir = os.path.dirname(path)
+                    return parent_dir
+                elif reply == QMessageBox.No:
+                    return path # 用户坚持使用当前目录
+                else: # Cancel
+                    return None
+        except OSError:
+            # 无法访问文件夹，直接返回路径让后续逻辑处理
+            return path
+            
+        return path
+
+    def populate_table(self):
+        self.table.setRowCount(0)
+        for i, source in enumerate(self.sources):
+            self.table.insertRow(i)
+            
+            name_item = QTableWidgetItem(source['name'])
+            path_item = QTableWidgetItem(source['path'])
+            path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable) # 路径不可直接编辑
+            
+            self.table.setItem(i, 0, name_item)
+            self.table.setItem(i, 1, path_item)
+    
+    def on_item_double_clicked(self, item):
+        # [核心修复] 双击任何一列都触发编辑
+        self.edit_source()
+
+    def add_source(self):
+        """[重构] 使用标准的输入对话框来添加新源。"""
+        # 1. 获取名称
+        name, ok1 = QInputDialog.getText(self, "添加新源", "请输入源名称 (可留空以使用文件夹名):")
+        
+        # 如果用户点击了“取消”或关闭了对话框
+        if not ok1:
+            return
+
+        # 2. 获取路径
+        # 我们直接调用 _validate_and_get_source_path 来处理路径选择和验证
+        path = self._validate_and_get_source_path()
+        if not path:
+            return # 用户取消了路径选择
+            
+        # 3. 自动填充名称（如果为空）
+        final_name = name if name else os.path.basename(path)
+
+        # 4. 检查名称唯一性
+        if any(s['name'] == final_name for s in self.sources):
+            QMessageBox.warning(self, "名称重复", f"源名称 '{final_name}' 已存在。")
+            return
+        
+        # 5. 添加到数据模型并刷新UI
+        self.sources.append({'name': final_name, 'path': path})
+        self.populate_table()
+
+    def edit_source(self):
+        """[重构] 使用标准的输入对话框来编辑选中源。"""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "提示", "请先选择一个要编辑的项目。")
+            return
+
+        source_to_edit = self.sources[current_row]
+        
+        # 1. 编辑名称
+        new_name, ok1 = QInputDialog.getText(self, "编辑源名称", "请输入新的源名称:", 
+                                             QLineEdit.Normal, source_to_edit['name'])
+        
+        if not (ok1 and new_name.strip()):
+            return
+        
+        # 检查名称是否与列表中的 *其他* 项重复
+        for i, s in enumerate(self.sources):
+            if i != current_row and s['name'] == new_name:
+                QMessageBox.warning(self, "名称重复", "该源名称已存在。")
+                return
+        
+        # 2. 编辑路径
+        new_path = self._validate_and_get_source_path(source_to_edit['path'])
+        
+        if not new_path:
+            return
+            
+        # 3. 更新数据源
+        self.sources[current_row]['name'] = new_name
+        self.sources[current_row]['path'] = new_path
+        
+        # 4. 刷新表格
+        self.populate_table()
+        self.table.setCurrentCell(current_row, 0) # 保持选中状态
+
+    def edit_source(self):
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "提示", "请先选择一个要编辑的项目。")
+            return
+
+        source_to_edit = self.sources[current_row]
+        
+        # 1. 编辑名称
+        new_name, ok1 = QInputDialog.getText(self, "编辑源名称", "请输入新的源名称:", 
+                                             QLineEdit.Normal, source_to_edit['name'])
+        
+        if not (ok1 and new_name.strip()):
+            return
+        
+        # 检查名称是否与列表中的其他项重复
+        for i, s in enumerate(self.sources):
+            if i != current_row and s['name'] == new_name:
+                QMessageBox.warning(self, "名称重复", "该源名称已存在。")
+                return
+        
+        # 2. 编辑路径
+        new_path = self._validate_and_get_source_path(source_to_edit['path'])
+        
+        if not new_path:
+            return
+            
+        # 3. 更新数据源
+        self.sources[current_row]['name'] = new_name
+        self.sources[current_row]['path'] = new_path
+        
+        # 4. 刷新表格
+        self.populate_table()
+        self.table.setCurrentCell(current_row, 0)
+
+    def remove_source(self):
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "提示", "请先选择一个要删除的项目。")
+            return
+            
+        source_name = self.sources[current_row]['name']
+        reply = QMessageBox.question(self, "确认删除", f"您确定要删除快捷方式 '{source_name}' 吗？\n这不会影响您的原始文件夹。",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            del self.sources[current_row]
+            self.populate_table()
+
+    def get_sources(self):
+        # 在关闭前，从表格中读取最终的用户修改
+        final_sources = []
+        for row in range(self.table.rowCount()):
+            name = self.table.item(row, 0).text().strip()
+            path = self.table.item(row, 1).text().strip()
+            if name and path:
+                 # 再次检查名称唯一性
+                if any(s['name'] == name for s in final_sources):
+                    QMessageBox.warning(self, "保存失败", f"存在重复的源名称: '{name}'。\n请在关闭前修正。")
+                    return None # 返回None表示验证失败
+                final_sources.append({'name': name, 'path': path})
+        return final_sources
+
+    # 重写 accept 方法以进行最终验证
+    def accept(self):
+        final_sources = self.get_sources()
+        if final_sources is not None:
+            self.sources = final_sources # 将验证后的结果存回
+            super().accept()
+
 def create_page(parent_window, config, base_path, results_dir, audio_record_dir, icon_manager, ToggleSwitchClass):
     # [修改] 更新数据源名称
     data_sources = {
@@ -327,6 +564,9 @@ class AudioManagerPage(QWidget):
         self.DATA_SOURCES = data_sources
         self.current_session_path = None; self.current_data_type = None; self.current_displayed_duration = 0
         self.trim_start_ms = None; self.trim_end_ms = None; self.temp_preview_file = None
+
+        # [新增] 初始化自定义数据源列表
+        self.custom_data_sources = []
 
         # [重构] 使用播放器缓存池替代单一播放器
         self.player_cache = {}  # {filepath: QMediaPlayer_instance}
@@ -364,6 +604,10 @@ class AudioManagerPage(QWidget):
         self.source_combo = QComboBox()
         self.source_combo.addItems(self.DATA_SOURCES.keys())
         self.source_combo.setToolTip("选择要查看的数据类型。")
+        
+        # [新增] 启用自定义上下文菜单
+        self.source_combo.setContextMenuPolicy(Qt.CustomContextMenu)
+
         left_layout.addWidget(self.source_combo)
         
         left_layout.addWidget(QLabel("项目列表:"))
@@ -544,7 +788,12 @@ class AudioManagerPage(QWidget):
 
 
     def _connect_signals(self):
-        self.source_combo.currentTextChanged.connect(self.populate_session_list)
+        # [核心修改] 使用 currentTextChanged 信号，这样可以处理用户输入和程序设置
+        self.source_combo.currentTextChanged.connect(self.on_source_changed)
+
+        # [新增] 连接右键菜单信号
+        self.source_combo.customContextMenuRequested.connect(self.open_source_context_menu)
+
         self.session_list_widget.itemSelectionChanged.connect(self.on_session_selection_changed); self.session_list_widget.customContextMenuRequested.connect(self.open_folder_context_menu)
         self.session_list_widget.itemDoubleClicked.connect(self.on_session_item_double_clicked); self.play_pause_btn.clicked.connect(self.on_play_button_clicked)
         self.playback_slider.sliderMoved.connect(self.set_playback_position); self.volume_slider.valueChanged.connect(self._on_volume_slider_changed)
@@ -1178,14 +1427,13 @@ class AudioManagerPage(QWidget):
 
     def open_file_context_menu(self, position):
         """
-        [v2.0 重构] 构建文件列表的右键上下文菜单。
-        现在采用更通用的钩子模式，允许插件动态填充菜单项。
+        [修改后] 构建文件列表的右键上下文菜单。
         """
         selected_items = self.audio_table_widget.selectedItems()
         if not selected_items:
             return
 
-        # 获取选中的不重复行数和文件路径
+        # 获取选中的不重复行数和文件路径 (这部分逻辑不变)
         selected_rows = sorted(list(set(item.row() for item in selected_items)))
         selected_filepaths = [self.audio_table_widget.item(row, 0).data(Qt.UserRole) for row in selected_rows]
         selected_rows_count = len(selected_rows)
@@ -1199,12 +1447,31 @@ class AudioManagerPage(QWidget):
         else:
             play_action.setEnabled(False)
 
-        analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
-        if selected_rows_count == 1:
-            analyze_action.triggered.connect(lambda: self.parent_window.go_to_audio_analysis(selected_filepaths[0]))
-        else:
-            analyze_action.setEnabled(False)
+        # --- [核心修改开始] ---
 
+        # 1. 检查音频分析模块是否已加载 (这是我们的“钩子”)
+        #    我们通过检查主窗口是否存在 audio_analysis_page 属性来判断
+        analysis_module_available = hasattr(self.parent_window, 'audio_analysis_page') and self.parent_window.audio_analysis_page is not None
+
+        # 2. 创建菜单项
+        analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
+        
+        # 3. 根据模块可用性和选择数量来设置菜单项状态
+        analyze_action.setEnabled(analysis_module_available and selected_rows_count == 1)
+        
+        # 4. 设置有用的工具提示，告知用户为什么不可用
+        if not analysis_module_available:
+            analyze_action.setToolTip("音频分析模块未加载或初始化失败。")
+        elif selected_rows_count != 1:
+            analyze_action.setToolTip("请只选择一个音频文件进行分析。")
+        else:
+            # 当可用时，连接信号到新的辅助方法
+            # 使用 partial 来传递文件路径，避免 lambda 作用域问题
+            from functools import partial
+            analyze_action.triggered.connect(partial(self.send_to_audio_analysis, selected_filepaths[0]))
+        
+        # --- [核心修改结束] ---
+        
         menu.addSeparator()
 
         add_to_staging_action = menu.addAction(self.icon_manager.get_icon("add_row"), f"将 {selected_rows_count} 个文件添加到暂存区")
@@ -1267,6 +1534,17 @@ class AudioManagerPage(QWidget):
             q_action.triggered.connect(lambda checked, key=action_key: self.set_shortcut_button_action(key))
 
         menu.exec_(self.audio_table_widget.mapToGlobal(position))
+
+    def send_to_audio_analysis(self, filepath):
+        """
+        调用主窗口的公共API来切换到音频分析模块并加载文件。
+        """
+        # 再次进行安全检查
+        if not (hasattr(self.parent_window, 'go_to_audio_analysis') and callable(self.parent_window.go_to_audio_analysis)):
+            QMessageBox.critical(self, "功能缺失", "主程序缺少必要的跳转功能 (go_to_audio_analysis)。")
+            return
+            
+        self.parent_window.go_to_audio_analysis(filepath)
 
     def delete_selected_files(self):
         """
@@ -1380,34 +1658,142 @@ class AudioManagerPage(QWidget):
     def apply_layout_settings(self):
         config = self.parent_window.config; ui_settings = config.get("ui_settings", {}); width = ui_settings.get("editor_sidebar_width", 350); self.left_panel.setFixedWidth(width)
         
+    # [重构] load_and_refresh 现在负责合并数据源并填充下拉框
     def load_and_refresh(self):
-         # [修改] 确保 self.config 是最新的
         self.config = self.parent_window.config
         self.apply_layout_settings()
         self.update_icons()
-        results_dir_base = self.config.get('file_settings', {}).get('results_dir', os.path.join(self.BASE_PATH, "Results"))
-        self.DATA_SOURCES["标准朗读采集"]["path"] = os.path.join(results_dir_base, "common")
-        self.DATA_SOURCES["看图说话采集"]["path"] = os.path.join(results_dir_base, "visual")
-        self.DATA_SOURCES["语音包录制"]["path"] = os.path.join(self.BASE_PATH, "audio_record")
-        self.DATA_SOURCES["TTS 工具语音"]["path"] = os.path.join(self.BASE_PATH, "audio_tts")
-        current_source = self.source_combo.currentText(); self.source_combo.blockSignals(True); self.source_combo.clear(); self.source_combo.addItems(self.DATA_SOURCES.keys()); self.source_combo.setCurrentText(current_source); self.source_combo.blockSignals(False)
-        if self.source_combo.findText(current_source) != -1: self.populate_session_list()
-        else: self.session_list_widget.clear(); self.audio_table_widget.setRowCount(0); self.table_label.setText("请从左侧选择一个项目以查看文件"); self.reset_player()
+
+        # 1. 加载自定义源
+        self.custom_data_sources = self.config.get("file_settings", {}).get("custom_data_sources", [])
+
+        # 2. 填充下拉框
+        self.source_combo.blockSignals(True)
+        current_text = self.source_combo.currentText()
+        self.source_combo.clear()
+
+        # 添加内置源
+        for name in self.DATA_SOURCES.keys():
+            self.source_combo.addItem(name)
         
+        if self.custom_data_sources:
+            self.source_combo.insertSeparator(self.source_combo.count())
+            for source in self.custom_data_sources:
+                # 使用图标来区分自定义源
+                self.source_combo.addItem(self.icon_manager.get_icon("folder"), source['name'])
+
+        # 添加特殊操作项
+        self.source_combo.insertSeparator(self.source_combo.count())
+        self.source_combo.addItem(self.icon_manager.get_icon("duplicate_row"), "< 添加/管理自定义源... >")
+        
+        # 尝试恢复之前的选择
+        index = self.source_combo.findText(current_text)
+        if index != -1:
+            self.source_combo.setCurrentIndex(index)
+        
+        self.source_combo.blockSignals(False)
+
+        # 触发一次刷新
+        self.on_source_changed(self.source_combo.currentText())
+
+    # [新增] on_source_changed 槽函数，替代 populate_session_list
+    def on_source_changed(self, text):
+        if text == "< 添加/管理自定义源... >":
+            self._manage_custom_sources() # 调用新的管理方法
+            return
+    
+        self.populate_session_list()
+
+    # [重构] populate_session_list 现在只负责填充列表，数据源由 on_source_changed 决定
     def populate_session_list(self):
-        source_name = self.source_combo.currentText(); source_info = self.DATA_SOURCES.get(source_name)
-        if not source_info: return
+        source_name = self.source_combo.currentText()
+        source_info = self.DATA_SOURCES.get(source_name)
+        is_custom = False
+
+        if not source_info:
+            # 如果不是内置源，就从自定义源中查找
+            for custom_source in self.custom_data_sources:
+                if custom_source['name'] == source_name:
+                    source_info = {"path": custom_source['path'], "filter": lambda d, p: os.path.isdir(os.path.join(p, d))}
+                    is_custom = True
+                    break
+        
+        if not source_info:
+            self.session_list_widget.clear()
+            self.audio_table_widget.setRowCount(0)
+            self.table_label.setText("无效的数据源")
+            return
+
         self.session_active = False; self.reset_player()
-        current_text = self.session_list_widget.currentItem().text() if self.session_list_widget.currentItem() else None; self.session_list_widget.clear()
-        base_path = source_info["path"]; path_filter = source_info["filter"]
-        if not os.path.exists(base_path): os.makedirs(base_path, exist_ok=True); return
+        current_text = self.session_list_widget.currentItem().text() if self.session_list_widget.currentItem() else None
+        self.session_list_widget.clear()
+        
+        base_path = source_info["path"]
+        
+        if not os.path.exists(base_path):
+            if is_custom:
+                self.session_list_widget.addItem(f"错误: 路径不存在\n{base_path}")
+            else:
+                os.makedirs(base_path, exist_ok=True)
+            return
+
         try:
-            sessions = sorted([d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d)) and path_filter(d, base_path)], key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
+            # 这里的 filter 应该应用于 os.listdir 的结果，而不是 os.path.isdir
+            # 并且需要确保只列出目录
+            sessions = sorted([d for d in os.listdir(base_path) if source_info["filter"](d, base_path)], 
+                              key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
             self.session_list_widget.addItems(sessions)
             if current_text:
                 items = self.session_list_widget.findItems(current_text, Qt.MatchFixedString)
                 if items: self.session_list_widget.setCurrentItem(items[0])
-        except Exception as e: QMessageBox.critical(self, "错误", f"加载项目列表失败: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载项目列表失败: {e}")
+
+    # [新增] 添加自定义源的逻辑
+    def _manage_custom_sources(self):
+        self.source_combo.blockSignals(True)
+        if self.source_combo.count() > 0:
+            self.source_combo.setCurrentIndex(0)
+        self.source_combo.blockSignals(False)
+    
+        # [核心修复] 将 self.icon_manager 作为参数传递给对话框
+        dialog = ManageSourcesDialog(self.custom_data_sources, self, self.icon_manager)
+    
+        if dialog.exec_() == QDialog.Accepted:
+            updated_sources = dialog.sources
+        
+            if updated_sources != self.custom_data_sources:
+                self.custom_data_sources = updated_sources
+            
+                file_settings = self.config.setdefault("file_settings", {})
+                file_settings["custom_data_sources"] = self.custom_data_sources
+                self.parent_window.update_and_save_module_state("file_settings", file_settings)
+            
+                self.load_and_refresh()
+
+    # [新增] 右键菜单逻辑
+    def open_source_context_menu(self, position):
+        index = self.source_combo.currentIndex()
+        source_name = self.source_combo.currentText()
+
+        # 检查是否是自定义源
+        is_custom = any(source['name'] == source_name for source in self.custom_data_sources)
+        
+        if not is_custom:
+            return
+
+        menu = QMenu(self)
+        remove_action = menu.addAction(self.icon_manager.get_icon("delete"), "移除此自定义源")
+        action = menu.exec_(self.source_combo.mapToGlobal(position))
+
+        if action == remove_action:
+            reply = QMessageBox.question(self, "确认移除", f"您确定要移除自定义数据源 '{source_name}' 吗？\n这只会从列表中移除快捷方式，不会删除实际的文件夹。", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.custom_data_sources = [s for s in self.custom_data_sources if s['name'] != source_name]
+                file_settings = self.config.setdefault("file_settings", {})
+                file_settings["custom_data_sources"] = self.custom_data_sources
+                self.parent_window.update_and_save_module_state("file_settings", file_settings)
+                self.load_and_refresh()
         
     def populate_audio_table(self):
         """
@@ -1473,7 +1859,6 @@ class AudioManagerPage(QWidget):
         # 因为 setChecked() 会触发 on_sort_order_changed，
         # 从而避免了重复渲染。
         # 如果 setChecked() 的状态没有改变，我们手动调用一次以确保更新。
-        # 一个更稳健的方式是直接调用，并确保 filter_and_render_files 可以被安全地重复调用。
         # 为简单起见，我们直接调用它。
         self.filter_and_render_files()
 
@@ -1565,7 +1950,26 @@ class AudioManagerPage(QWidget):
     def on_session_selection_changed(self):
         selected_items = self.session_list_widget.selectedItems()
         if not selected_items: self.audio_table_widget.setRowCount(0); self.table_label.setText("请从左侧选择一个项目以查看文件"); self.session_active = False; self.reset_player(); return
-        self.session_active = True; source_name = self.source_combo.currentText(); self.current_session_path = os.path.join(self.DATA_SOURCES[source_name]["path"], selected_items[0].text())
+        
+        # 获取当前选中的数据源类型，判断是内置还是自定义
+        source_name = self.source_combo.currentText()
+        source_info = self.DATA_SOURCES.get(source_name)
+        
+        if not source_info: # 可能是自定义源
+            for custom_source in self.custom_data_sources:
+                if custom_source['name'] == source_name:
+                    source_info = {"path": custom_source['path']} # 只需要路径
+                    break
+        
+        if not source_info: # 仍然没有找到，说明数据源无效
+            self.audio_table_widget.setRowCount(0)
+            self.table_label.setText("无效的数据源")
+            self.session_active = False
+            self.reset_player()
+            return
+
+        self.session_active = True
+        self.current_session_path = os.path.join(source_info["path"], selected_items[0].text())
         self.table_label.setText(f"项目: {selected_items[0].text()}"); self.populate_audio_table()
         
     def rename_folder(self, item, base_dir):
@@ -1599,7 +2003,24 @@ class AudioManagerPage(QWidget):
         if not selected_items: return
         menu = QMenu(self.audio_table_widget); delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {len(selected_items)} 个项目"); rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名"); rename_action.setEnabled(len(selected_items) == 1); menu.addSeparator()
         open_folder_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中打开"); open_folder_action.setEnabled(len(selected_items) == 1); action = menu.exec_(self.session_list_widget.mapToGlobal(position))
-        source_name = self.source_combo.currentText(); base_dir = self.DATA_SOURCES[source_name]["path"]
+        
+        # 获取当前选中的数据源类型，判断是内置还是自定义
+        source_name = self.source_combo.currentText()
+        base_dir = None
+        
+        # 优先从内置数据源查找
+        if source_name in self.DATA_SOURCES:
+            base_dir = self.DATA_SOURCES[source_name]["path"]
+        else: # 从自定义数据源查找
+            for custom_source in self.custom_data_sources:
+                if custom_source['name'] == source_name:
+                    base_dir = custom_source['path']
+                    break
+        
+        if not base_dir: # 如果没有找到对应的base_dir，则无法执行操作
+            QMessageBox.warning(self, "错误", "无法确定数据源路径。")
+            return
+
         if action == delete_action: self.delete_folders(selected_items, base_dir)
         elif action == getattr(self, 'last_praat_action', None) and action is not None:
             self._send_to_external_launcher()
