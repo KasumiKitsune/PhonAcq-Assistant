@@ -1,24 +1,48 @@
-# Core application framework
+# ==========================================================
+# PhonAcq Assistant - Python Dependencies
+# ==========================================================
+
+# --- Core GUI Framework ---
 PyQt5
+PyQt5-sip
+PyQt5-stubs
 
-# Data handling and Excel integration
-pandas
-openpyxl
-
-# Audio processing and playback
+# --- Core Audio & Data Processing ---
 sounddevice
 soundfile
 numpy
+pandas
+openpyxl
 
-# Online Text-to-Speech (TTS)
-gTTS
-
-# String similarity and fuzzy matching for smart-detect features
-thefuzz
-python-Levenshtein
-
-# Chinese Pinyin to IPA conversion
+# --- Text & Language Processing ---
 pypinyin
-
-# Markdown rendering for the help module
 markdown
+gtts
+thefuzz[speedup]  # a.k.a 'python-Levenshtein' will be installed
+librosa
+
+# --- Plugin: Praat Exporter & Vowel Plotter ---
+praat-parselmouth  # This is the library that provides 'textgrid'
+matplotlib
+Pillow             # a.k.a 'PIL', required by Matplotlib
+cycler             # Required by Matplotlib
+kiwisolver         # Required by Matplotlib
+pyparsing          # Required by Matplotlib
+
+# --- Plugin: Cloud Sync (WebDAV) ---
+requests
+webdavclient3      # Provides 'webdav3'
+
+# --- Plugin: Cloud Sync (XML Parsing for some servers) ---
+lxml
+
+# --- Scientific Computing & Performance ---
+scipy
+numba
+joblib
+scikit-learn       # Provides 'sklearn'
+
+# --- Packaging Tool ---
+# Although not a runtime dependency, it's essential for building the project.
+pyinstaller
+pyinstaller-hooks-contrib # Recommended for easier packaging of libs like matplotlib
