@@ -19,7 +19,8 @@
 ---
 ## 注意
 **本项目大部分代码以及 README 由 Gemini Pro 贡献。**
-**插件项目地址：**https://github.com/KasumiKitsune/PhonAcq-Official-Plugins
+
+插件项目地址：https://github.com/KasumiKitsune/PhonAcq-Official-Plugins
 
 ## 界面截图
 <div align="center">
