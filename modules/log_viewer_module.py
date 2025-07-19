@@ -235,6 +235,39 @@ class LogViewerPage(QWidget):
         # 直接填充列表，因为数据源是固定的
         self.populate_session_list()
 
+    def load_log_file_from_path(self, filepath):
+        """公共API: 从外部（如文件管理器）加载一个指定的日志文件。"""
+        
+        # --- [核心修复] ---
+        # 1. 在执行任何操作前，强制调用一次 load_and_refresh。
+        #    这将确保 _build_data_sources() 被执行，self.LOG_DATA_SOURCES 属性被正确创建和填充。
+        self.load_and_refresh()
+        # --- [修复结束] ---
+
+        dir_path = os.path.dirname(filepath)
+        log_name = os.path.basename(dir_path) # 日志的标识是其父文件夹的名称
+        
+        # 2. 切换到正确的日志源
+        found_source = False
+        # 现在 self.LOG_DATA_SOURCES 可以被安全地访问
+        for source_name, source_info in self.LOG_DATA_SOURCES.items():
+            # 使用 os.path.realpath 确保路径比较的健壮性
+            if os.path.realpath(source_info['path']) == os.path.realpath(os.path.dirname(dir_path)):
+                self.source_combo.setCurrentText(source_name)
+                found_source = True
+                break
+        
+        if not found_source:
+             QMessageBox.warning(self, "数据源不匹配", f"日志文件 '{log_name}' 不属于任何已知的数据源。")
+             return
+
+        # 3. 在列表中找到并选中该会话
+        items = self.session_list.findItems(log_name, Qt.MatchExactly)
+        if items:
+            self.session_list.setCurrentItem(items[0])
+        else:
+            QMessageBox.warning(self, "会话未找到", f"会话 '{log_name}' 不在当前加载的列表中。")
+
     def populate_session_list(self):
         self.session_list.clear()
         self.log_table.setRowCount(0)

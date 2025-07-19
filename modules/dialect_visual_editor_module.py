@@ -206,6 +206,17 @@ class DialectVisualEditorPage(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "删除失败", f"无法删除文件: {e}")
 
+    def load_file_from_path(self, filepath):
+        """公共API: 从外部（如文件管理器）加载一个指定路径的图文词表文件。"""
+        # 查找文件列表中的对应项
+        filename = os.path.basename(filepath)
+        items = self.file_list_widget.findItems(filename, Qt.MatchExactly)
+        if items:
+            # 找到了，模拟用户选择
+            self.file_list_widget.setCurrentItem(items[0])
+        else:
+            QMessageBox.warning(self, "文件未找到", f"文件 '{filename}' 不在当前加载的列表中。")
+
     def setup_connections_and_shortcuts(self):
         self.file_list_widget.itemDoubleClicked.connect(self.on_file_double_clicked)
         self.file_list_widget.customContextMenuRequested.connect(self.show_file_context_menu)

@@ -130,10 +130,14 @@ class ReorderDialog(QDialog):
         self._update_icons()
 
     def _connect_signals(self):
-        self.up_button.clicked.connect(self.move_up)
-        self.down_button.clicked.connect(self.move_down)
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
+        self.add_btn.clicked.connect(self.add_source)
+        self.edit_btn.clicked.connect(self.edit_source)
+        self.remove_btn.clicked.connect(self.remove_source)
+        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
+        
+        # --- [核心修改] ---
+        # 连接新的“保存并关闭”按钮到 accept() 槽
+        self.save_close_btn.clicked.connect(self.accept)
 
     def _update_icons(self):
         if self.icon_manager:
@@ -314,8 +318,8 @@ class ManageSourcesDialog(QDialog):
         self.setWindowTitle("管理自定义数据源")
         self.setMinimumSize(600, 400)
         
-        self.sources = deepcopy(sources) # 使用深拷贝，避免直接修改原始列表
-        self.icon_manager = icon_manager # 保存实例
+        self.sources = deepcopy(sources)
+        self.icon_manager = icon_manager
 
         layout = QVBoxLayout(self)
         
@@ -328,37 +332,37 @@ class ManageSourcesDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection) # 一次只操作一个
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.populate_table()
         
-        # 按钮栏
+        # --- [核心修改] ---
+        # 重新组织按钮栏，将所有按钮放在一个QHBoxLayout中
         btn_layout = QHBoxLayout()
         self.add_btn = QPushButton("添加新源...")
         self.edit_btn = QPushButton("编辑...")
         self.remove_btn = QPushButton("删除")
-        if self.icon_manager:
-            self.add_btn.setIcon(self.icon_manager.get_icon("add_row"))
-            self.edit_btn.setIcon(self.icon_manager.get_icon("edit"))
-            self.remove_btn.setIcon(self.icon_manager.get_icon("delete"))
+        
+        # 创建新的“保存并关闭”按钮
+        self.save_close_btn = QPushButton("保存并关闭")
+        self.save_close_btn.setObjectName("AccentButton") # 应用主题强调色
+        
+        # 将按钮添加到布局中
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.remove_btn)
-        btn_layout.addStretch()
+        btn_layout.addStretch() # 添加一个弹簧，将“保存”按钮推到右侧
+        btn_layout.addWidget(self.save_close_btn)
         
-        # 确定/取消按钮
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        # [移除] 不再需要旧的QDialogButtonBox
+        # self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
 
         layout.addWidget(self.table)
-        layout.addLayout(btn_layout)
-        layout.addWidget(self.button_box)
+        layout.addLayout(btn_layout) # 将新的按钮栏添加到主布局
+        # [移除] 不再添加旧的button_box
+        # layout.addWidget(self.button_box)
         
-        # 连接信号
-        self.add_btn.clicked.connect(self.add_source)
-        self.edit_btn.clicked.connect(self.edit_source)
-        self.remove_btn.clicked.connect(self.remove_source)
-        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
+        # 在 `__init__` 的末尾调用，确保图标被设置
+        self._update_button_icons()
 
     def _validate_and_get_source_path(self, initial_path=""):
         """
@@ -472,6 +476,14 @@ class ManageSourcesDialog(QDialog):
         # 4. 刷新表格
         self.populate_table()
         self.table.setCurrentCell(current_row, 0) # 保持选中状态
+
+    def _update_button_icons(self):
+        """为所有按钮设置图标。"""
+        if self.icon_manager:
+            self.add_btn.setIcon(self.icon_manager.get_icon("add_row"))
+            self.edit_btn.setIcon(self.icon_manager.get_icon("edit"))
+            self.remove_btn.setIcon(self.icon_manager.get_icon("delete"))
+            self.save_close_btn.setIcon(self.icon_manager.get_icon("save_2"))
 
     def edit_source(self):
         current_row = self.table.currentRow()
@@ -785,7 +797,6 @@ class AudioManagerPage(QWidget):
         page_layout.addWidget(main_splitter)
         self.setFocusPolicy(Qt.StrongFocus)
         self.reset_player()
-
 
     def _connect_signals(self):
         # [核心修改] 使用 currentTextChanged 信号，这样可以处理用户输入和程序设置
@@ -1751,25 +1762,41 @@ class AudioManagerPage(QWidget):
 
     # [新增] 添加自定义源的逻辑
     def _manage_custom_sources(self):
-        self.source_combo.blockSignals(True)
-        if self.source_combo.count() > 0:
-            self.source_combo.setCurrentIndex(0)
-        self.source_combo.blockSignals(False)
-    
-        # [核心修复] 将 self.icon_manager 作为参数传递给对话框
+        # [核心修复 1] 在打开对话框前，记录下当前选中的文本
+        previous_source_name = self.source_combo.currentText()
+        
+        # [核心修复 2] 将 self.icon_manager 作为参数传递给对话框
         dialog = ManageSourcesDialog(self.custom_data_sources, self, self.icon_manager)
     
         if dialog.exec_() == QDialog.Accepted:
             updated_sources = dialog.sources
         
+            # 只有在数据源实际发生变化时才保存和刷新
             if updated_sources != self.custom_data_sources:
                 self.custom_data_sources = updated_sources
             
+                # 保存到配置文件
                 file_settings = self.config.setdefault("file_settings", {})
                 file_settings["custom_data_sources"] = self.custom_data_sources
                 self.parent_window.update_and_save_module_state("file_settings", file_settings)
             
+                # 完全刷新UI
                 self.load_and_refresh()
+                # 刷新后，尝试恢复到之前的选择
+                index = self.source_combo.findText(previous_source_name)
+                if index != -1:
+                    self.source_combo.setCurrentIndex(index)
+                else:
+                    # 如果之前的源被删了，就回到第一个
+                    self.source_combo.setCurrentIndex(0)
+
+        else: # 如果用户点击了 "Cancel"
+            # [核心修复 3] 即使是取消，也要确保下拉框恢复到之前的状态
+            self.source_combo.blockSignals(True)
+            index = self.source_combo.findText(previous_source_name)
+            if index != -1:
+                self.source_combo.setCurrentIndex(index)
+            self.source_combo.blockSignals(False)
 
     # [新增] 右键菜单逻辑
     def open_source_context_menu(self, position):

@@ -17,8 +17,8 @@ import subprocess
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QLineEdit, QHeaderView,
-                             QAbstractItemView)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtProperty
+                             QAbstractItemView, QMenu, QToolButton, QWidgetAction)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtProperty, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
 
 # 模块级别的依赖检查
@@ -149,6 +149,7 @@ class AccentCollectionPage(QWidget):
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2); self.recording_thread = None
         self.session_stop_event = threading.Event(); self.logger = None
+        self.prompt_mode = 'tts' # 默认提示音模式
         
         self._init_ui(); self._connect_signals(); self.update_icons(); self.reset_ui(); self.apply_layout_settings()
 
@@ -273,7 +274,7 @@ class AccentCollectionPage(QWidget):
             self.list_widget.setColumnWidth(2, width3)
 
     def _connect_signals(self):
-        self.start_session_btn.clicked.connect(self.start_session)
+        self.start_session_btn.clicked.connect(self.show_start_session_menu)
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.clicked.connect(self.handle_record_button)
         self.replay_btn.clicked.connect(self.replay_audio)
@@ -395,21 +396,172 @@ class AccentCollectionPage(QWidget):
         if not force:
             reply = QMessageBox.question(self, '结束会话', '您确定要结束当前的口音采集会话吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply != QMessageBox.Yes: return
-        if self.logger:
-            recorded_count = sum(1 for item in self.current_word_list if item.get('recorded', False)); total_count = len(self.current_word_list)
-            self.logger.log(f"[SESSION_END] Session ended by user. Recorded {recorded_count}/{total_count} items.")
-        self.update_timer.stop(); self.volume_meter.setValue(0); self.session_stop_event.set()
-        if self.recording_thread and self.recording_thread.is_alive(): self.recording_thread.join(timeout=1.0)
-        self.recording_thread = None; self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1; self.logger = None
-        self.reset_ui(); self.load_config_and_prepare()
 
-    def start_session(self):
-        wordlist_file = self.word_list_combo.currentText()
-        if not wordlist_file: QMessageBox.warning(self, "选择错误", "请先选择一个单词表。"); return
-        base_name = self.participant_input.text().strip()
-        if not base_name: QMessageBox.warning(self, "输入错误", "请输入被试者名称。"); return
+        if self.logger:
+            recorded_count = sum(1 for item in self.current_word_list if item.get('recorded', False))
+            total_count = len(self.current_word_list)
+            self.logger.log(f"[SESSION_END] Session ended by user. Recorded {recorded_count}/{total_count} items.")
         
-        # [修改] 结果保存路径
+        # 停止所有后台活动
+        self.update_timer.stop()
+        self.volume_meter.setValue(0)
+        self.session_stop_event.set()
+        if self.recording_thread and self.recording_thread.is_alive():
+            self.recording_thread.join(timeout=1.0)
+        
+        # --- [核心修改] ---
+        # 在重置UI和内部状态之前，调用清理函数
+        self._cleanup_empty_session_folder()
+        # --- [修改结束] ---
+
+        # 重置所有会话相关的状态
+        self.recording_thread = None
+        self.session_active = False
+        self.is_recording = False
+        self.current_word_list = []
+        self.current_word_index = -1
+        self.logger = None
+        
+        # 重置UI到初始状态
+        self.reset_ui()
+        self.load_config_and_prepare()
+
+    def _cleanup_empty_session_folder(self):
+        """
+        [vNext 新增] 在会话结束时，检查并清理只包含日志文件的空会话文件夹。
+        """
+        # 安全检查：确保文件夹路径存在且是一个目录
+        if not hasattr(self, 'recordings_folder') or not os.path.isdir(self.recordings_folder):
+            return
+
+        try:
+            # 获取文件夹内的所有项目
+            items_in_folder = os.listdir(self.recordings_folder)
+            
+            # 定义哪些是音频文件（应该保留文件夹）
+            audio_extensions = ('.wav', '.mp3', '.flac', '.ogg', '.m4a')
+            
+            # 检查是否存在任何音频文件
+            has_audio_files = any(item.lower().endswith(audio_extensions) for item in items_in_folder)
+            
+            # 如果存在任何音频文件，则立即停止，不做任何操作
+            if has_audio_files:
+                return
+
+            # 如果代码执行到这里，说明没有音频文件。
+            # 现在我们检查剩下的文件是否只有 log.txt 或者文件夹为空。
+            # 找出所有非音频文件（和非文件夹）
+            other_files = [
+                item for item in items_in_folder 
+                if not item.lower().endswith(audio_extensions) and os.path.isfile(os.path.join(self.recordings_folder, item))
+            ]
+            
+            # 决策：如果文件夹是空的，或者只包含一个 log.txt 文件，则删除
+            if not other_files or (len(other_files) == 1 and other_files[0] == 'log.txt'):
+                # 记录即将被删除的文件夹路径，以防 self.logger 被置空
+                folder_to_delete = self.recordings_folder
+                
+                # 在状态栏给用户一个清晰的反馈
+                self.status_label.setText("状态：会话结束。已自动清理空的结果文件夹。")
+                if self.logger:
+                    self.logger.log(f"[CLEANUP] Session folder '{os.path.basename(folder_to_delete)}' contains no audio. Deleting.")
+                
+                # 使用 shutil.rmtree 来安全地删除整个文件夹及其内容
+                import shutil
+                shutil.rmtree(folder_to_delete)
+                
+                print(f"[INFO] Cleaned up empty session folder: {folder_to_delete}")
+
+        except Exception as e:
+            # 如果出现任何错误（如权限问题），则打印错误信息，但不要让程序崩溃
+            print(f"[ERROR] Failed to cleanup empty session folder '{self.recordings_folder}': {e}")
+
+    def show_start_session_menu(self):
+        """
+        [v2.4 修复] 菜单项在点击后立即自动关闭。
+        """
+        # 1. 前置检查 (不变)
+        wordlist_file = self.word_list_combo.currentText()
+        if not wordlist_file:
+            QMessageBox.warning(self, "选择错误", "请先选择一个单词表。")
+            return
+        base_name = self.participant_input.text().strip()
+        if not base_name:
+            QMessageBox.warning(self, "输入错误", "请输入被试者名称。")
+            return
+            
+        # 2. 智能检测是否存在 'Record' 源 (不变)
+        wordlist_name, _ = os.path.splitext(wordlist_file)
+        record_source_path = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name)
+        record_source_exists = os.path.exists(record_source_path) and any(
+            f.lower().endswith(('.wav', '.mp3')) for f in os.listdir(record_source_path)
+        )
+        
+        # 3. 构建菜单
+        menu = QMenu(self)
+        menu.setStyleSheet(self.parent_window.styleSheet())
+        
+        from functools import partial
+
+        # 辅助函数
+        def create_menu_item(icon, text, tooltip, callback_func):
+            button = QToolButton(menu)
+            button.setText(text)
+            button.setIcon(icon)
+            button.setToolTip(tooltip)
+            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            button.setAutoRaise(True)
+            button.setFixedWidth(250)
+            button.setObjectName("PluginMenuItemToolButton")
+            
+            # --- [核心修改] ---
+            # 创建一个 lambda 函数，它首先关闭菜单，然后调用原始的回调函数。
+            # 这确保了点击后菜单会立即消失。
+            button.clicked.connect(lambda: (menu.close(), callback_func()))
+            
+            widget_action = QWidgetAction(menu)
+            widget_action.setDefaultWidget(button)
+            menu.addAction(widget_action)
+
+        # 创建菜单项
+        create_menu_item(
+            self.icon_manager.get_icon("tts"), 
+            "使用 TTS 提示音",
+            "程序将检查并自动生成缺失的TTS音频作为提示音。\n推荐用于没有真人录音的情况。",
+            partial(self.start_session, prompt_mode='tts')
+        )
+        
+        if record_source_exists:
+            create_menu_item(
+                self.icon_manager.get_icon("play_audio"),
+                "使用已有录音作为提示音",
+                f"优先使用 '{wordlist_name}' 文件夹内已录制的人声\n作为提示音，这通常比TTS质量更高。",
+                partial(self.start_session, prompt_mode='record')
+            )
+
+        menu.addSeparator()
+        
+        create_menu_item(
+            self.icon_manager.get_icon("mute"),
+            "无提示音直接开始",
+            "开始一个静默录制会话，不会播放任何提示音。\n适用于跟读、复述等任务。",
+            partial(self.start_session, prompt_mode='silent')
+        )
+        
+        # 5. 显示菜单 (不变)
+        menu.exec_(self.start_session_btn.mapToGlobal(QPoint(0, self.start_session_btn.height())))
+
+    def start_session(self, prompt_mode='tts'):
+        """
+        [v2.1 修复] 此方法只应在用户从菜单中做出选择后被调用。
+        它是所有会话准备工作的真正入口。
+        :param prompt_mode: 'tts', 'record', 或 'silent'
+        """
+        self.prompt_mode = prompt_mode
+
+        wordlist_file = self.word_list_combo.currentText()
+        base_name = self.participant_input.text().strip()
+        
         results_dir = self.config['file_settings'].get("results_dir", os.path.join(self.BASE_PATH, "Results"))
         common_results_dir = os.path.join(results_dir, "common"); os.makedirs(common_results_dir, exist_ok=True)
         i = 1; folder_name = base_name
@@ -418,21 +570,33 @@ class AccentCollectionPage(QWidget):
         
         self.logger = None
         if self.config.get("app_settings", {}).get("enable_logging", True): self.logger = self.Logger(os.path.join(self.recordings_folder, "log.txt"))
+
         try:
-            self.current_wordlist_name = wordlist_file; word_groups = self.load_word_list_logic()
+            self.current_wordlist_name = wordlist_file
+            word_groups = self.load_word_list_logic()
             if not word_groups:
                 QMessageBox.warning(self, "词表错误", f"单词表 '{wordlist_file}' 为空或无法解析。")
-                if self.logger: self.logger.log(f"[ERROR] Wordlist '{wordlist_file}' is empty or could not be parsed.")
-                self.reset_ui(); return
+                if self.logger: self.logger.log(f"[ERROR] Wordlist is empty.")
+                return
+
             if self.logger:
-                mode = "Random" if self.random_switch.isChecked() else "Sequential"; scope = "Full List" if self.full_list_switch.isChecked() else "Partial (One per group)"
-                self.logger.log(f"[SESSION_START] Participant: '{base_name}', Session Folder: '{folder_name}'"); self.logger.log(f"[SESSION_CONFIG] Wordlist: '{wordlist_file}', Mode: {mode}, Scope: {scope}")
-            self.progress_bar.setVisible(True); self.progress_bar.setRange(0, 100); self.progress_bar.setValue(0); self.run_task_in_thread(self.check_and_generate_audio_logic, word_groups)
+                mode = "Random" if self.random_switch.isChecked() else "Sequential"
+                scope = "Full List" if self.full_list_switch.isChecked() else "Partial"
+                self.logger.log(f"[SESSION_START] Participant: '{base_name}', Folder: '{folder_name}'")
+                self.logger.log(f"[SESSION_CONFIG] Wordlist: '{wordlist_file}', Prompt Mode: '{prompt_mode}', Order: {mode}, Scope: {scope}")
+            
+            if self.prompt_mode == 'tts':
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
+                self.run_task_in_thread(self.check_and_generate_audio_logic, word_groups)
+            else:
+                self._proceed_to_start_session()
+
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"加载单词表失败: {e}");
-            if self.logger: self.logger.log(f"[ERROR] Failed to load wordlist '{wordlist_file}': {e}")
-            self.reset_ui()
-        
+            QMessageBox.critical(self, "错误", f"加载单词表失败: {e}")
+            if self.logger: self.logger.log(f"[ERROR] Failed to load wordlist: {e}")
+            
     def update_tts_progress(self, percentage, text):
         self.progress_bar.setValue(percentage)
         
@@ -705,6 +869,10 @@ class AccentCollectionPage(QWidget):
         self.play_audio_logic()
     
     def play_audio_logic(self, index=None):
+        # [vNext 新增] 如果是静默模式，则不播放任何提示音
+        if self.prompt_mode == 'silent':
+            return
+
         if not self.session_active:
             return
         if index is None:
@@ -715,10 +883,11 @@ class AccentCollectionPage(QWidget):
         word = self.current_word_list[index]['word']
         wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
         
-        # [核心修复] 定义一个搜索路径和格式的列表
+        # 搜索路径逻辑保持不变，它会自动优先查找录音
         search_paths = [
-            (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']), # 1. 优先在旧的录音库中查找
-            (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3']) # 2. 最后查找自动生成的TTS提示音
+            (self.recordings_folder, ['.wav', '.mp3', '.flac', '.ogg']),
+            (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']),
+            (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3'])
         ]
 
         final_path = None
@@ -728,15 +897,19 @@ class AccentCollectionPage(QWidget):
                 path_to_check = os.path.join(folder, f"{word}{ext}")
                 if os.path.exists(path_to_check):
                     final_path = path_to_check
-                    break  # 找到后立即退出内层循环
+                    break
             if final_path:
-                break  # 找到后立即退出外层循环
+                break
 
         if final_path:
             threading.Thread(target=self.play_sound_task, args=(final_path,), daemon=True).start()
         else:
-            self.status_label.setText(f"状态：找不到 '{word}' 的提示音或录音！")
-        
+            # 如果在 'record' 模式下找不到音频，给予用户明确提示
+            if self.prompt_mode == 'record':
+                self.status_label.setText(f"状态：在录音库中找不到 '{word}' 的提示音！")
+            else:
+                self.status_label.setText(f"状态：找不到 '{word}' 的提示音！")
+                
     def play_sound_task(self,path):
         try:data,sr=sf.read(path,dtype='float32');sd.play(data,sr);sd.wait()
         except Exception as e: 

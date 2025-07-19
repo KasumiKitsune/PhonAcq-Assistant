@@ -942,6 +942,60 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的图标时出错: {e}")
 
+    # --- [vNext 新增] 插件交互API ---
+
+    def _navigate_to_tab(self, main_tab_name, sub_tab_name=None):
+        """
+        一个通用的导航函数，用于切换到指定的主标签页和子标签页。
+        :param main_tab_name: 主标签页的文本。
+        :param sub_tab_name: 子标签页的文本 (可选)。
+        :return: 成功则返回目标页面实例，失败则返回 None。
+        """
+        for i in range(self.main_tabs.count()):
+            if self.main_tabs.tabText(i) == main_tab_name:
+                self.main_tabs.setCurrentIndex(i)
+                QApplication.processEvents() # 确保UI更新
+                
+                main_widget = self.main_tabs.widget(i)
+                if sub_tab_name is None:
+                    return main_widget
+
+                if isinstance(main_widget, QTabWidget):
+                    for j in range(main_widget.count()):
+                        if main_widget.tabText(j) == sub_tab_name:
+                            main_widget.setCurrentIndex(j)
+                            QApplication.processEvents()
+                            return main_widget.widget(j)
+        return None
+
+    def open_in_wordlist_editor(self, filepath):
+        """公共API: 在正确的词表编辑器中打开一个文件。"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            file_format = data.get("meta", {}).get("format", "")
+            
+            target_page = None
+            if file_format == "standard_wordlist":
+                target_page = self._navigate_to_tab("数据准备", "通用词表编辑器")
+            elif file_format == "visual_wordlist":
+                target_page = self._navigate_to_tab("数据准备", "图文词表编辑器")
+            
+            if target_page and hasattr(target_page, 'load_file_from_path'):
+                target_page.load_file_from_path(filepath)
+            elif target_page is None:
+                QMessageBox.warning(self, "导航失败", "无法找到对应的词表编辑器标签页。")
+        except Exception as e:
+            QMessageBox.critical(self, "打开失败", f"无法打开或解析词表文件:\n{e}")
+
+    def open_in_log_viewer(self, filepath):
+        """公共API: 在日志查看器中打开一个日志文件。"""
+        target_page = self._navigate_to_tab("资源管理", "日志查看器")
+        if target_page and hasattr(target_page, 'load_log_file_from_path'):
+            target_page.load_log_file_from_path(filepath)
+        elif target_page is None:
+             QMessageBox.warning(self, "导航失败", "无法找到日志查看器标签页。")
+
     # [新增] closeEvent 方法，用于安全退出
     def closeEvent(self, event):
         """在关闭主窗口前，确保所有插件都已安全卸载。"""

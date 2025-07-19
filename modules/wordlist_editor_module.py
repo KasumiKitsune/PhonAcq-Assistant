@@ -124,6 +124,24 @@ class WordlistEditorPage(QWidget):
         right_layout.addWidget(self.table_widget); right_layout.addLayout(table_btn_layout)
         main_layout.addWidget(self.left_panel); main_layout.addWidget(right_panel, 1)
 
+    # --- [vNext 新增] 外部调用API ---
+    def load_file_from_path(self, filepath):
+        """公共API: 从外部（如文件管理器）加载一个指定路径的词表文件。"""
+        # 查找文件列表中的对应项
+        filename = os.path.basename(filepath)
+        items = self.file_list_widget.findItems(filename, Qt.MatchExactly)
+        if items:
+            # 找到了，模拟用户选择
+            self.file_list_widget.setCurrentItem(items[0])
+        else:
+            # 如果文件不在列表中，尝试刷新列表并再次查找
+            self.refresh_file_list()
+            items = self.file_list_widget.findItems(filename, Qt.MatchExactly)
+            if items:
+                self.file_list_widget.setCurrentItem(items[0])
+            else:
+                QMessageBox.warning(self, "文件未找到", f"文件 '{filename}' 不在当前列表中，或无法加载。")
+
     def update_icons(self):
         self.new_btn.setIcon(self.icon_manager.get_icon("new_file")); self.save_btn.setIcon(self.icon_manager.get_icon("save")); self.save_as_btn.setIcon(self.icon_manager.get_icon("save_as"))
         self.add_row_btn.setIcon(self.icon_manager.get_icon("add_row")); self.remove_row_btn.setIcon(self.icon_manager.get_icon("remove_row"))
