@@ -86,6 +86,7 @@ if __name__ == "__main__":
 # [修改] 导入 IconManager
 from modules.icon_manager import IconManager
 from modules.plugin_system import BasePlugin, PluginManager, PluginManagementDialog
+from modules.language_detector_module import detect_language
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QListWidget, QListWidgetItem, QLineEdit, 
                              QFileDialog, QMessageBox, QComboBox, QSlider, QStyle, 
@@ -244,109 +245,6 @@ class Logger:
     def log(self, msg):
         with open(self.fp, 'a', encoding='utf-8') as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] - {msg}\n")
-
-# --- 建议放在 Dev.py 或一个专门的 aLgorithm_utils.py 中 ---
-
-def detect_language(text):
-    """
-    根据文本中的字符范围、特征字母和高频词智能检测语言。
-    (最终优化版：引入“杀手级特征”和权重调整，提升精准度)
-    返回一个 gTTS 兼容的语言代码 (e.g., 'zh-cn', 'fr', 'en')。
-    """
-    if not text:
-        return None
-
-    text_lower = text.lower()
-    text_length = len(text_lower)
-    if text_length == 0:
-        return None
-
-    # --- 数据定义 (gTTS兼容) ---
-    # [优化] 提升了非拉丁语系的权重
-    RANGES = {
-        'ja': (((0x3040, 0x309F), (0x30A0, 0x30FF)), 15.0, 1, 0.01), # 日语假名权重极高
-        'ko': (((0xAC00, 0xD7A3), (0x1100, 0x11FF)), 10.0, 1, 0.1),
-        'zh-cn': (((0x4E00, 0x9FFF),), 2.0, 1, 0.4),
-        'ru': (((0x0400, 0x04FF),), 8.0, 2, 0.3),
-        'hi': (((0x0900, 0x097F),), 10.0, 1, 0.1), # 提高印地语权重和降低阈值
-        'ar': (((0x0600, 0x06FF),), 10.0, 1, 0.1), # 提高阿拉伯语权重
-        'he': (((0x0590, 0x05FF),), 10.0, 1, 0.1), # 提高希伯来语权重
-        'th': (((0x0E00, 0x0E7F),), 10.0, 1, 0.1), # 提高泰语权重
-    }
-    # [优化] 越南语的声调标记现在作为“杀手级特征”处理
-    KILLER_FEATURES = {
-        'de': 'ß',
-        'es': '¿¡',
-        'vi': 'ăâđêôơư' # 越南语基础变音字母，出现即是强证据
-    }
-    FEATURES = {
-        'fr': "àâæçéèêëîïôœùûü", 'de': "äöü", 'es': "áéíóúüñ", # ß ñ 已移走
-        'pt': "áàâãéêíóôõúç", 'it': "àèéìòù", 'pl': "ąćęłńóśźż",
-        'tr': "çğıöşü", 'nl': "äëïöü"
-    }
-    STOP_WORDS = {
-        'en': {'the', 'a', 'is', 'to', 'in', 'it', 'of', 'and', 'for', 'on'},
-        'fr': {'le', 'la', 'de', 'et', 'est', 'un', 'une', 'je', 'tu'},
-        'de': {'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'ich', 'sie'},
-        'es': {'el', 'la', 'de', 'y', 'es', 'un', 'una', 'en', 'que'},
-        'pt': {'o', 'a', 'de', 'e', 'é', 'um', 'uma', 'em', 'que'},
-        'it': {'il', 'la', 'di', 'e', 'è', 'un', 'una', 'che', 'in'},
-        'nl': {'de', 'het', 'een', 'en', 'van', 'is', 'ik', 'in', 'op'}
-    }
-
-    scores = {}
-
-    # 0. “杀手级特征”检测，一旦命中，直接返回
-    for lang, chars in KILLER_FEATURES.items():
-        if any(c in text_lower for c in chars):
-            return lang
-
-    # 1. 一级检测: 基于Unicode字符块
-    meaningful_chars = 0; char_counts = {lang: 0 for lang in RANGES}
-    for char in text:
-        code = ord(char); is_meaningful = False
-        for lang, (blocks, _, _, _) in RANGES.items():
-            for start, end in blocks:
-                if start <= code <= end:
-                    char_counts[lang] += 1; is_meaningful = True; break
-        if is_meaningful: meaningful_chars += 1
-    
-    if meaningful_chars > 0:
-        for lang, count in char_counts.items():
-            if count > 0:
-                _, weight, min_chars, threshold = RANGES[lang]
-                ratio = count / meaningful_chars
-                if count >= min_chars and ratio >= threshold: scores[lang] = scores.get(lang, 0) + ratio * weight
-    
-    if scores: return max(scores, key=scores.get)
-
-    # 2. 二级检测: 基于特征字母
-    feature_counts = {lang: 0 for lang in FEATURES}
-    for char in text_lower:
-        for lang, letters in FEATURES.items():
-            if char in letters: feature_counts[lang] += 1
-    
-    for lang, count in feature_counts.items():
-        if count > 0: scores[lang] = scores.get(lang, 0) + count * 5.0
-
-    if scores: return max(scores, key=scores.get)
-
-    # 3. 三级检测: 基于高频词
-    words = set(text_lower.split())
-    # 英语优先检查
-    if words.intersection(STOP_WORDS['en']): return 'en'
-    # 其他语言检查
-    for lang, stop_words in STOP_WORDS.items():
-        if lang == 'en': continue
-        if words.intersection(stop_words): scores[lang] = scores.get(lang, 0) + len(words.intersection(stop_words))
-    
-    if scores: return max(scores, key=scores.get)
-
-    # 4. 最终回退
-    is_basic_latin = all('a' <= char <= 'z' or char.isspace() or char in "'-.?!,;" for char in text_lower)
-    if is_basic_latin and text_length > 0: return 'en'
-
-    return None
 
 class Worker(QObject):
     """用于在后台线程执行耗时任务的通用工作器。"""

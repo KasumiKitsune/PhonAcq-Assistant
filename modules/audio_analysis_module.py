@@ -63,53 +63,96 @@ class AudioTaskWorker(QObject):
         self.finished.emit({ 'y_full': y, 'sr': sr, 'y_overview': y_overview })
 
     def _run_analyze_task(self):
+        # --- 获取UI参数 (保持不变) ---
         is_wide_band = self.kwargs.get('is_wide_band', False)
-        density_level = self.kwargs.get('density_level', 3) # 直接获取UI设置的精细度
+        render_density = self.kwargs.get('render_density', 4)
         pre_emphasis = self.kwargs.get('pre_emphasis', False)
         f0_min = self.kwargs.get('f0_min', librosa.note_to_hz('C2'))
         f0_max = self.kwargs.get('f0_max', librosa.note_to_hz('C7'))
     
         y_analyzed = librosa.effects.preemphasis(self.y) if pre_emphasis else self.y
     
-        # --- 核心修复在此 ---
-        # 移除 min(density_level, 5) 的限制，直接使用从UI传递过来的值。
-        # analysis_density_level = min(density_level, 5) # <--- 旧的限制代码，已移除
-        analysis_density_level = density_level # <--- 直接使用
-        # --- 修复结束 ---
-    
+        # --- 渲染参数计算 (保持不变) ---
         narrow_band_window_s = 0.035
         base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
-    
-        # 根据新的、无限制的精细度计算重叠率和 hop_length
-        overlap_ratio = 1 - (1 / (2**analysis_density_level))
-        hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1
-    
-        spectrogram_window_s = 0.005 if is_wide_band else narrow_band_window_s
-        n_fft_spectrogram = 1 << (int(self.sr * spectrogram_window_s) - 1).bit_length()
+        render_overlap_ratio = 1 - (1 / (2**render_density))
+        render_hop_length = int(base_n_fft_for_hop * (1 - render_overlap_ratio)) or 1
         f0_frame_length = 1 << (int(self.sr * 0.040) - 1).bit_length()
-    
-        # ↓↓↓ 后续的 pyin 和其他分析代码保持不变 ↓↓↓
-        f0_raw, _, voiced_probs = librosa.pyin(
+        
+        # --- 步骤 1: 运行 pyin 算法获取原始数据 (保持不变) ---
+        f0_raw, voiced_flags, voiced_probs = librosa.pyin(
             y_analyzed,
             fmin=f0_min,
             fmax=f0_max,
             frame_length=f0_frame_length,
-            hop_length=hop_length
+            hop_length=render_hop_length
         )
+        times = librosa.times_like(f0_raw, sr=self.sr, hop_length=render_hop_length)
 
-        voicing_threshold = 0.03
-        custom_voiced_flag = voiced_probs > voicing_threshold
+        # =================== [核心修正：高级F0后处理] ===================
+        
+        # --- 步骤 2: 中值滤波以去除离群点 (Spikes) ---
+        # 对原始F0应用一个大小为3的中值滤波器，可以有效去除突然的、不真实的跳变点。
+        # 如果scipy可用，则使用它，否则回退到一个简单的numpy实现。
+        try:
+            from scipy.signal import medfilt
+            f0_filtered = medfilt(f0_raw, kernel_size=3)
+        except ImportError:
+            # 一个简单的numpy中值滤波回退方案
+            f0_filtered = np.array([
+                np.median(f0_raw[max(0, i-1):i+2]) if i > 0 and i < len(f0_raw) - 1 else f0_raw[i]
+                for i in range(len(f0_raw))
+            ])
+            
+        # --- 步骤 3: 仅在“确定”的发声段内进行插值 ---
+        # 我们只信任那些连续出现多个浊音帧的片段，并只在这些片段内部填补小的空白。
+        
+        # 初始化最终的F0曲线，全部为NaN
+        f0_postprocessed = np.full_like(f0_raw, np.nan)
+        
+        # 将浊音标志转换为整数 (0或1)，以便查找连续片段
+        voiced_ints = voiced_flags.astype(int)
+        
+        # 查找浊音段的开始和结束位置
+        starts = np.where(np.diff(voiced_ints) == 1)[0] + 1
+        ends = np.where(np.diff(voiced_ints) == -1)[0] + 1
+        if voiced_ints[0] == 1:
+            starts = np.insert(starts, 0, 0)
+        if voiced_ints[-1] == 1:
+            ends = np.append(ends, len(voiced_ints))
+        
+        # 遍历所有找到的浊音段
+        for start_idx, end_idx in zip(starts, ends):
+            # 只有当这个浊音段足够长时（例如，至少3帧），我们才认为它是可靠的
+            if end_idx - start_idx > 2:
+                # 提取这个片段的F0数据
+                segment = f0_filtered[start_idx:end_idx]
+                
+                # 使用Pandas在 *这个片段内部* 进行线性插值，填补小的空白
+                segment_series = pd.Series(segment)
+                interpolated_segment = segment_series.interpolate(
+                    method='linear', limit_direction='both', limit=2
+                ).to_numpy()
+                
+                # 将处理好的片段放回最终的F0曲线中
+                f0_postprocessed[start_idx:end_idx] = interpolated_segment
+        
+        # =================== [后处理结束] ===================
 
-        times = librosa.times_like(f0_raw, sr=self.sr, hop_length=hop_length)
-        f0 = f0_raw.copy()
-        f0[~custom_voiced_flag] = np.nan
-        f0_series = pd.Series(f0_raw)
-        f0_interpolated = f0_series.interpolate(method='linear', limit_direction='both').to_numpy()
-        intensity = librosa.feature.rms(y=self.y, frame_length=n_fft_spectrogram, hop_length=hop_length)[0]
-        D = librosa.stft(y_analyzed, hop_length=hop_length, n_fft=n_fft_spectrogram)
+        # --- 语谱图和强度分析 (保持不变) ---
+        spectrogram_window_s = 0.005 if is_wide_band else narrow_band_window_s
+        n_fft_spectrogram = 1 << (int(self.sr * spectrogram_window_s) - 1).bit_length()
+        intensity = librosa.feature.rms(y=self.y, frame_length=n_fft_spectrogram, hop_length=render_hop_length)[0]
+        D = librosa.stft(y_analyzed, hop_length=render_hop_length, n_fft=n_fft_spectrogram)
         S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
     
-        self.finished.emit({'f0_raw': (times, f0_raw), 'f0_derived': (times, f0_interpolated), 'intensity': intensity, 'S_db': S_db, 'hop_length': hop_length})
+        self.finished.emit({
+            'f0_raw': (times, f0_raw), 
+            'f0_derived': (times, f0_postprocessed), # <-- 使用经过高级后处理的F0曲线
+            'intensity': intensity, 
+            'S_db': S_db, 
+            'hop_length': render_hop_length
+        })
 
     def _run_formant_view_task(self):
         start_sample, end_sample = self.kwargs.get('start_sample', 0), self.kwargs.get('end_sample', len(self.y))
@@ -117,34 +160,31 @@ class AudioTaskWorker(QObject):
         pre_emphasis = self.kwargs.get('pre_emphasis', False)
         
         y_view_orig = self.y[start_sample:end_sample]
-        y_view = librosa.effects.preemphasis(y_view_orig) if pre_emphasis else y_view_orig
         
-        frame_length = int(self.sr * 0.025)
-        order = 2 + self.sr // 1000
+        # --- [修改] 直接调用辅助函数 ---
+        formant_points = self._analyze_formants_helper(y_view_orig, self.sr, hop_length, start_sample, pre_emphasis)
+
+        self.finished.emit({'formants_view': formant_points})
+
+    def _analyze_formants_helper(self, y_data, sr, hop_length, start_offset, pre_emphasis):
+        """可复用的共振峰分析逻辑。"""
+        y_proc = librosa.effects.preemphasis(y_data) if pre_emphasis else y_data
+        
+        frame_length = int(sr * 0.025)
+        order = 2 + sr // 1000
         formant_points = []
 
-        # --- [核心修改] 新增：计算RMS能量和阈值 ---
-        # 1. 计算整个视图区域的RMS能量，用于确定一个动态的阈值
-        rms = librosa.feature.rms(y=y_view_orig, frame_length=frame_length, hop_length=hop_length)[0]
-        
-        # 2. 设置一个动态能量阈值。例如，最大能量的10%。
-        # 这个百分比可以根据需要调整，0.05到0.15是比较常用的范围。
-        # 我们使用一个较低的阈值（如5%）以避免切掉弱元音，但足以过滤掉大部分静音。
-        energy_threshold = np.max(rms) * 0.05 
-        
-        # 确保RMS数组和我们接下来的循环是对齐的
+        rms = librosa.feature.rms(y=y_data, frame_length=frame_length, hop_length=hop_length)[0]
+        energy_threshold = np.max(rms) * 0.05 if np.max(rms) > 0 else 0
         frame_index = 0
 
-        for i in range(0, len(y_view) - frame_length, hop_length):
-            # --- [核心修改] 在分析前检查能量 ---
-            # 3. 检查当前帧的能量是否高于阈值
+        for i in range(0, len(y_proc) - frame_length, hop_length):
             if frame_index < len(rms) and rms[frame_index] < energy_threshold:
                 frame_index += 1
-                continue # 能量太低，跳过此帧，不进行分析
+                continue
 
-            y_frame = y_view[i : i + frame_length]
+            y_frame = y_proc[i : i + frame_length]
 
-            # 之前的检查（如np.max, np.isfinite）仍然保留，作为双重保障
             if np.max(np.abs(y_frame)) < 1e-5 or not np.isfinite(y_frame).all():
                 frame_index += 1
                 continue
@@ -155,26 +195,25 @@ class AudioTaskWorker(QObject):
                     frame_index += 1
                     continue
                 roots = [r for r in np.roots(a) if np.imag(r) >= 0]
-                freqs = sorted(np.angle(roots) * (self.sr / (2 * np.pi)))
+                freqs = sorted(np.angle(roots) * (sr / (2 * np.pi)))
                 
-                # ... (后续的共振峰筛选逻辑保持不变) ...
                 found_formants, formant_ranges = [], [(250, 800), (800, 2200), (2200, 3000), (3000, 4000)]
                 candidate_freqs = list(freqs)
                 for f_min, f_max in formant_ranges:
                     band_freqs = [f for f in candidate_freqs if f_min <= f <= f_max]
                     if band_freqs:
-                        best_f = band_freqs[0]; found_formants.append(best_f); candidate_freqs.remove(best_f)
+                        best_f = band_freqs[0]
+                        found_formants.append(best_f)
+                        candidate_freqs.remove(best_f)
                 if found_formants:
-                    formant_points.append((start_sample + i + frame_length // 2, found_formants))
+                    formant_points.append((start_offset + i + frame_length // 2, found_formants))
             except Exception:
-                # 即使出错也要增加索引
                 frame_index += 1
                 continue
             
-            # 成功处理完一帧后，增加帧索引
             frame_index += 1
-
-        self.finished.emit({'formants_view': formant_points})
+        
+        return formant_points
 
 class ExportDialog(QDialog):
     """一个让用户选择导出图片分辨率和样式的对话框。"""
@@ -1095,27 +1134,49 @@ class SpectrogramWidget(QWidget):
             self._f0_data = f0_data
             times, f0_values = f0_data
             valid_f0 = f0_values[np.isfinite(f0_values)] # 过滤掉NaN值来计算范围
+            
+            # =================== [核心修正开始] ===================
+            # 彻底替换旧的、有问题的F0坐标轴范围计算逻辑。
             if len(valid_f0) > 1:
-                # 动态调整F0轴的显示范围，以包含所有F0点，并留出一些裕量
-                default_min, default_max = 50, 500 # 默认F0显示范围
                 actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
-                # F0轴的实际范围取默认值和实际值的并集，并向外扩展20Hz
-                self._f0_display_min = min(default_min, actual_min - 20)
-                self._f0_display_max = max(default_max, actual_max + 20)
+                
+                # 1. 计算F0数据的实际范围，并增加10%的上下边距以获得更好的视觉效果。
+                data_range = actual_max - actual_min
+                padding = max(10, data_range * 0.1) # 至少有10Hz的边距
+                
+                padded_min = actual_min - padding
+                padded_max = actual_max + padding
+                
+                # 2. 确保显示范围至少有100Hz宽，以避免在处理单音时过度缩放。
+                current_range = padded_max - padded_min
+                if current_range < 100:
+                    center = (padded_max + padded_min) / 2
+                    padded_min = center - 50
+                    padded_max = center + 50
+                
+                # 3. 将最终计算出的范围赋给显示属性。
+                self._f0_display_min = max(0, padded_min) # 确保不低于0Hz
+                self._f0_display_max = padded_max
                 self._f0_axis_enabled = True
-            else: # 如果F0数据太少或无效，则使用默认范围且不显示轴
-                self._f0_display_min, self._f0_display_max = 50, 500
+            else: 
+                # 如果F0数据太少或无效，则使用一个合理的默认范围且不显示轴。
+                self._f0_display_min, self._f0_display_max = 75, 400
                 self._f0_axis_enabled = False
+            # =================== [核心修正结束] ===================
         
         if f0_derived_data is not None: self._f0_derived_data = f0_derived_data
         if intensity_data is not None: self._intensity_data = intensity_data
         
         if formants_data is not None:
-            if clear_previous_formants: # 重新加载共振峰时清除旧数据
+            if clear_previous_formants:
                 self._formants_data = formants_data
-            else: # 在现有数据基础上添加（用于分批分析）
+            else:
                 self._formants_data.extend(formants_data)
-        
+        else:
+            # 如果传入的 formants_data 为 None，并且要求清除，则清空
+            if clear_previous_formants:
+                self._formants_data = []
+
         self.update()
 
     def update_playback_position(self, position_ms):
@@ -1268,7 +1329,8 @@ class AudioAnalysisPage(QWidget):
         main_layout = QHBoxLayout(self)
 
         # 左侧面板：信息与动作
-        self.info_panel = QWidget(); self.info_panel.setFixedWidth(300)
+        self.info_panel = QWidget()
+        self.info_panel.setFixedWidth(300)
         info_layout = QVBoxLayout(self.info_panel)
         
         self.open_file_btn = QPushButton(" 从文件加载音频")
@@ -1278,20 +1340,29 @@ class AudioAnalysisPage(QWidget):
         info_layout_form = QFormLayout(self.info_group)
         self.filename_label, self.duration_label, self.samplerate_label, self.channels_label, self.bitdepth_label = [QLabel("N/A") for _ in range(5)]
         self.filename_label.setWordWrap(True)
-        info_layout_form.addRow("文件名:", self.filename_label); info_layout_form.addRow("时长:", self.duration_label); info_layout_form.addRow("采样率:", self.samplerate_label); info_layout_form.addRow("通道数:", self.channels_label); info_layout_form.addRow("位深度:", self.bitdepth_label)
+        info_layout_form.addRow("文件名:", self.filename_label)
+        info_layout_form.addRow("时长:", self.duration_label)
+        info_layout_form.addRow("采样率:", self.samplerate_label)
+        info_layout_form.addRow("通道数:", self.channels_label)
+        info_layout_form.addRow("位深度:", self.bitdepth_label)
         
         self.playback_group = QGroupBox("播放控制")
         playback_layout = QVBoxLayout(self.playback_group)
-        self.play_pause_btn, self.playback_slider, self.time_label = QPushButton("播放"), QSlider(Qt.Horizontal), QLabel("00:00.00 / 00:00.00")
-        self.play_pause_btn.setEnabled(False); self.playback_slider.setEnabled(False)
-        playback_layout.addWidget(self.play_pause_btn); playback_layout.addWidget(self.playback_slider); playback_layout.addWidget(self.time_label)
+        self.play_pause_btn = QPushButton("播放")
+        self.playback_slider = QSlider(Qt.Horizontal)
+        self.time_label = QLabel("00:00.00 / 00:00.00")
+        self.play_pause_btn.setEnabled(False)
+        self.playback_slider.setEnabled(False)
+        playback_layout.addWidget(self.play_pause_btn)
+        playback_layout.addWidget(self.playback_slider)
+        playback_layout.addWidget(self.time_label)
 
         self.analysis_actions_group = QGroupBox("分析动作")
         actions_layout = QVBoxLayout(self.analysis_actions_group)
         self.analyze_button = QPushButton("运行完整分析")
         self.analyze_button.setToolTip("根据右侧面板的所有设置，对整个音频进行声学分析。")
         self.analyze_formants_button = QPushButton(" 分析共振峰")
-        self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。\n此分析同样会应用右侧“高级分析参数”中的设置。")
+        self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。\n此分析会应用右侧“分析与渲染设置”中的“共振峰精细度”和“高级分析参数”中的“预加重”设置。")
         actions_layout.addWidget(self.analyze_button)
         actions_layout.addWidget(self.analyze_formants_button)
         self.analysis_actions_group.setEnabled(False)
@@ -1302,7 +1373,7 @@ class AudioAnalysisPage(QWidget):
         info_layout.addWidget(self.analysis_actions_group)
         info_layout.addStretch()
 
-        # 中心可视化区域 (修改)
+        # 中心可视化区域
         self.center_panel = QWidget()
         center_layout = QVBoxLayout(self.center_panel)
         center_layout.setSpacing(0)
@@ -1311,11 +1382,9 @@ class AudioAnalysisPage(QWidget):
         self.waveform_widget = WaveformWidget()
         self.waveform_widget.setToolTip("音频波形概览。\n使用 Ctrl+鼠标滚轮 进行水平缩放。")
 
-        # --- 新增 ---
         self.time_axis_widget = TimeAxisWidget()
         self.time_axis_widget.hide() # 默认隐藏
 
-        # --- 修改 SpectrogramWidget 的实例化 ---
         self.spectrogram_widget = SpectrogramWidget(self, self.icon_manager)
         self.spectrogram_widget.setToolTip("音频语谱图。\n悬停查看信息，滚动缩放，左键拖动选择区域。")
         
@@ -1324,14 +1393,14 @@ class AudioAnalysisPage(QWidget):
         self.h_scrollbar.setToolTip("在放大的视图中水平导航（平移）。")
         self.h_scrollbar.setEnabled(False)
         
-        # --- 修改布局顺序 ---
         center_layout.addWidget(self.waveform_widget, 1)
         center_layout.addWidget(self.time_axis_widget) # 添加到中间
         center_layout.addWidget(self.spectrogram_widget, 2)
         center_layout.addWidget(self.h_scrollbar)
 
         # 右侧面板：设置
-        self.settings_panel = QWidget(); self.settings_panel.setFixedWidth(300)
+        self.settings_panel = QWidget()
+        self.settings_panel.setFixedWidth(300)
         settings_layout = QVBoxLayout(self.settings_panel)
 
         self.visualization_group = QGroupBox("可视化选项")
@@ -1344,8 +1413,11 @@ class AudioAnalysisPage(QWidget):
         self.show_f0_points_checkbox.setToolTip("显示算法直接计算出的离散基频点（橙色点）。")
         self.show_f0_derived_checkbox = QCheckBox("显示派生曲线")
         self.show_f0_derived_checkbox.setToolTip("显示通过对原始点进行线性插值后得到的连续基频曲线（蓝色虚线）。")
-        f0_sub_layout = QVBoxLayout(); f0_sub_layout.setSpacing(2); f0_sub_layout.setContentsMargins(15, 0, 0, 0)
-        f0_sub_layout.addWidget(self.show_f0_points_checkbox); f0_sub_layout.addWidget(self.show_f0_derived_checkbox)
+        f0_sub_layout = QVBoxLayout()
+        f0_sub_layout.setSpacing(2)
+        f0_sub_layout.setContentsMargins(15, 0, 0, 0)
+        f0_sub_layout.addWidget(self.show_f0_points_checkbox)
+        f0_sub_layout.addWidget(self.show_f0_derived_checkbox)
         vis_layout.addRow("显示基频 (F0)", self.show_f0_toggle)
         vis_layout.addRow(f0_sub_layout)
         
@@ -1353,7 +1425,9 @@ class AudioAnalysisPage(QWidget):
         self.show_intensity_toggle.setToolTip("总开关：是否显示音频的<b>强度</b>曲线。<br>强度是声波的振幅，人耳感知为响度。")
         self.smooth_intensity_checkbox = QCheckBox("平滑处理")
         self.smooth_intensity_checkbox.setToolTip("对强度曲线进行移动平均平滑（窗口=5），以观察其总体趋势，滤除微小波动。")
-        intensity_sub_layout = QVBoxLayout(); intensity_sub_layout.setSpacing(2); intensity_sub_layout.setContentsMargins(15, 0, 0, 0)
+        intensity_sub_layout = QVBoxLayout()
+        intensity_sub_layout.setSpacing(2)
+        intensity_sub_layout.setContentsMargins(15, 0, 0, 0)
         intensity_sub_layout.addWidget(self.smooth_intensity_checkbox)
         vis_layout.addRow("显示强度", self.show_intensity_toggle)
         vis_layout.addRow(intensity_sub_layout)
@@ -1366,8 +1440,12 @@ class AudioAnalysisPage(QWidget):
         self.highlight_f2_checkbox.setToolTip("使用醒目的紫色并加描边来显示<b>第二共振峰（F2）</b>。<br>F2与元音的【前后】（舌位前后）密切相关。")
         self.show_other_formants_checkbox = QCheckBox("显示其他共振峰")
         self.show_other_formants_checkbox.setToolTip("显示除F1/F2以外的其他共振峰（F3, F4...），通常为蓝色。")
-        formant_sub_layout = QVBoxLayout(); formant_sub_layout.setSpacing(2); formant_sub_layout.setContentsMargins(15, 0, 0, 0)
-        formant_sub_layout.addWidget(self.highlight_f1_checkbox); formant_sub_layout.addWidget(self.highlight_f2_checkbox); formant_sub_layout.addWidget(self.show_other_formants_checkbox)
+        formant_sub_layout = QVBoxLayout()
+        formant_sub_layout.setSpacing(2)
+        formant_sub_layout.setContentsMargins(15, 0, 0, 0)
+        formant_sub_layout.addWidget(self.highlight_f1_checkbox)
+        formant_sub_layout.addWidget(self.highlight_f2_checkbox)
+        formant_sub_layout.addWidget(self.show_other_formants_checkbox)
         vis_layout.addRow("显示共振峰", self.show_formants_toggle)
         vis_layout.addRow(formant_sub_layout)
 
@@ -1377,27 +1455,57 @@ class AudioAnalysisPage(QWidget):
         self.pre_emphasis_checkbox = QCheckBox("应用预加重")
         self.pre_emphasis_checkbox.setToolTip(f"在分析前通过一个高通滤波器提升高频部分的能量。<br>这对于在高频区域寻找共振峰（尤其是女声和童声）非常有帮助。<br>{self.REQUIRES_ANALYSIS_HINT}")
         f0_range_layout = QHBoxLayout()
-        self.f0_min_input = QLineEdit("75"); self.f0_min_input.setValidator(QIntValidator(10, 2000))
-        self.f0_max_input = QLineEdit("500"); self.f0_max_input.setValidator(QIntValidator(50, 5000))
-        f0_range_layout.addWidget(self.f0_min_input); f0_range_layout.addWidget(QLabel(" - ")); f0_range_layout.addWidget(self.f0_max_input); f0_range_layout.addWidget(QLabel("Hz"))
-        f0_range_row_widget = QWidget(); f0_range_row_widget.setLayout(f0_range_layout)
+        self.f0_min_input = QLineEdit("75")
+        self.f0_min_input.setValidator(QIntValidator(10, 2000))
+        self.f0_max_input = QLineEdit("500")
+        self.f0_max_input.setValidator(QIntValidator(50, 5000))
+        f0_range_layout.addWidget(self.f0_min_input)
+        f0_range_layout.addWidget(QLabel(" - "))
+        f0_range_layout.addWidget(self.f0_max_input)
+        f0_range_layout.addWidget(QLabel("Hz"))
+        f0_range_row_widget = QWidget()
+        f0_range_row_widget.setLayout(f0_range_layout)
         f0_range_row_widget.setToolTip(f"设置基频（F0）搜索的频率范围（单位：Hz）。<br>根据说话人类型设置合适的范围能极大提高F0提取的准确率。<br><li>典型男声: 75-300 Hz</li><li>典型女声: 100-500 Hz</li><li>典型童声: 150-600 Hz</li><br>{self.REQUIRES_ANALYSIS_HINT}")
         adv_layout.addRow(self.pre_emphasis_checkbox)
         adv_layout.addRow("F0 范围:", f0_range_row_widget)
         
-        self.spectrogram_settings_group = QGroupBox("语谱图设置")
+        # --- [修改] 重命名组框，使其更通用 ---
+        self.spectrogram_settings_group = QGroupBox("分析与渲染设置")
         spec_settings_layout = QFormLayout(self.spectrogram_settings_group)
-        self.spectrogram_settings_group.setToolTip(f"调整语谱图本身的生成方式，影响其外观和分辨率。<br>{self.REQUIRES_ANALYSIS_HINT}")
-        self.density_slider = QSlider(Qt.Horizontal); self.density_slider.setRange(1, 9); self.density_slider.setValue(4)
-        self.density_slider.setToolTip(f"调整语谱图分析帧的重叠率，决定了图像在时间轴上的平滑度。<br>值越高，图像越精细平滑，但计算也越慢。过高的精细度会导致F0计算错误。<br>{self.REQUIRES_ANALYSIS_HINT}")
-        self.density_label = QLabel()
-        self._update_density_label(4)
+        self.spectrogram_settings_group.setToolTip(f"调整声学分析算法的核心参数，会直接影响计算结果的准确性。<br>{self.REQUIRES_ANALYSIS_HINT}")
+
+        # --- [新增] 渲染精细度滑块 (用于语谱图/F0/强度) ---
+        self.render_density_slider = QSlider(Qt.Horizontal)
+        self.render_density_slider.setRange(1, 5) # 限制范围 1 到 5 ("较高")
+        self.render_density_slider.setValue(4)
+        self.render_density_slider.setToolTip(
+            "调整语谱图背景、F0、强度曲线的渲染精细度。\n"
+            "值越高，图像越平滑，但计算稍慢。"
+        )
+        self.render_density_label = QLabel()
+        spec_settings_layout.addRow("渲染精细度:", self.render_density_slider)
+        spec_settings_layout.addRow("", self.render_density_label)
+
+        # --- [新增] 共振峰分析精细度滑块 ---
+        self.formant_density_slider = QSlider(Qt.Horizontal)
+        self.formant_density_slider.setRange(1, 9) # 保持 1 到 9 的完整范围
+        self.formant_density_slider.setValue(5)
+        self.formant_density_slider.setToolTip(
+            "调整共振峰分析的精细度。\n"
+            "值越高，找到的共振峰点越密集，但计算速度会显著变慢。"
+        )
+        self.formant_density_label = QLabel()
+        spec_settings_layout.addRow("共振峰精细度:", self.formant_density_slider)
+        spec_settings_layout.addRow("", self.formant_density_label)
+        
+        # --- 宽带模式复选框 (保持不变) ---
         self.spectrogram_type_checkbox = QCheckBox("宽带模式")
         self.spectrogram_type_checkbox.setToolTip(f"切换语谱图的分析窗长，决定了时间和频率分辨率的取舍。<br><li><b>宽带 (勾选)</b>: 短窗，时间分辨率高，能清晰看到声门的每一次振动（垂直线），但频率分辨率低。</li><li><b>窄带 (不勾选)</b>: 长窗，频率分辨率高，能清晰看到基频的各次谐波（水平线），但时间分辨率低。</li><br>{self.REQUIRES_ANALYSIS_HINT}")
-        spec_settings_layout.addRow("精细度:", self.density_slider)
-        spec_settings_layout.addRow("", self.density_label)
         spec_settings_layout.addRow(self.spectrogram_type_checkbox)
 
+        # --- 调用新的标签更新方法 ---
+        self._update_render_density_label(self.render_density_slider.value())
+        self._update_formant_density_label(self.formant_density_slider.value())
         
         settings_layout.addWidget(self.visualization_group)
         settings_layout.addWidget(self.advanced_params_group)
@@ -1417,17 +1525,22 @@ class AudioAnalysisPage(QWidget):
         self.playback_slider.sliderMoved.connect(self.player.setPosition)
         self.waveform_widget.view_changed.connect(self.on_view_changed)
         self.h_scrollbar.valueChanged.connect(self.on_scrollbar_moved)
-        self.density_slider.valueChanged.connect(self._update_density_label)
+        
+        # --- 找到并替换旧的 density_slider 连接 ---
+        # self.density_slider.valueChanged.connect(self._update_density_label) # <-- 删除这行
+        self.render_density_slider.valueChanged.connect(self._update_render_density_label)
+        self.formant_density_slider.valueChanged.connect(self._update_formant_density_label)
+
         self.analyze_button.clicked.connect(self.run_full_analysis)
         self.analyze_formants_button.clicked.connect(self.run_view_formant_analysis)
 
-        # --- 新增 ---
         self.spectrogram_widget.selectionChanged.connect(self.on_selection_changed)
         self.spectrogram_widget.zoomToSelectionRequested.connect(self.zoom_to_selection)
         self.spectrogram_widget.exportViewAsImageRequested.connect(self.handle_export_image)
         self.spectrogram_widget.exportAnalysisToCsvRequested.connect(self.handle_export_csv)
         self.spectrogram_widget.exportSelectionAsWavRequested.connect(self.handle_export_wav)
         self.spectrogram_widget.spectrumSliceRequested.connect(self.handle_spectrum_slice_request)
+        
         all_toggles = [self.show_f0_toggle, self.show_intensity_toggle, self.show_formants_toggle]
         for toggle in all_toggles:
             toggle.stateChanged.connect(self._update_dependent_widgets)
@@ -1438,8 +1551,8 @@ class AudioAnalysisPage(QWidget):
                           self.highlight_f2_checkbox, self.show_other_formants_checkbox]
         for cb in all_checkboxes:
             cb.stateChanged.connect(self.update_overlays)
-# --- [新增] 连接所有持久化设置的信号 ---
-        
+
+        # 连接所有持久化设置的信号
         # 可视化选项
         self.show_f0_toggle.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_f0', bool(s)))
         self.show_f0_points_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_f0_points', bool(s)))
@@ -1457,9 +1570,9 @@ class AudioAnalysisPage(QWidget):
         self.f0_max_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_max', t))
         
         # 语谱图设置
-        self.density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('density', v))
+        self.render_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('render_density', v))
+        self.formant_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('formant_density', v))
         self.spectrogram_type_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('is_wide_band', bool(s)))
-
 
     def handle_spectrum_slice_request(self, sample_pos):
         """处理频谱切片请求，计算FFT并显示对话框。"""
@@ -1630,7 +1743,13 @@ class AudioAnalysisPage(QWidget):
         self.spectrogram_widget.clear() # 这个clear方法已经被我们修改过了，会清除选区
         for label in [self.filename_label, self.duration_label, self.samplerate_label, self.channels_label, self.bitdepth_label]: label.setText("N/A")
         self.time_label.setText("00:00.00 / 00:00.00"); self.play_pause_btn.setEnabled(False); self.playback_slider.setEnabled(False); self.analysis_actions_group.setEnabled(False)
-        self.density_slider.setValue(4)
+        
+        # --- [核心修正] ---
+        # 重置两个新的滑块到它们的默认值，而不是旧的那个
+        self.render_density_slider.setValue(4)
+        self.formant_density_slider.setValue(5)
+        # --- [修正结束] ---
+
         self.known_duration = 0
         self.audio_data, self.sr, self.overview_data, self.current_filepath = None, None, None, None
         
@@ -1641,7 +1760,13 @@ class AudioAnalysisPage(QWidget):
 
 
     # --- 其他所有方法保持不变 ---
-    def _update_density_label(self, value): self.density_label.setText(f"{self.DENSITY_LABELS.get(value, '未知')}")
+    def _update_render_density_label(self, value):
+        """更新渲染精细度滑块旁边的文本标签。"""
+        self.render_density_label.setText(f"{self.DENSITY_LABELS.get(value, '未知')}")
+
+    def _update_formant_density_label(self, value):
+        """更新共振峰精细度滑块旁边的文本标签。"""
+        self.formant_density_label.setText(f"{self.DENSITY_LABELS.get(value, '未知')}")
     def on_load_finished(self, result):
         if self.progress_dialog: self.progress_dialog.close()
         self.audio_data, self.sr, self.overview_data = result['y_full'], result['sr'], result['y_overview']
@@ -1657,17 +1782,49 @@ class AudioAnalysisPage(QWidget):
             f0_min = int(self.f0_min_input.text()); f0_max = int(self.f0_max_input.text())
             if f0_min >= f0_max: QMessageBox.warning(self, "参数错误", "F0最小值必须小于最大值。"); return
         except ValueError: QMessageBox.warning(self, "参数错误", "F0范围必须是有效的整数。"); return
-        self.run_task('analyze', audio_data=self.audio_data, sr=self.sr, is_wide_band=self.spectrogram_type_checkbox.isChecked(), density_level=self.density_slider.value(), pre_emphasis=self.pre_emphasis_checkbox.isChecked(), f0_min=f0_min, f0_max=f0_max, progress_text="正在进行完整声学分析...")
+        
+        # --- [核心修正] 不再传递 formant_density 参数 ---
+        self.run_task('analyze', 
+                      audio_data=self.audio_data, 
+                      sr=self.sr, 
+                      is_wide_band=self.spectrogram_type_checkbox.isChecked(), 
+                      render_density=self.render_density_slider.value(),
+                      pre_emphasis=self.pre_emphasis_checkbox.isChecked(), 
+                      f0_min=f0_min, 
+                      f0_max=f0_max, 
+                      progress_text="正在进行完整声学分析...")
     def run_view_formant_analysis(self):
         if self.audio_data is None: return
         start, end = self.waveform_widget._view_start_sample, self.waveform_widget._view_end_sample
-        narrow_band_window_s = 0.035; base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
-        overlap_ratio = 1 - (1 / (2**self.density_slider.value())); hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1
-        self.run_task('analyze_formants_view', audio_data=self.audio_data, sr=self.sr, start_sample=start, end_sample=end, hop_length=hop_length, pre_emphasis=self.pre_emphasis_checkbox.isChecked(), progress_text="正在分析可见区域共振峰...")
+        
+        # --- [修改] 从新的 formant_density_slider 计算 hop_length ---
+        narrow_band_window_s = 0.035
+        base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
+        overlap_ratio = 1 - (1 / (2**self.formant_density_slider.value())) # <-- 修改此处
+        hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1
+        
+        self.run_task('analyze_formants_view', 
+                      audio_data=self.audio_data, 
+                      sr=self.sr, 
+                      start_sample=start, 
+                      end_sample=end, 
+                      hop_length=hop_length, 
+                      pre_emphasis=self.pre_emphasis_checkbox.isChecked(), 
+                      progress_text="正在分析可见区域共振峰...")
     def on_analysis_finished(self, results):
         if self.progress_dialog: self.progress_dialog.close()
-        hop_length = results.get('hop_length', 256); self.spectrogram_widget.set_data(results.get('S_db'), self.sr, hop_length)
-        self.spectrogram_widget.set_analysis_data(f0_data=results.get('f0_raw'), f0_derived_data=results.get('f0_derived'), intensity_data=results.get('intensity'))
+        hop_length = results.get('hop_length', 256)
+        self.spectrogram_widget.set_data(results.get('S_db'), self.sr, hop_length)
+        
+        # --- [核心修正] ---
+        # 显式地清除任何可能存在的旧共振峰数据，因为此分析不再生成它们。
+        self.spectrogram_widget.set_analysis_data(
+            f0_data=results.get('f0_raw'), 
+            f0_derived_data=results.get('f0_derived'), 
+            intensity_data=results.get('intensity'),
+            formants_data=None, # <-- 明确设为 None
+            clear_previous_formants=True
+        )
     def on_formant_view_finished(self, results):
         """
         [v_next 修改] 当仅分析视图内共振峰的任务完成时调用。
@@ -2113,7 +2270,8 @@ class AudioAnalysisPage(QWidget):
             (self.f0_min_input, 'setText', 'f0_min', "75"),
             (self.f0_max_input, 'setText', 'f0_max', "500"),
             # 语谱图设置
-            (self.density_slider, 'setValue', 'density', 4),
+            (self.render_density_slider, 'setValue', 'render_density', 4),
+            (self.formant_density_slider, 'setValue', 'formant_density', 5),
             (self.spectrogram_type_checkbox, 'setChecked', 'is_wide_band', False),
         ]
 
@@ -2128,7 +2286,8 @@ class AudioAnalysisPage(QWidget):
         # 手动触发一次UI更新，确保依赖关系和标签正确显示
         self._update_dependent_widgets()
         self.update_overlays()
-        self._update_density_label(self.density_slider.value())
+        self._update_render_density_label(self.render_density_slider.value())
+        self._update_formant_density_label(self.formant_density_slider.value())
 
 
 

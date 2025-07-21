@@ -1036,66 +1036,76 @@ class AccentCollectionPage(QWidget):
             QMessageBox.critical(self, "操作失败", f"无法打开文件夹: {e}")
 
     def check_and_generate_audio_logic(self, worker, word_groups):
-            wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
-            tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
+        wordlist_name, _ = os.path.splitext(self.current_wordlist_name)
+        tts_audio_folder = os.path.join(self.AUDIO_TTS_DIR, wordlist_name)
+        os.makedirs(tts_audio_folder, exist_ok=True)
         
-            # 提前准备好返回结构
-            result = {'status': 'success', 'tts_folder': tts_audio_folder}
+        result = {'status': 'success', 'tts_folder': tts_audio_folder}
 
-            gtts_settings = self.config.get("gtts_settings", {}); gtts_default_lang = gtts_settings.get("default_lang", "en-us"); gtts_auto_detect = gtts_settings.get("auto_detect", True)
-            all_words_with_lang = {}
-            # ... (填充 all_words_with_lang 的逻辑保持不变) ...
-            for group_idx, group in enumerate(word_groups):
-                if not isinstance(group, dict):
-                    if self.logger: self.logger.log(f"[WARNING] Word group at index {group_idx} in '{wordlist_name}' is not a dictionary, skipping.")
-                    continue
-                for word, value in group.items():
-                    lang = value[1] if isinstance(value, tuple) and len(value) == 2 and value[1] else None
-                    if not lang and gtts_auto_detect: lang = self.detect_language(word)
-                    if not lang: lang = gtts_default_lang
-                    all_words_with_lang[word] = lang
+        gtts_settings = self.config.get("gtts_settings", {})
+        gtts_default_lang = gtts_settings.get("default_lang", "en-us")
+        gtts_auto_detect = gtts_settings.get("auto_detect", True)
         
-            if not os.path.exists(tts_audio_folder):
-                try: os.makedirs(tts_audio_folder)
-                except Exception as e: return {'status': 'error', 'error': f"创建TTS音频目录失败: {e}"}
+        missing_items = []
+        
+        for group in word_groups:
+            if not isinstance(group, dict):
+                continue
+            for word, value in group.items():
+                wordlist_record_dir = os.path.join(self.AUDIO_RECORD_DIR, wordlist_name)
+                user_recorded_exists = any(os.path.exists(os.path.join(wordlist_record_dir, f"{word}{ext}")) for ext in ['.wav', '.mp3', '.flac', '.ogg'])
+                tts_exists = any(os.path.exists(os.path.join(tts_audio_folder, f"{word}{ext}")) for ext in ['.wav', '.mp3'])
+                
+                if not user_recorded_exists and not tts_exists:
+                    lang = value[1] if isinstance(value, tuple) and len(value) > 1 and value[1] else None
+                    if not lang and gtts_auto_detect:
+                        # =================== [核心修改] ===================
+                        # 从词表数据 value 元组中提取备注信息 (value[0])
+                        note = value[0] if isinstance(value, tuple) else ""
+                        # 调用新的、需要两个参数的检测函数
+                        lang = self.detect_language(word, note)
+                        # ================================================
+                    if not lang:
+                        lang = gtts_default_lang
+                    
+                    missing_items.append({"word": word, "lang": lang})
 
-            missing = []
-            for w in all_words_with_lang:
-                user_recorded_exists = False
-                for ext in ['.wav', '.mp3', '.flac', '.ogg']:
-                    if os.path.exists(os.path.join(self.AUDIO_RECORD_DIR, wordlist_name, f"{w}{ext}")): user_recorded_exists = True; break
-                    prompt_formats = ['.wav', '.mp3'] # WAV 优先级更高
-                    tts_exists = any(os.path.exists(os.path.join(tts_audio_folder, f"{w}{ext}")) for ext in prompt_formats)
- 
-                    if not user_recorded_exists and not tts_exists:
-                        missing.append(w)
-
-            if not missing:
-                if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")
-                return result # 返回成功
-
-            if self.logger: self.logger.log(f"[INFO] Found {len(missing)} missing TTS files. Starting generation...")
-        
-            total_missing = len(missing); errors_occurred = []; failed_words = []
-            for i, word in enumerate(missing):
-                percentage = int(((i + 1) / total_missing) * 100); progress_text = f"正在生成TTS ({i+1}/{total_missing}): {word}"
-                max_len = 50; display_text = progress_text[:max_len] + "..." if len(progress_text) > max_len else progress_text
-                worker.progress.emit(percentage, display_text) # 使用截断后的文本更新UI
-                filepath = os.path.join(tts_audio_folder, f"{word}.mp3")
-                try:
-                    gTTS(text=word, lang=all_words_with_lang[word], slow=False).save(filepath)
-                    if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{all_words_with_lang[word]}'.")
-                    time.sleep(0.3)
-                except Exception as e:
-                    error_detail = f"for '{word}': {str(e)[:100]}..."; errors_occurred.append(error_detail); failed_words.append(word)
-                    if self.logger: self.logger.log(f"[TTS_ERROR] Failed to generate TTS {error_detail}")
-        
-            if errors_occurred:
-                result['status'] = 'partial_failure'
-                result['missing_files'] = failed_words
-                result['error_details'] = errors_occurred[:3] # 只返回前3个错误摘要
-        
+        if not missing_items:
+            if self.logger: self.logger.log("[INFO] No missing TTS audio files to generate.")
             return result
+
+        if self.logger: self.logger.log(f"[INFO] Found {len(missing_items)} missing TTS files. Starting generation...")
+    
+        total_missing = len(missing_items)
+        errors_occurred = []
+        failed_words = []
+        for i, item in enumerate(missing_items):
+            word = item["word"]
+            lang = item["lang"]
+            
+            percentage = int(((i + 1) / total_missing) * 100)
+            progress_text = f"正在生成TTS ({i+1}/{total_missing}): {word}"
+            
+            worker.progress.emit(percentage, progress_text)
+            
+            filepath = os.path.join(tts_audio_folder, f"{word}.mp3")
+            try:
+                gTTS(text=word, lang=lang, slow=False).save(filepath)
+                if self.logger: self.logger.log(f"[TTS_SUCCESS] Generated '{word}.mp3' with lang '{lang}'.")
+                time.sleep(0.3)
+            except Exception as e:
+                error_detail = f"for '{word}': {str(e)[:100]}..."
+                errors_occurred.append(error_detail)
+                failed_words.append(word)
+                if self.logger: self.logger.log(f"[TTS_ERROR] Failed to generate TTS {error_detail}")
+    
+        if errors_occurred:
+            result['status'] = 'partial_failure'
+            result['missing_files'] = failed_words
+            result['error_details'] = errors_occurred[:3]
+    
+        return result
+
     def _on_persistent_setting_changed(self, key, value):
         """
         当用户更改需要记忆的设置时调用此方法。

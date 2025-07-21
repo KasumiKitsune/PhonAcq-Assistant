@@ -1490,9 +1490,21 @@ class AudioManagerPage(QWidget):
     
         # --- 批量处理器插件入口 (保持不变) ---
         if hasattr(self, 'batch_processor_plugin_active'):
-            menu.addSeparator()
-            process_action = menu.addAction(self.icon_manager.get_icon("submit"), f"批量处理选中的 {selected_rows_count} 个文件...")
-            process_action.triggered.connect(self._send_to_batch_processor)
+            # [修改] 使用一个子菜单来组织插件的功能
+            processor_menu = menu.addMenu(self.icon_manager.get_icon("submit"), "批量处理")
+
+            # 原有的功能：打开完整对话框
+            open_dialog_action = processor_menu.addAction(self.icon_manager.get_icon("options"), f"高级处理 ({selected_rows_count} 个文件)...")
+            open_dialog_action.triggered.connect(self._send_to_batch_processor)
+
+            # [新增] 新的快捷功能
+            quick_normalize_action = processor_menu.addAction(self.icon_manager.get_icon("wand"), "一键标准化")
+            quick_normalize_action.setToolTip(
+                "将选中的文件标准化 (WAV, 44.1kHz, 单声道, RMS) 并直接覆盖原文件。\n"
+                "此操作不可撤销，请谨慎使用！"
+            )
+            # 将其 triggered 信号连接到一个新的辅助方法
+            quick_normalize_action.triggered.connect(self._run_quick_normalize)
 
         # --- [核心修改] 新的外部工具启动器插件入口 ---
         # 1. 检查钩子是否存在
@@ -2235,3 +2247,20 @@ class AudioManagerPage(QWidget):
             'com.phonacq.batch_processor',
             filepaths=filepaths
         )
+    # [新增] 调用插件快速标准化功能的辅助方法
+    def _run_quick_normalize(self):
+        """
+        收集选中的文件路径，并调用批量处理插件的快速标准化功能。
+        """
+        selected_rows = sorted(list(set(item.row() for item in self.audio_table_widget.selectedItems())))
+        if not selected_rows:
+            return
+        
+        filepaths = [self.audio_table_widget.item(row, 0).data(Qt.UserRole) for row in selected_rows]
+        
+        # 获取插件实例并调用新方法
+        processor_plugin = getattr(self, 'batch_processor_plugin_active', None)
+        if processor_plugin and hasattr(processor_plugin, 'execute_quick_normalize'):
+            processor_plugin.execute_quick_normalize(filepaths=filepaths)
+        else:
+            QMessageBox.critical(self, "功能错误", "批量处理器插件已激活，但缺少 'execute_quick_normalize' 方法。")

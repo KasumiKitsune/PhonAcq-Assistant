@@ -194,19 +194,38 @@ class WordlistEditorPage(QWidget):
         QShortcut(QKeySequence(Qt.CTRL | Qt.Key_Minus), self, self.remove_row)
         self.table_widget.horizontalHeader().sectionResized.connect(self.on_column_resized)
 
-    # ... (auto_detect_languages 和 undo/redo 相关方法保持不变) ...
+
     def auto_detect_languages(self):
-        detected_count = 0; self.undo_stack.beginMacro("自动检测语言")
-        gtts_settings = self.parent_window.config.get("gtts_settings", {}); default_lang = gtts_settings.get("default_lang", "en-us")
+        detected_count = 0
+        self.undo_stack.beginMacro("自动检测语言")
+        gtts_settings = self.parent_window.config.get("gtts_settings", {})
+        default_lang = gtts_settings.get("default_lang", "en-us")
+        
         for row in range(self.table_widget.rowCount()):
-            word_item = self.table_widget.item(row, 1); lang_combo = self.table_widget.cellWidget(row, 3)
+            word_item = self.table_widget.item(row, 1)    # "单词/短语" 在第1列
+            note_item = self.table_widget.item(row, 2)    # "备注 (IPA)" 在第2列
+            lang_combo = self.table_widget.cellWidget(row, 3)
+
             if word_item and word_item.text().strip() and lang_combo:
                 current_lang = lang_combo.currentData()
+                
+                # 只对语言设置为“自动检测”的行进行操作
                 if current_lang == "":
-                    text = word_item.text(); detected_lang = self.detect_language_func(text) or default_lang
+                    text = word_item.text()
+                    # =================== [核心修改] ===================
+                    # 获取备注文本，如果备注单元格不存在则为空字符串
+                    note = note_item.text() if note_item else ""
+                    # 调用新的、需要两个参数的检测函数
+                    detected_lang = self.detect_language_func(text, note) or default_lang
+                    # ================================================
+
                     if detected_lang != current_lang:
-                        cmd = WordlistChangeLanguageCommand(self, row, current_lang, detected_lang, "自动填充语言"); self.undo_stack.push(cmd); detected_count += 1
-        self.undo_stack.endMacro(); QMessageBox.information(self, "检测完成", f"成功检测并填充了 {detected_count} 个词条的语言。")
+                        cmd = WordlistChangeLanguageCommand(self, row, current_lang, detected_lang, "自动填充语言")
+                        self.undo_stack.push(cmd)
+                        detected_count += 1
+                        
+        self.undo_stack.endMacro()
+        QMessageBox.information(self, "检测完成", f"成功检测并填充了 {detected_count} 个词条的语言。")
 
     # --- [新增] 文件列表的上下文菜单和操作 ---
     def on_file_double_clicked(self, item):
