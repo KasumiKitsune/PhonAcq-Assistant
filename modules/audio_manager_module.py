@@ -320,12 +320,37 @@ class ManageSourcesDialog(QDialog):
         
         self.sources = deepcopy(sources)
         self.icon_manager = icon_manager
-
-        layout = QVBoxLayout(self)
         
-        layout.addWidget(QLabel("在这里添加、编辑或删除您的自定义数据源快捷方式。"))
+        # --- [核心修改] 新增状态标志 ---
+        self.is_dirty = False
 
-        # 表格
+        self._init_ui()
+        self._connect_signals()
+        
+        self.populate_table()
+        self._update_button_icons()
+        # --- [核心修改] 初始化按钮状态 ---
+        self._update_main_button_state()
+
+    # --- [核心修正 1] 添加缺失的 _connect_signals 方法 ---
+    def _connect_signals(self):
+        """连接所有UI控件的信号与槽。"""
+        self.add_btn.clicked.connect(self.add_source)
+        self.edit_btn.clicked.connect(self.edit_source)
+        self.remove_btn.clicked.connect(self.remove_source)
+        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
+        
+        # --- [核心修改] ---
+        # 监听表格单元格内容的变化，任何编辑都会将状态标记为“脏”
+        self.table.itemChanged.connect(self._mark_as_dirty)
+        # 将主按钮连接到新的状态处理函数
+        self.save_close_btn.clicked.connect(self._on_main_button_clicked)
+
+    def _init_ui(self):
+        """构建对话框的用户界面。"""
+        # ... (此方法的代码保持不变) ...
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("在这里添加、编辑或删除您的自定义数据源快捷方式。"))
         self.table = QTableWidget()
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["源名称", "文件夹路径"])
@@ -333,227 +358,162 @@ class ManageSourcesDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.populate_table()
-        
-        # --- [核心修改] ---
-        # 重新组织按钮栏，将所有按钮放在一个QHBoxLayout中
         btn_layout = QHBoxLayout()
         self.add_btn = QPushButton("添加新源...")
         self.edit_btn = QPushButton("编辑...")
         self.remove_btn = QPushButton("删除")
-        
-        # 创建新的“保存并关闭”按钮
-        self.save_close_btn = QPushButton("保存并关闭")
-        self.save_close_btn.setObjectName("AccentButton") # 应用主题强调色
-        
-        # 将按钮添加到布局中
+        self.save_close_btn = QPushButton("保存/关闭")
+        self.save_close_btn.setObjectName("AccentButton")
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.remove_btn)
-        btn_layout.addStretch() # 添加一个弹簧，将“保存”按钮推到右侧
+        btn_layout.addStretch()
         btn_layout.addWidget(self.save_close_btn)
-        
-        # [移除] 不再需要旧的QDialogButtonBox
-        # self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-
         layout.addWidget(self.table)
-        layout.addLayout(btn_layout) # 将新的按钮栏添加到主布局
-        # [移除] 不再添加旧的button_box
-        # layout.addWidget(self.button_box)
-        
-        # 在 `__init__` 的末尾调用，确保图标被设置
-        self._update_button_icons()
+        layout.addLayout(btn_layout)
 
     def _validate_and_get_source_path(self, initial_path=""):
-        """
-        打开文件对话框让用户选择路径，并进行有效性检查。
-        如果用户选择了音频文件夹，则提示使用其父目录。
-        """
         path = QFileDialog.getExistingDirectory(self, "选择数据源文件夹 (应包含多个音频项目文件夹)", initial_path)
-        
-        if not path:
-            return None # 用户取消
-
-        # 检查所选目录是否直接包含音频文件
+        if not path: return None
         supported_exts = ('.wav', '.mp3', '.flac', '.ogg')
         try:
             if any(f.lower().endswith(supported_exts) for f in os.listdir(path)):
-                reply = QMessageBox.question(self, "路径可能不正确",
-                                             f"您选择的文件夹 '{os.path.basename(path)}'似乎直接包含音频文件。\n\n"
-                                             "数据源通常是一个包含多个【项目文件夹】的目录。\n\n"
-                                             "是否要使用它的上一级目录作为数据源？",
-                                             QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-                                             QMessageBox.Yes)
-                
-                if reply == QMessageBox.Yes:
-                    parent_dir = os.path.dirname(path)
-                    return parent_dir
-                elif reply == QMessageBox.No:
-                    return path # 用户坚持使用当前目录
-                else: # Cancel
-                    return None
-        except OSError:
-            # 无法访问文件夹，直接返回路径让后续逻辑处理
-            return path
-            
+                reply = QMessageBox.question(self, "路径可能不正确", f"您选择的文件夹 '{os.path.basename(path)}'似乎直接包含音频文件。\n\n数据源通常是一个包含多个【项目文件夹】的目录。\n\n是否要使用它的上一级目录作为数据源？", QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+                if reply == QMessageBox.Yes: return os.path.dirname(path)
+                elif reply == QMessageBox.No: return path
+                else: return None
+        except OSError: return path
         return path
 
     def populate_table(self):
         self.table.setRowCount(0)
         for i, source in enumerate(self.sources):
             self.table.insertRow(i)
-            
             name_item = QTableWidgetItem(source['name'])
             path_item = QTableWidgetItem(source['path'])
-            path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable) # 路径不可直接编辑
-            
+            path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
             self.table.setItem(i, 0, name_item)
             self.table.setItem(i, 1, path_item)
     
     def on_item_double_clicked(self, item):
-        # [核心修复] 双击任何一列都触发编辑
         self.edit_source()
 
     def add_source(self):
-        """[重构] 使用标准的输入对话框来添加新源。"""
-        # 1. 获取名称
         name, ok1 = QInputDialog.getText(self, "添加新源", "请输入源名称 (可留空以使用文件夹名):")
-        
-        # 如果用户点击了“取消”或关闭了对话框
-        if not ok1:
-            return
-
-        # 2. 获取路径
-        # 我们直接调用 _validate_and_get_source_path 来处理路径选择和验证
+        if not ok1: return
         path = self._validate_and_get_source_path()
-        if not path:
-            return # 用户取消了路径选择
-            
-        # 3. 自动填充名称（如果为空）
+        if not path: return
         final_name = name if name else os.path.basename(path)
-
-        # 4. 检查名称唯一性
         if any(s['name'] == final_name for s in self.sources):
-            QMessageBox.warning(self, "名称重复", f"源名称 '{final_name}' 已存在。")
-            return
-        
-        # 5. 添加到数据模型并刷新UI
-        self.sources.append({'name': final_name, 'path': path})
-        self.populate_table()
+            QMessageBox.warning(self, "名称重复", f"源名称 '{final_name}' 已存在。"); return
+        self.sources.append({'name': final_name, 'path': path}); self.populate_table()
+        self._mark_as_dirty()
 
     def edit_source(self):
-        """[重构] 使用标准的输入对话框来编辑选中源。"""
         current_row = self.table.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "提示", "请先选择一个要编辑的项目。")
-            return
-
+        if current_row < 0: QMessageBox.information(self, "提示", "请先选择一个要编辑的项目。"); return
         source_to_edit = self.sources[current_row]
-        
-        # 1. 编辑名称
-        new_name, ok1 = QInputDialog.getText(self, "编辑源名称", "请输入新的源名称:", 
-                                             QLineEdit.Normal, source_to_edit['name'])
-        
-        if not (ok1 and new_name.strip()):
-            return
-        
-        # 检查名称是否与列表中的 *其他* 项重复
-        for i, s in enumerate(self.sources):
-            if i != current_row and s['name'] == new_name:
-                QMessageBox.warning(self, "名称重复", "该源名称已存在。")
-                return
-        
-        # 2. 编辑路径
+        new_name, ok1 = QInputDialog.getText(self, "编辑源名称", "请输入新的源名称:", QLineEdit.Normal, source_to_edit['name'])
+        if not (ok1 and new_name.strip()): return
+        if any(i != current_row and s['name'] == new_name for i, s in enumerate(self.sources)):
+            QMessageBox.warning(self, "名称重复", "该源名称已存在。"); return
         new_path = self._validate_and_get_source_path(source_to_edit['path'])
-        
-        if not new_path:
-            return
-            
-        # 3. 更新数据源
-        self.sources[current_row]['name'] = new_name
-        self.sources[current_row]['path'] = new_path
-        
-        # 4. 刷新表格
-        self.populate_table()
-        self.table.setCurrentCell(current_row, 0) # 保持选中状态
+        if not new_path: return
+        self.sources[current_row]['name'] = new_name; self.sources[current_row]['path'] = new_path
+        self.populate_table(); self.table.setCurrentCell(current_row, 0)
+        self._mark_as_dirty()
 
     def _update_button_icons(self):
-        """为所有按钮设置图标。"""
         if self.icon_manager:
             self.add_btn.setIcon(self.icon_manager.get_icon("add_row"))
             self.edit_btn.setIcon(self.icon_manager.get_icon("edit"))
             self.remove_btn.setIcon(self.icon_manager.get_icon("delete"))
             self.save_close_btn.setIcon(self.icon_manager.get_icon("save_2"))
 
-    def edit_source(self):
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "提示", "请先选择一个要编辑的项目。")
-            return
-
-        source_to_edit = self.sources[current_row]
-        
-        # 1. 编辑名称
-        new_name, ok1 = QInputDialog.getText(self, "编辑源名称", "请输入新的源名称:", 
-                                             QLineEdit.Normal, source_to_edit['name'])
-        
-        if not (ok1 and new_name.strip()):
-            return
-        
-        # 检查名称是否与列表中的其他项重复
-        for i, s in enumerate(self.sources):
-            if i != current_row and s['name'] == new_name:
-                QMessageBox.warning(self, "名称重复", "该源名称已存在。")
-                return
-        
-        # 2. 编辑路径
-        new_path = self._validate_and_get_source_path(source_to_edit['path'])
-        
-        if not new_path:
-            return
-            
-        # 3. 更新数据源
-        self.sources[current_row]['name'] = new_name
-        self.sources[current_row]['path'] = new_path
-        
-        # 4. 刷新表格
-        self.populate_table()
-        self.table.setCurrentCell(current_row, 0)
-
     def remove_source(self):
         current_row = self.table.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "提示", "请先选择一个要删除的项目。")
-            return
-            
+        if current_row < 0: QMessageBox.information(self, "提示", "请先选择一个要删除的项目。"); return
         source_name = self.sources[current_row]['name']
-        reply = QMessageBox.question(self, "确认删除", f"您确定要删除快捷方式 '{source_name}' 吗？\n这不会影响您的原始文件夹。",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            del self.sources[current_row]
-            self.populate_table()
+        reply = QMessageBox.question(self, "确认删除", f"您确定要删除快捷方式 '{source_name}' 吗？\n这不会影响您的原始文件夹。", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes: del self.sources[current_row]; self.populate_table()
+        self._mark_as_dirty()
 
     def get_sources(self):
-        # 在关闭前，从表格中读取最终的用户修改
         final_sources = []
         for row in range(self.table.rowCount()):
             name = self.table.item(row, 0).text().strip()
             path = self.table.item(row, 1).text().strip()
             if name and path:
-                 # 再次检查名称唯一性
                 if any(s['name'] == name for s in final_sources):
-                    QMessageBox.warning(self, "保存失败", f"存在重复的源名称: '{name}'。\n请在关闭前修正。")
-                    return None # 返回None表示验证失败
+                    QMessageBox.warning(self, "保存失败", f"存在重复的源名称: '{name}'。\n请在关闭前修正。"); return None
                 final_sources.append({'name': name, 'path': path})
         return final_sources
 
-    # 重写 accept 方法以进行最终验证
     def accept(self):
+        """重写 accept，在关闭前检查是否有未保存的更改。"""
+        if self.is_dirty:
+            reply = QMessageBox.question(self, "未保存的更改",
+                                         "您有未保存的更改。是否要在关闭前保存它们？",
+                                         QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                                         QMessageBox.Save)
+            
+            if reply == QMessageBox.Save:
+                if self._save_changes():
+                    super().accept() # 只有在保存成功后才关闭
+            elif reply == QMessageBox.Discard:
+                super().accept() # 用户选择放弃更改，直接关闭
+            else: # Cancel
+                return # 用户取消关闭，什么都不做
+        else:
+            super().accept() # 没有更改，直接关闭
+
+    def reject(self):
+        """重写 reject，使其行为与 accept 一致，确保关闭窗口 'X' 也能触发检查。"""
+        self.accept()
+
+    def _mark_as_dirty(self, item=None):
+        """将对话框标记为有未保存的更改，并更新按钮状态。"""
+        if not self.is_dirty:
+            self.is_dirty = True
+            self._update_main_button_state()
+
+    def _update_main_button_state(self):
+        """根据 'is_dirty' 状态更新主按钮的文本和图标。"""
+        if self.is_dirty:
+            self.save_close_btn.setText("保存")
+            if self.icon_manager:
+                self.save_close_btn.setIcon(self.icon_manager.get_icon("save_2"))
+            self.save_close_btn.setToolTip("保存当前更改。")
+        else:
+            self.save_close_btn.setText("关闭")
+            if self.icon_manager:
+                # 假设有一个关闭图标，如果没有，它会回退
+                self.save_close_btn.setIcon(self.icon_manager.get_icon("close"))
+            self.save_close_btn.setToolTip("关闭此对话框。")
+
+    def _on_main_button_clicked(self):
+        """主按钮（保存/关闭）被点击时的处理函数。"""
+        if self.is_dirty:
+            self._save_changes()
+        else:
+            self.accept() # 如果状态是干净的，则直接关闭
+
+    def _save_changes(self):
+        """执行保存操作。"""
         final_sources = self.get_sources()
         if final_sources is not None:
-            self.sources = final_sources # 将验证后的结果存回
-            super().accept()
+            self.sources = final_sources
+            
+            # 标记状态为“干净”并更新UI
+            self.is_dirty = False
+            self._update_main_button_state()
+            
+            # 可选：给用户一个明确的反馈
+            if hasattr(self.parent(), 'status_label'):
+                self.parent().status_label.setText("自定义数据源已保存。")
+                QTimer.singleShot(3000, lambda: self.parent().status_label.setText("准备就绪"))
+            return True
+        return False
 
 def create_page(parent_window, config, base_path, results_dir, audio_record_dir, icon_manager, ToggleSwitchClass):
     # [修改] 更新数据源名称
@@ -1774,10 +1734,12 @@ class AudioManagerPage(QWidget):
 
     # [新增] 添加自定义源的逻辑
     def _manage_custom_sources(self):
-        # [核心修复 1] 在打开对话框前，记录下当前选中的文本
+        # 记录下在打开对话框之前，用户实际选择的数据源是什么
         previous_source_name = self.source_combo.currentText()
-        
-        # [核心修复 2] 将 self.icon_manager 作为参数传递给对话框
+        if previous_source_name == "< 添加/管理自定义源... >":
+            # 如果用户直接点击的管理项，我们没有一个“之前”的源，就默认回到第一个
+            previous_source_name = self.source_combo.itemText(0)
+
         dialog = ManageSourcesDialog(self.custom_data_sources, self, self.icon_manager)
     
         if dialog.exec_() == QDialog.Accepted:
@@ -1787,23 +1749,22 @@ class AudioManagerPage(QWidget):
             if updated_sources != self.custom_data_sources:
                 self.custom_data_sources = updated_sources
             
-                # 保存到配置文件
                 file_settings = self.config.setdefault("file_settings", {})
                 file_settings["custom_data_sources"] = self.custom_data_sources
                 self.parent_window.update_and_save_module_state("file_settings", file_settings)
             
-                # 完全刷新UI
-                self.load_and_refresh()
-                # 刷新后，尝试恢复到之前的选择
-                index = self.source_combo.findText(previous_source_name)
-                if index != -1:
-                    self.source_combo.setCurrentIndex(index)
-                else:
-                    # 如果之前的源被删了，就回到第一个
-                    self.source_combo.setCurrentIndex(0)
+                # [核心修正] 在刷新前，先将下拉框重置到一个安全的位置
+                self.source_combo.blockSignals(True)
+                # 找到之前的数据源并选中它，如果找不到了就回到第一个
+                index_to_restore = self.source_combo.findText(previous_source_name)
+                self.source_combo.setCurrentIndex(index_to_restore if index_to_restore != -1 else 0)
+                self.source_combo.blockSignals(False)
 
-        else: # 如果用户点击了 "Cancel"
-            # [核心修复 3] 即使是取消，也要确保下拉框恢复到之前的状态
+                # 现在可以安全地刷新了
+                self.load_and_refresh()
+
+        else: # 如果用户点击了 "Cancel" 或通过 'X' 关闭
+            # 同样需要恢复到之前的选择，以防UI停留在管理项上
             self.source_combo.blockSignals(True)
             index = self.source_combo.findText(previous_source_name)
             if index != -1:

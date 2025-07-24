@@ -47,7 +47,7 @@ if __name__ == "__main__":
     splash.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
     
     splash.progressBar = QProgressBar(splash)
-    splash.progressBar.setGeometry(15, splash_pix.height() - 60, splash_pix.width() - 30, 24)
+    splash.progressBar.setGeometry(15, splash_pix.height() - 60, splash_pix.width() - 30, 18)
     splash.progressBar.setRange(0, 100)
     splash.progressBar.setValue(0)
     splash.progressBar.setTextVisible(False)
@@ -58,13 +58,13 @@ if __name__ == "__main__":
         QProgressBar { 
             background-color: rgba(0, 0, 0, 120); 
             border: 1px solid rgba(255, 255, 255, 80); 
-            border-radius: 12px; 
+            border-radius: 9px; 
             text-align: center; 
             color: white; 
         }
         QProgressBar::chunk { 
-            background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #FFDBCF, stop: 1 #FCEAE4); 
-            border-radius: 11px; 
+            background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #FFFFFF, stop: 1 #FFFFFF); 
+            border-radius: 8px; 
         }
         QSplashScreen > QLabel { 
             background-color: rgba(0, 0, 0, 150); 
