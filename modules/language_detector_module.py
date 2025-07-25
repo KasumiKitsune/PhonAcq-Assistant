@@ -35,99 +35,67 @@ LANG_DATA = {
     'th':    { 'ranges': frozenset({(0x0E00, 0x0E7F)}) },
 }
 
-def _is_likely_english_explanation(note_text):
-    """
-    [新增] 辅助函数，用于判断备注是否是纯英文的解释性文字。
-    这是解决“英文备注干扰”问题的关键。
-    """
-    if not note_text:
-        return False
-    # 规则1: 必须只包含基础拉丁字母、数字和常见标点。
-    if not re.match(r'^[a-z0-9\s.,?!/()\'"-]*$', note_text):
-        return False
-    # 规则2: 必须包含一些常见的英文解释性单词。
-    explanation_words = {'hello', 'in', 'is', 'a', 'the', 'pangram', 'sentence', 'greeting', 'word', 'common', 'thank', 'you'}
-    note_words = set(re.findall(r'\b\w+\b', note_text))
-    if not note_words.intersection(explanation_words):
-        return False
-    return True
-
 def detect_language(text, note=None):
-    """
-    [v6.0 抗干扰专家版] 通过加权评分模型，智能检测给定文本的语言。
-
-    此版本专门解决“英文备注干扰”问题，核心改进：
-    1.  **主动降噪**: 新增 `_is_likely_english_explanation` 辅助函数，用于识别纯英文
-        的解释性备注。如果识别成功，该备注对语言评分的贡献将被完全忽略。
-    2.  **主次分明**: 算法现在绝对优先相信 `text` 栏的证据。只有在 `text` 栏证据
-        不足时，才会考虑采纳 `note` 栏中非英文解释的证据。
-    3.  **特征强化**: 再次强化了越南语等语言的独特“杀手级”特征，提高识别的确定性。
-
-    :param text: 需要检测的主要文案。
-    :param note: (可选) 附加的备注/IPA信息，用于辅助判断。
-    :return: 一个 gTTS 兼容的语言代码 (e.g., 'zh-cn', 'fr', 'vi') 或 None。
-    """
-    if not text or not isinstance(text, str):
-        return 'en-us' if (note and isinstance(note, str)) else None
-
-    text_lower = text.lower()
-    note_lower = note.lower() if note and isinstance(note, str) else ""
-
-    if not text_lower and not note_lower:
+    if not text and not note:
         return None
         
-    # --- [核心修正] 在分析开始前，预先判断备注是否是干扰项 ---
-    is_note_english_clutter = _is_likely_english_explanation(note_lower)
+    text_lower = str(text).lower().strip() if text else ""
+    note_lower = str(note).lower().strip() if note and isinstance(note, str) else ""
 
-    scores = {lang: 0.0 for lang in LANG_DATA}
+    if not text_lower:
+        return None # 如果主文本为空，直接不进行判断
+
+    # --- 权重和数据定义保持不变 ---
     WEIGHTS = { 'killer': 100.0, 'range': 50.0, 'feature': 10.0, 'stop_word': 5.0, 'uk_bonus': 10.0 }
 
-    # --- 证据累加 ---
+    # --- 核心分析流程 (只分析主文本) ---
+    scores = {lang: 0.0 for lang in LANG_DATA}
     
-    # 步骤 1: 分析主文本 (text) - 这是最主要的证据来源
+    # 字符级分析 (killer, range, feature)
     for char in text_lower:
         char_ord = ord(char)
         for lang, data in LANG_DATA.items():
-            if 'killer' in data and char in data['killer']: scores[lang] += WEIGHTS['killer']
-            if 'ranges' in data and any(start <= char_ord <= end for start, end in data['ranges']): scores[lang] += WEIGHTS['range']
-            if 'features' in data and char in data['features']: scores[lang] += WEIGHTS['feature']
-            
-    text_words = frozenset(re.findall(r'\b\w+\b', text_lower))
-    if text_words:
+            if 'killer' in data and char in data['killer']:
+                scores[lang] += WEIGHTS['killer']
+            if 'ranges' in data and any(start <= char_ord <= end for start, end in data['ranges']):
+                scores[lang] += WEIGHTS['range']
+            if 'features' in data and char in data['features']:
+                scores[lang] += WEIGHTS['feature']
+    
+    # 词汇级分析 (stop words)
+    words = frozenset(re.findall(r'\b\w+\b', text_lower))
+    if words:
         for lang, data in LANG_DATA.items():
             if 'stop_words' in data:
-                common_words = len(text_words.intersection(data['stop_words']))
-                if common_words > 0:
-                    score_boost = (common_words / len(text_words)) * WEIGHTS['stop_word']
-                    if lang == 'en-uk': score_boost += WEIGHTS['uk_bonus'] * common_words
+                common_words_count = len(words.intersection(data['stop_words']))
+                if common_words_count > 0:
+                    score_boost = (common_words_count / len(words)) * WEIGHTS['stop_word'] * 10
+                    if lang == 'en-uk':
+                        score_boost += WEIGHTS['uk_bonus'] * common_words_count
                     scores[lang] += score_boost
 
-    # 步骤 2: 分析备注 (note) - 仅在备注不是“英文干扰项”时进行，作为辅助证据
-    if not is_note_english_clutter and note_lower:
-        for char in note_lower:
-            char_ord = ord(char)
-            for lang, data in LANG_DATA.items():
-                if 'killer' in data and char in data['killer']: scores[lang] += WEIGHTS['killer']
-                if 'ranges' in data and any(start <= char_ord <= end for start, end in data['ranges']): scores[lang] += WEIGHTS['range']
-                if 'features' in data and char in data['features']: scores[lang] += WEIGHTS['feature']
-
-    # --- 最终决策 ---
-    if not any(scores.values()):
-        return 'en-us' if text_lower else None
+    # --- 决策 ---
+    if not any(s > 0 for s in scores.values()):
+        # 如果没有任何分数，回退到默认英文
+        return 'en-us'
 
     best_lang, best_score = max(scores.items(), key=lambda item: item[1])
 
-    # 如果分数过低，则不做出判断，除非是纯拉丁字母文本
-    if best_score < 5.0:
-        is_basic_latin = all('a' <= char <= 'z' or char.isspace() for char in text_lower)
-        return 'en-us' if is_basic_latin else None
+    # --- [核心修正] 特殊规则应用 ---
+    # 1. 对日语的特殊处理：如果主文本最可能是日语，检查备注中是否有假名来确认
+    if best_lang == 'ja' and note_lower:
+        ja_ranges = LANG_DATA['ja']['ranges']
+        # 如果备注中含有任何假名，则确认是日语
+        if any(start <= ord(char) <= end for char in note_lower for start, end in ja_ranges):
+            return 'ja'
 
-    # 特殊处理英式/美式英语
+    # 2. 对英语的特殊处理 (英式/美式)
     if best_lang == 'en-us':
         uk_score = scores.get('en-uk', 0)
-        if uk_score > 0 and uk_score >= best_score * 0.9: # 提高英式英语的判定阈值
+        # 仅当英式英语证据非常强时才判定为英式
+        if uk_score > 0 and uk_score >= best_score:
             return 'en-uk'
 
+    # 对于所有其他情况，只返回基于主文本的最高分结果
     return best_lang
-
 # --- END OF FILE modules/language_detector_module.py ---

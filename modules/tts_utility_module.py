@@ -106,6 +106,22 @@ class TtsUtilityPage(QWidget):
         self.update_icons() # [新增] 首次加载时更新图标
         self.log_message_signal.connect(self.log_message)
         self.task_finished_signal.connect(self.on_tts_task_finished)
+        self._setup_hooks()
+    def _setup_hooks(self):
+        """
+        [新增] 查找词表编辑器实例并设置钩子。
+        """
+        # 延迟执行，确保所有模块都已初始化
+        QTimer.singleShot(0, self._set_wordlist_editor_hook)
+    def _set_wordlist_editor_hook(self):
+        # 通过主窗口安全地获取词表编辑器的页面实例
+        wordlist_editor_page = getattr(self.parent_window, 'wordlist_editor_page', None)
+        if wordlist_editor_page:
+            # 将本实例 (self) 设置为对方的钩子
+            wordlist_editor_page.tts_utility_hook = self
+            print("[TTS Utility] Hooked into Wordlist Editor successfully.")
+        else:
+            print("[TTS Utility] Warning: Wordlist Editor page not found, cannot set up hook.")
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -377,20 +393,50 @@ class TtsUtilityPage(QWidget):
 
     def start_tts_processing(self):
         items_to_process = self.get_items_from_editor()
-        if not items_to_process: QMessageBox.information(self, "无内容", "没有有效的词条进行TTS转换。"); return
-        is_for_flashcard = self.output_to_flashcard_switch.isChecked(); target_dir = ""
+        if not items_to_process:
+            QMessageBox.information(self, "无内容", "没有有效的词条进行TTS转换。")
+            return
+
+        is_for_flashcard = self.output_to_flashcard_switch.isChecked()
+        target_dir = ""
+
+        # --- [核心修正] 重新定义输出目录的逻辑 ---
         if is_for_flashcard:
-            if not self.current_wordlist_path: QMessageBox.warning(self, "模式错误", "“输出到速记卡模块”模式需要先加载一个词表文件。"); return
-            wordlist_name = os.path.splitext(os.path.basename(self.current_wordlist_path))[0]; target_dir = os.path.join(self.base_path_module, "flashcards", "audio_tts", wordlist_name)
+            # 模式1: 输出到速记卡
+            if not self.current_wordlist_path:
+                QMessageBox.warning(self, "模式错误", "“输出到速记卡模块”模式需要先加载一个词表文件。")
+                return
+            wordlist_name = os.path.splitext(os.path.basename(self.current_wordlist_path))[0]
+            target_dir = os.path.join(self.base_path_module, "flashcards", "audio_tts", wordlist_name)
+        
+        elif self.current_wordlist_path:
+            # 模式2: 已加载词表，但不是速记卡模式 -> 输出到 audio_tts/词表名/
+            wordlist_name = os.path.splitext(os.path.basename(self.current_wordlist_path))[0]
+            target_dir = os.path.join(self.AUDIO_TTS_DIR_ROOT, wordlist_name)
+            # 自动填充输入框以向用户反馈
+            self.output_subdir_input.setText(wordlist_name)
+        
         else:
+            # 模式3: 未加载词表 (处理临时列表) -> 输出到 audio_tts/用户自定义/
             subdir_name = self.output_subdir_input.text().strip()
-            if not subdir_name: subdir_name = f"tts_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}"; self.output_subdir_input.setText(subdir_name)
-            safe_subdir_name = re.sub(r'[\\/*?:"<>|]', "_", subdir_name); target_dir = os.path.join(self.AUDIO_TTS_DIR_ROOT, safe_subdir_name)
+            if not subdir_name:
+                subdir_name = f"tts_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                self.output_subdir_input.setText(subdir_name)
+            safe_subdir_name = re.sub(r'[\\/*?:"<>|]', "_", subdir_name)
+            target_dir = os.path.join(self.AUDIO_TTS_DIR_ROOT, safe_subdir_name)
+        
+        # --- (后续的目录创建和任务启动逻辑保持不变) ---
         if not os.path.exists(target_dir):
-            try: os.makedirs(target_dir)
-            except Exception as e: QMessageBox.critical(self, "创建目录失败", f"无法创建输出目录 '{target_dir}':\n{e}"); return
+            try:
+                os.makedirs(target_dir)
+            except Exception as e:
+                QMessageBox.critical(self, "创建目录失败", f"无法创建输出目录 '{target_dir}':\n{e}")
+                return
+
         source_desc = os.path.basename(self.current_wordlist_path) if self.current_wordlist_path else "<当前编辑列表>"
-        self.log_message(f"开始TTS转换任务 ({source_desc})... 输出到: {target_dir}"); self.progress_bar.setValue(0); self.progress_bar.setFormat("准备中... (0%)")
+        self.log_message(f"开始TTS转换任务 ({source_desc})... 输出到: {target_dir}")
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("准备中... (0%)")
         self.start_tts_btn.setEnabled(False); self.submit_edited_btn.setEnabled(False); self.load_wordlist_btn.setEnabled(False); self.stop_tts_btn.setEnabled(True)
         self.stop_tts_event.clear()
         tts_settings = {'default_lang': self.default_lang_combo.currentData(), 'auto_detect': self.auto_detect_lang_switch.isChecked(), 'slow': self.slow_speed_switch.isChecked()}

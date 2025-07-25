@@ -111,7 +111,6 @@ class PluginManager:
         meta = self.available_plugins[plugin_id]
         try:
             module_path = os.path.join(meta['path'], meta['main_file'])
-            # 使用插件ID作为模块名，确保唯一性
             spec = importlib.util.spec_from_file_location(f"plugins.{meta['id']}", module_path)
             plugin_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(plugin_module)
@@ -119,16 +118,37 @@ class PluginManager:
             PluginClass = getattr(plugin_module, meta['entry_class'])
             plugin_instance = PluginClass(self.main_window, self)
             
+            # [核心修改] 对 setup() 方法也进行 try...except 包裹
             if plugin_instance.setup() is False:
+                 # 这是插件主动返回失败，不视为异常，但要记录
                  print(f"[插件错误] 插件 '{meta['name']}' 的 setup() 方法返回 False，已中止加载。", file=sys.stderr)
+                 QMessageBox.warning(self.main_window, "插件启用失败", 
+                                     f"插件 '{meta['name']}' 初始化失败。\n\n"
+                                     "其 setup() 方法明确返回了失败信号，请检查插件逻辑或联系开发者。")
                  return False
 
             self.active_plugins[plugin_id] = plugin_instance
             return True
         except Exception as e:
-            print(f"[插件错误] 启用插件 '{meta['name']}' 失败: {e}\n{traceback.format_exc()}", file=sys.stderr)
-            QMessageBox.critical(self.main_window, "插件错误", f"启用插件 '{meta['name']}' 时发生错误:\n\n{e}")
-            return False
+            # [核心修改] 捕获所有在导入和实例化过程中可能发生的异常
+            # 使用 traceback 模块获取详细的错误堆栈信息
+            error_details = traceback.format_exc()
+            print(f"[插件错误] 启用插件 '{meta['name']}' 失败: {e}\n{error_details}", file=sys.stderr)
+            
+            # 显示一个非模态的、内容更丰富的错误对话框
+            error_msg_box = QMessageBox(self.main_window)
+            error_msg_box.setIcon(QMessageBox.Critical)
+            error_msg_box.setWindowTitle("插件启用错误")
+            error_msg_box.setText(f"<b>启用插件 '{meta['name']}' 时发生严重错误。</b>")
+            error_msg_box.setInformativeText("该插件将保持禁用状态，以防止主程序不稳定。")
+            error_msg_box.setDetailedText(f"错误类型: {type(e).__name__}\n"
+                                        f"错误信息: {e}\n\n"
+                                        f"详细堆栈信息:\n{error_details}")
+            # [关键] 设置为非模态，这样它不会阻塞主窗口
+            error_msg_box.setWindowModality(Qt.NonModal)
+            error_msg_box.show()
+            
+            return False # 明确返回失败
 
     def disable_plugin(self, plugin_id):
         if plugin_id not in self.active_plugins: return
@@ -147,8 +167,21 @@ class PluginManager:
         try:
             self.active_plugins[plugin_id].execute(**kwargs)
         except Exception as e:
-            QMessageBox.critical(self.main_window, "插件执行错误", f"执行插件 '{meta['name']}' 时发生错误:\n\n{e}")
-            print(f"[插件错误] 执行插件 '{meta['name']}' 时出错: {e}\n{traceback.format_exc()}", file=sys.stderr)
+            # [核心修改] 捕获插件执行期间的所有异常
+            error_details = traceback.format_exc()
+            print(f"[插件错误] 执行插件 '{meta['name']}' 时出错: {e}\n{error_details}", file=sys.stderr)
+
+            # 同样使用非阻塞的、带详细信息的错误对话框
+            error_msg_box = QMessageBox(self.main_window)
+            error_msg_box.setIcon(QMessageBox.Critical)
+            error_msg_box.setWindowTitle("插件执行错误")
+            error_msg_box.setText(f"<b>执行插件 '{meta['name']}' 时发生错误。</b>")
+            error_msg_box.setInformativeText("请检查您的操作或插件配置。")
+            error_msg_box.setDetailedText(f"错误类型: {type(e).__name__}\n"
+                                        f"错误信息: {e}\n\n"
+                                        f"详细堆栈信息:\n{error_details}")
+            error_msg_box.setWindowModality(Qt.NonModal)
+            error_msg_box.show()
 
     def teardown_all_plugins(self):
         for plugin_id in list(self.active_plugins.keys()):

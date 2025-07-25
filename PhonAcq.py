@@ -10,6 +10,7 @@ import threading
 import queue
 from datetime import datetime
 import importlib.util
+import traceback
 
 # ==============================================================================
 # 阶段一：绝对最小化导入，用于瞬时启动画面
@@ -20,6 +21,59 @@ from PyQt5.QtCore import Qt, QCoreApplication, QTimer
 
 # --- 启动画面立即执行 ---
 # 这部分代码在主程序块中立即执行，以最快速度显示启动画面。
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """
+    一个全局的“安全网”，捕获所有未被处理的异常，并以一个友好的、
+    非侵入式的小窗口提示用户，而不是让程序崩溃。
+    """
+    # 首先，在控制台打印出完整的错误信息，方便开发者调试。
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    # 格式化错误信息，以便在“详情”中显示。
+    error_message = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    
+    # 我们使用 QTimer.singleShot 来确保UI操作在安全的事件循环中执行。
+    def show_friendly_error_dialog():
+        # 创建一个“信息”类型的对话框，而不是“严重错误”类型。
+        error_box = QMessageBox()
+        error_box.setIcon(QMessageBox.Information) # 使用蓝色的 'i' 图标，而非红色的 'X'
+
+        error_box.setWindowTitle("提示")
+        error_box.setText("<b>这里好像有点小问题。</b>")
+        
+        informative_text = (
+            "但是您可以尝试继续操作。\n"
+            "如果问题持续出现，可以展开详情并向我们反馈。"
+        )
+        error_box.setInformativeText(informative_text)
+        
+        error_box.setDetailedText(error_message) # 详细的错误代码依然保留，但默认隐藏
+
+        # --- 查找主窗口并应用主题样式的逻辑保持不变 ---
+        main_window = None
+        app_instance = QApplication.instance()
+        if app_instance:
+            for widget in app_instance.topLevelWidgets():
+                if isinstance(widget, MainWindow):
+                    main_window = widget
+                    break
+        
+        if main_window:
+            error_box.setStyleSheet(main_window.styleSheet())
+            error_box.setWindowIcon(main_window.windowIcon())
+        
+        # --- 置顶逻辑保持不变 ---
+        error_box.setWindowFlags(error_box.windowFlags() | Qt.WindowStaysOnTopHint)
+        
+        # 显示对话框。
+        error_box.exec_()
+
+    QTimer.singleShot(0, show_friendly_error_dialog)
+
+
+# 将我们自定义的函数设置为Python的全局异常处理器。
+sys.excepthook = global_exception_handler
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 

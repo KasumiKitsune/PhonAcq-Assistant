@@ -14,7 +14,7 @@ import subprocess # [新增] 用于打开文件浏览器
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QShortcut, QUndoStack, 
-                             QUndoCommand, QApplication, QMenu)
+                             QUndoCommand, QApplication, QMenu, QDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence, QColor, QBrush, QIcon
 
@@ -67,6 +67,113 @@ class RowOperationCommand(QUndoCommand):
         elif self.type == 'add': self._remove_rows(self.start_row, len(self.rows_data))
         elif self.type == 'move': self._remove_rows(self.start_row + self.move_offset, len(self.rows_data)); self._insert_rows(self.start_row, self.rows_data)
         self.table.blockSignals(False)
+
+class MetadataDialog(QDialog):
+    def __init__(self, metadata, parent=None, icon_manager=None):
+        """
+        初始化元数据配置对话框。
+        :param metadata: 一个包含当前元数据的字典。
+        :param parent: 父 QWidget。
+        :param icon_manager: 用于获取图标的 IconManager 实例。
+        """
+        super().__init__(parent)
+        self.metadata = metadata
+        self.icon_manager = icon_manager
+        
+        self.setWindowTitle("配置词表元数据")
+        self.setMinimumWidth(500)
+        self._init_ui()
+        self.populate_table()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["键 (Key)", "值 (Value)"])
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setToolTip("编辑词表的元信息。\n核心的 'format' 和 'version' 键不可编辑。")
+        
+        # --- [核心修改] 创建一个新的 QHBoxLayout 来容纳所有按钮 ---
+        button_layout = QHBoxLayout()
+        
+        self.add_btn = QPushButton("添加元数据项")
+        if self.icon_manager: self.add_btn.setIcon(self.icon_manager.get_icon("add_row"))
+        self.remove_btn = QPushButton("移除选中项")
+        if self.icon_manager: self.remove_btn.setIcon(self.icon_manager.get_icon("delete"))
+        
+        # 创建新的“保存”按钮
+        self.save_btn = QPushButton("保存")
+        if self.icon_manager: self.save_btn.setIcon(self.icon_manager.get_icon("save"))
+        self.save_btn.setDefault(True) # 让回车键默认触发此按钮
+
+        # 将所有按钮添加到新的水平布局中
+        button_layout.addWidget(self.add_btn)
+        button_layout.addWidget(self.remove_btn)
+        button_layout.addStretch() # 添加一个弹簧，将“保存”按钮推到右侧
+        button_layout.addWidget(self.save_btn)
+        
+        # [移除] 不再需要旧的 QDialogButtonBox
+        # self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        
+        layout.addWidget(self.table)
+        layout.addLayout(button_layout) # 将新的按钮栏添加到主布局
+        # [移除] 不再添加旧的 button_box
+        # layout.addWidget(self.button_box)
+        
+        # 连接信号
+        self.add_btn.clicked.connect(self.add_item)
+        self.remove_btn.clicked.connect(self.remove_item)
+        # 将新的“保存”按钮连接到 accept() 槽，这是 QDialog 的标准“确定”操作
+        self.save_btn.clicked.connect(self.accept)
+        # [移除] 不再需要连接旧的 button_box
+        # self.button_box.accepted.connect(self.accept)
+        # self.button_box.rejected.connect(self.reject)
+
+    def populate_table(self):
+        """用传入的元数据填充表格。"""
+        self.table.setRowCount(0)
+        for key, value in self.metadata.items():
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            
+            key_item = QTableWidgetItem(key)
+            val_item = QTableWidgetItem(str(value))
+            
+            # 核心键不可编辑
+            if key in ['format', 'version']:
+                key_item.setFlags(key_item.flags() & ~Qt.ItemIsEditable)
+                val_item.setFlags(val_item.flags() & ~Qt.ItemIsEditable)
+
+            self.table.setItem(row, 0, key_item)
+            self.table.setItem(row, 1, val_item)
+            
+    def add_item(self):
+        """在表格中添加一个空的新行。"""
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem("新键"))
+        self.table.setItem(row, 1, QTableWidgetItem("新值"))
+
+    def remove_item(self):
+        """移除当前选中的行。"""
+        current_row = self.table.currentRow()
+        if current_row != -1:
+            key_item = self.table.item(current_row, 0)
+            if key_item and key_item.text() in ['format', 'version']:
+                QMessageBox.warning(self, "操作禁止", f"核心元数据键 '{key_item.text()}' 不可删除。")
+                return
+            self.table.removeRow(current_row)
+
+    def get_metadata(self):
+        """从表格中收集数据并返回更新后的元数据字典。"""
+        new_meta = {}
+        for i in range(self.table.rowCount()):
+            key_item = self.table.item(i, 0)
+            val_item = self.table.item(i, 1)
+            if key_item and val_item and key_item.text().strip():
+                new_meta[key_item.text().strip()] = val_item.text()
+        return new_meta
 
 class DialectVisualEditorPage(QWidget):
     def __init__(self, parent_window, ToggleSwitchClass, icon_manager):
@@ -137,6 +244,12 @@ class DialectVisualEditorPage(QWidget):
         if not item: return
 
         menu = QMenu(self.file_list_widget)
+
+        # --- [新增] 配置菜单项 ---
+        config_action = menu.addAction(self.icon_manager.get_icon("settings"), "配置...")
+        config_action.setToolTip("编辑词表的元数据，如作者、描述等。")
+        menu.addSeparator()
+
         show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
         menu.addSeparator()
         duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
@@ -144,12 +257,51 @@ class DialectVisualEditorPage(QWidget):
         
         action = menu.exec_(self.file_list_widget.mapToGlobal(position))
 
-        if action == show_action:
+        if action == config_action:
+            self._configure_metadata(item)
+        elif action == show_action:
             self._show_in_explorer(item)
         elif action == duplicate_action:
             self._duplicate_file(item)
         elif action == delete_action:
             self._delete_file(item)
+
+    def _configure_metadata(self, item):
+        """
+        [新增] 打开元数据配置对话框并处理结果。
+        """
+        if not item: return
+        filepath = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, item.text())
+        
+        try:
+            # 1. 读取JSON文件
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 确保 'meta' 键存在
+            if 'meta' not in data:
+                data['meta'] = {"format": "visual_wordlist", "version": "1.0"}
+
+            # 2. 创建并显示对话框
+            dialog = MetadataDialog(data['meta'], self, self.icon_manager)
+            if dialog.exec_() == QDialog.Accepted:
+                # 3. 如果用户点击 "OK"，获取更新后的元数据
+                updated_meta = dialog.get_metadata()
+                data['meta'] = updated_meta
+                
+                # 4. 将更新后的完整数据写回文件
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4, ensure_ascii=False)
+                
+                QMessageBox.information(self, "成功", f"文件 '{item.text()}' 的元数据已更新。")
+                
+                # 如果配置的是当前打开的文件，则刷新编辑器
+                # (图文编辑器没有显示元数据的地方，所以此步可选，但为了逻辑一致性保留)
+                if filepath == self.current_wordlist_path:
+                    self.load_file_to_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"处理元数据时发生错误: {e}")
 
     def _show_in_explorer(self, item):
         if not item: return
