@@ -57,23 +57,36 @@ class SettingsPage(QWidget):
         self.collector_width_input.setToolTip("设置采集类页面（如标准朗读采集、看图说话采集）右侧边栏的宽度。范围：200-600像素。")
         self.collector_width_label = QLabel("范围: 200-600 px")
         collector_width_layout = QHBoxLayout(); collector_width_layout.addWidget(self.collector_width_input); collector_width_layout.addWidget(self.collector_width_label)
-        ui_appearance_form_layout.addRow("采集类页面侧边栏宽度:", collector_width_layout)
+        ui_appearance_form_layout.addRow("采集类页面侧栏宽:", collector_width_layout)
         
         self.editor_width_input = QLineEdit()
         self.editor_width_input.setValidator(QIntValidator(200, 600, self))
         self.editor_width_input.setToolTip("设置管理/编辑类页面（如词表编辑器、数据管理器）左侧边栏的宽度。范围：200-600像素。")
         self.editor_width_label = QLabel("范围: 200-600 px")
         editor_width_layout = QHBoxLayout(); editor_width_layout.addWidget(self.editor_width_input); editor_width_layout.addWidget(self.editor_width_label)
-        ui_appearance_form_layout.addRow("管理/编辑类页面侧边栏宽度:", editor_width_layout)
+        ui_appearance_form_layout.addRow("管理类页面侧栏宽:", editor_width_layout)
         
         self.theme_combo = QComboBox()
         self.theme_combo.setToolTip("选择应用程序的视觉主题。更改后将立即生效。")
-        ui_appearance_form_layout.addRow("主题皮肤:", self.theme_combo)
+        
+        # [新增] 创建紧凑模式的 ToggleSwitch
+        self.compact_mode_switch = self.ToggleSwitch()
+        self.compact_mode_switch.setToolTip("切换当前选中主题的标准版与紧凑版。") # 默认ToolTip
+        
+        # [修改] 将下拉框和开关放在一个水平布局中
+        theme_layout = QHBoxLayout()
+        theme_layout.addWidget(self.theme_combo, 1) # 下拉框占据更多空间
+        theme_layout.addWidget(QLabel("标准"))
+        theme_layout.addWidget(self.compact_mode_switch)
+        theme_layout.addWidget(QLabel("紧凑"))
+        
+        # 将新的布局添加到表单中，替换掉原来的那一行
+        ui_appearance_form_layout.addRow("主题皮肤:", theme_layout)
         
         self.hide_tooltips_switch = self.ToggleSwitch()
         self.hide_tooltips_switch.setToolTip("开启后，将隐藏标签页的工具提示（鼠标悬停时显示的文字）。")
         hide_tooltips_layout = QHBoxLayout(); hide_tooltips_layout.addWidget(self.hide_tooltips_switch); hide_tooltips_layout.addStretch()
-        ui_appearance_form_layout.addRow("隐藏Tab文字提示(Tooltip):", hide_tooltips_layout)
+        ui_appearance_form_layout.addRow("隐藏Tab文字提示:", hide_tooltips_layout)
         
         # 文件与路径
         file_group = QGroupBox("文件与路径")
@@ -88,7 +101,7 @@ class SettingsPage(QWidget):
         
         self.word_list_combo = QComboBox()
         self.word_list_combo.setToolTip("在'标准朗读采集'模块中，会话开始时将默认加载此单词表。")
-        file_layout.addRow("默认单词表 (口音采集):", self.word_list_combo)
+        file_layout.addRow("默认单词表:", self.word_list_combo)
         
         self.participant_name_input = QLineEdit()
         self.participant_name_input.setToolTip("设置每次采集会话（口音采集）的默认被试者名称前缀。")
@@ -152,7 +165,8 @@ class SettingsPage(QWidget):
         self.gain_label = QLabel("1.0x")
         gain_layout = QHBoxLayout(); gain_layout.addWidget(self.gain_slider); gain_layout.addWidget(self.gain_label)
         audio_layout.addRow("录音音量增益:", gain_layout)
-         # [新增] 音频播放缓存设置
+        
+        # [新增] 音频播放缓存设置
         self.player_cache_slider = QSlider(Qt.Horizontal)
         self.player_cache_slider.setRange(3, 20) # 允许缓存 3 到 20 个音频文件
         self.player_cache_slider.setValue(5) # 默认值
@@ -199,6 +213,12 @@ class SettingsPage(QWidget):
         self.collector_width_input.textChanged.connect(self._on_setting_changed)
         self.editor_width_input.textChanged.connect(self._on_setting_changed)
         self.theme_combo.currentIndexChanged.connect(self._on_setting_changed)
+        
+        # [新增] 连接新开关的信号
+        self.compact_mode_switch.stateChanged.connect(self._on_setting_changed)
+        # [新增] 当下拉框选择变化时，需要更新开关的状态
+        self.theme_combo.currentIndexChanged.connect(self._update_compact_switch_state)
+
         self.hide_tooltips_switch.stateChanged.connect(self._on_setting_changed)
         
         self.results_dir_btn.clicked.connect(self.select_results_dir) 
@@ -237,6 +257,33 @@ class SettingsPage(QWidget):
         self.populate_themes()
         self.populate_word_lists()
         self.populate_input_devices()
+
+    def _update_compact_switch_state(self, index):
+        """
+        当主题下拉框选择变化时，检查新选中的主题是否有紧凑版，
+        并据此启用或禁用“紧凑模式”开关，同时更新Tooltip。
+        """
+        # 记录下开关在状态改变前的 checked 状态
+        was_checked = self.compact_mode_switch.isChecked()
+
+        if index < 0:
+            self.compact_mode_switch.setEnabled(False)
+            self.compact_mode_switch.setToolTip("当前选中的主题没有提供紧凑版本。")
+            return
+
+        theme_data = self.theme_combo.itemData(index)
+        if theme_data and theme_data.get('compact_path'):
+            self.compact_mode_switch.setEnabled(True)
+            self.compact_mode_switch.setToolTip("切换当前选中主题的标准版与紧凑版。")
+        else:
+            self.compact_mode_switch.setEnabled(False)
+            self.compact_mode_switch.setChecked(False) # 禁用时，确保状态为“关闭”
+            self.compact_mode_switch.setToolTip("当前选中的主题没有提供紧凑版本。")
+
+        # 如果开关的 checked 状态因为我们的程序逻辑而发生了改变，
+        # 就手动调用 _on_setting_changed() 来启用保存按钮。
+        if self.compact_mode_switch.isChecked() != was_checked:
+            self._on_setting_changed()
 
     def populate_input_devices(self):
         self.input_device_combo.clear()
@@ -279,24 +326,68 @@ class SettingsPage(QWidget):
                 print(f"无法读取单词表目录: {e}")
 
     def populate_themes(self):
+        """
+        [重构] 扫描主题文件夹，自动配对标准版和紧凑版，
+        并只在下拉列表中显示主题的基础名称。
+        """
         self.theme_combo.clear()
         if not os.path.exists(self.THEMES_DIR): return
-        theme_data = []
+        
+        # 用于存储解析后的主题信息，键为基础名称
+        themes = {}
+
         try:
-            for item in os.listdir(self.THEMES_DIR):
+            # 1. 扫描所有 .qss 文件和包含 .qss 的文件夹
+            all_items = os.listdir(self.THEMES_DIR)
+            
+            # 辅助函数，用于解析文件名并填充 themes 字典
+            def process_theme_file(file_path, display_name_base):
+                # 检查文件名或显示名是否包含“紧凑”、“compact”等关键词
+                is_compact = any(kw in display_name_base.lower() for kw in ["compact", "紧凑", "紧凑版"])
+                # 移除紧凑版关键词，得到主题的基础名称
+                base_name = display_name_base.replace("Compact", "").replace("紧凑版", "").replace("紧凑", "").strip()
+                
+                # 如果处理后的基础名称为空，则跳过（避免只剩下“紧凑版”这种空条目）
+                if not base_name:
+                    return
+
+                # 初始化主题条目（如果不存在）
+                if base_name not in themes:
+                    themes[base_name] = {'standard_path': None, 'compact_path': None}
+                
+                # 根据是否为紧凑版，填充对应的路径
+                if is_compact:
+                    themes[base_name]['compact_path'] = file_path
+                else:
+                    themes[base_name]['standard_path'] = file_path
+
+            # 遍历并处理
+            for item in all_items:
                 item_path = os.path.join(self.THEMES_DIR, item)
                 if os.path.isdir(item_path):
                     qss_file_in_dir = f"{item}.qss"
                     if os.path.exists(os.path.join(item_path, qss_file_in_dir)):
-                        display_name = item.replace("_", " ").title(); file_path = os.path.join(item, qss_file_in_dir).replace("\\", "/")
-                        theme_data.append((display_name, file_path))
-                elif item.endswith('.qss') and not item.startswith('_'):
-                    display_name = os.path.splitext(item)[0].replace("_", " ").replace("-", " ").title(); file_path = item
-                    theme_data.append((display_name, file_path))
-        except Exception as e: print(f"扫描主题文件夹时出错: {e}")
-        theme_data.sort(key=lambda x: x[0])
-        for display_name, file_path in theme_data: self.theme_combo.addItem(display_name, file_path)
-    
+                        display_name = item.replace("_", " ").title()
+                        relative_path = os.path.join(item, qss_file_in_dir).replace("\\", "/")
+                        process_theme_file(relative_path, display_name)
+                elif item.endswith('.qss') and not item.startswith('_'): # 确保不是隐藏文件
+                    display_name = os.path.splitext(item)[0].replace("_", " ").replace("-", " ").title()
+                    process_theme_file(item, display_name)
+
+        except Exception as e: 
+            print(f"扫描主题文件夹时出错: {e}")
+
+        # 2. 将解析后的主题数据添加到下拉框
+        sorted_theme_names = sorted(themes.keys())
+        for name in sorted_theme_names:
+            theme_info = themes[name]
+            # 只有当存在标准版路径时，才将其添加到下拉框
+            if theme_info.get('standard_path'):
+                self.theme_combo.addItem(name, theme_info) # itemData 存储的是 {'standard_path': ..., 'compact_path': ...}
+        
+        # 初始时确保 compact_mode_switch 的状态正确
+        self._update_compact_switch_state(self.theme_combo.currentIndex())
+
     def load_settings(self):
         self.populate_all()
         config = self.parent_window.config
@@ -306,23 +397,47 @@ class SettingsPage(QWidget):
         self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
         self.hide_tooltips_switch.setChecked(ui_settings.get("hide_all_tooltips", False))
         
-        saved_theme_path = config.get("theme", "Modern_light_tab.qss")
-        if saved_theme_path:
-            index = self.theme_combo.findData(saved_theme_path)
-            if index >= 0: self.theme_combo.setCurrentIndex(index)
-            else:
-                try:
-                    legacy_display_name = os.path.splitext(os.path.basename(saved_theme_path))[0].replace("_", " ").replace("-", " ").title()
-                    legacy_index = self.theme_combo.findText(legacy_display_name, Qt.MatchFixedString)
-                    if legacy_index >= 0: self.theme_combo.setCurrentIndex(legacy_index)
-                except Exception:
-                    if self.theme_combo.count() > 0: self.theme_combo.setCurrentIndex(0)
-        elif self.theme_combo.count() > 0: self.theme_combo.setCurrentIndex(0)
+        saved_theme_path = config.get("theme", "默认.qss") # 默认主题改为 "default.qss"
+        
+        # 临时禁用信号，防止在设置过程中触发 _on_setting_changed
+        self.theme_combo.blockSignals(True)
+        self.compact_mode_switch.blockSignals(True)
+
+        # 检查保存的主题是标准版还是紧凑版
+        is_compact_saved = False
+        # 快速检查文件名中是否包含“紧凑”或“compact”来判断
+        if isinstance(saved_theme_path, str):
+            is_compact_saved = any(kw in saved_theme_path.lower() for kw in ["compact", "紧凑", "紧凑版"])
+        
+        found = False
+        for i in range(self.theme_combo.count()):
+            theme_data = self.theme_combo.itemData(i) # 获取存储在 itemData 中的字典
+            
+            # 检查保存的路径是否与当前下拉项的标准版或紧凑版路径匹配
+            if (theme_data.get('standard_path') == saved_theme_path or 
+                theme_data.get('compact_path') == saved_theme_path):
+                
+                self.theme_combo.setCurrentIndex(i)
+                self.compact_mode_switch.setChecked(is_compact_saved)
+                found = True
+                break
+        
+        if not found and self.theme_combo.count() > 0:
+            # 如果没找到匹配项，或者配置文件中的主题文件不存在，默认选中第一个主题
+            self.theme_combo.setCurrentIndex(0)
+            self.compact_mode_switch.setChecked(False) # 默认到标准版
+
+        # 重新启用信号
+        self.theme_combo.blockSignals(False)
+        self.compact_mode_switch.blockSignals(False)
+        
+        # 确保开关状态和Tooltip在加载完成后立即更新
+        self._update_compact_switch_state(self.theme_combo.currentIndex())
         
         file_settings = config.get("file_settings", {}); gtts_settings = config.get("gtts_settings", {}); app_settings = config.get("app_settings", {})
         
         default_wordlist = file_settings.get('word_list_file', '')
-        if default_wordlist.endswith('.py'):
+        if default_wordlist.endswith('.py'): # 兼容旧的.py词表
             json_equivalent = os.path.splitext(default_wordlist)[0] + '.json'
             if self.word_list_combo.findText(json_equivalent) != -1: self.word_list_combo.setCurrentText(json_equivalent)
             else: self.word_list_combo.setCurrentText(default_wordlist)
@@ -330,7 +445,10 @@ class SettingsPage(QWidget):
 
         self.participant_name_input.setText(file_settings.get('participant_base_name', ''))        
         self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True))
-        base_path = get_base_path_for_module(); self.results_dir_input.setText(file_settings.get("results_dir", os.path.join(base_path, "Results")))
+        
+        # results_dir 从配置中加载，这里不再需要处理BASE_PATH，因为在Canary.py中已经处理了
+        self.results_dir_input.setText(file_settings.get("results_dir", os.path.join(get_base_path_for_module(), "Results"))) # 默认值仍然是基于模块的绝对路径，用于UI显示
+        
         self.gtts_lang_combo.setCurrentText(gtts_settings.get('default_lang', 'en-us')); self.gtts_auto_detect_switch.setChecked(gtts_settings.get('auto_detect', True))
         
         audio_settings = config.get("audio_settings", {})
@@ -373,8 +491,27 @@ class SettingsPage(QWidget):
         config.setdefault("ui_settings", {})["collector_sidebar_width"] = collector_width
         config.setdefault("ui_settings", {})["editor_sidebar_width"] = editor_width
         config.setdefault("ui_settings", {})["hide_all_tooltips"] = self.hide_tooltips_switch.isChecked()
-        config['theme'] = self.theme_combo.currentData()
-        config['file_settings'] = {"word_list_file": self.word_list_combo.currentText(), "participant_base_name": self.participant_name_input.text(), "results_dir": self.results_dir_input.text()}
+        
+        # [重构] 保存主题的逻辑
+        current_index = self.theme_combo.currentIndex()
+        if current_index >= 0:
+            theme_data = self.theme_combo.itemData(current_index) # 获取存储在 itemData 中的字典
+            is_compact_selected = self.compact_mode_switch.isChecked()
+            
+            # 如果用户选择了紧凑模式，并且当前主题有紧凑版路径，则使用它
+            if is_compact_selected and theme_data.get('compact_path'):
+                config['theme'] = theme_data['compact_path']
+            else:
+                # 否则，使用标准版路径
+                config['theme'] = theme_data['standard_path']
+        else: # 如果没有选择任何主题（理论上不会发生，除非列表为空）
+            config['theme'] = "默认.qss" # 回退到默认值
+            
+        config['file_settings'] = {
+            "word_list_file": self.word_list_combo.currentText(), 
+            "participant_base_name": self.participant_name_input.text(), 
+            "results_dir": self.results_dir_input.text()
+        }
         config['gtts_settings'] = {"default_lang": self.gtts_lang_combo.currentText(), "auto_detect": self.gtts_auto_detect_switch.isChecked()}
         config.setdefault("app_settings", {})["enable_logging"] = self.enable_logging_switch.isChecked()
         
@@ -382,7 +519,7 @@ class SettingsPage(QWidget):
         if self.simple_mode_switch.isChecked():
             audio_settings["input_device_mode"] = self.input_device_combo.currentData()
             if "input_device_index" in audio_settings:
-                del audio_settings["input_device_index"]
+                del audio_settings["input_device_index"] # 如果切换到简易模式，移除具体的设备索引
         else:
             audio_settings["input_device_mode"] = "manual"
             audio_settings["input_device_index"] = self.input_device_combo.currentData()
@@ -401,12 +538,21 @@ class SettingsPage(QWidget):
         try:
             settings_file_path = os.path.join(get_base_path_for_module(), "config", "settings.json")
             with open(settings_file_path, 'w', encoding='utf-8') as f: json.dump(config_dict, f, indent=4)
-            self.parent_window.config = config_dict
-            self.parent_window.apply_theme()
-            self.parent_window.apply_tooltips()
+            self.parent_window.config = config_dict # 更新主窗口的配置引用
+            self.parent_window.apply_theme() # 重新应用主题，这将触发窗口尺寸调整
+            self.parent_window.apply_tooltips() # 重新应用工具提示
             
             # 找到所有需要更新布局的页面并调用它们的方法
-            pages_to_update = ['accent_collection_page', 'voicebank_recorder_page', 'wordlist_editor_module', 'dialect_visual_editor_module', 'audio_manager_page', 'dialect_visual_collector_module', 'log_viewer_page']
+            # 这里的页面属性名必须与MainWindow中创建的实例名一致
+            pages_to_update = [
+                'accent_collection_page', 
+                'voicebank_recorder_page', 
+                'wordlist_editor_page', # 修正：从 module_key 改为 page_name
+                'dialect_visual_editor_page', 
+                'audio_manager_page', 
+                'dialect_visual_collector_module', # 修正：从 page_name 改为 module_key，确保和MainWindow一致
+                'log_viewer_page'
+            ]
             for page_attr_name in pages_to_update: 
                 page = getattr(self.parent_window, page_attr_name, None)
                 if page and hasattr(page, 'apply_layout_settings'): page.apply_layout_settings()
@@ -422,11 +568,14 @@ class SettingsPage(QWidget):
                 settings_file_path = os.path.join(get_base_path_for_module(), "config", "settings.json")
                 if os.path.exists(settings_file_path): os.remove(settings_file_path)
                 
+                # 重新加载默认配置，这会从Canary.py的setup_and_load_config获取
                 new_config = self.parent_window.setup_and_load_config_external()
-                self.parent_window.config = new_config
-                self.load_settings()
-                self.parent_window.apply_theme()
-                self.parent_window.apply_tooltips()
+                self.parent_window.config = new_config # 更新主窗口的配置引用
+                
+                self.load_settings() # 重新加载UI以反映新配置
+                self.parent_window.apply_theme() # 重新应用主题
+                self.parent_window.apply_tooltips() # 重新应用工具提示
+                
                 QMessageBox.information(self, "成功", "已成功恢复默认设置。")
                 self.save_btn.setEnabled(False)
             except Exception as e:
@@ -438,8 +587,18 @@ class SettingsPage(QWidget):
         try:
             with open(filepath, 'r', encoding='utf-8') as f: new_config = json.load(f)
             if not isinstance(new_config, dict): raise ValueError("配置文件格式无效，必须是一个JSON对象。")
+            
+            # 在导入时，需要处理results_dir的相对路径问题
+            if 'file_settings' in new_config and 'results_dir' in new_config['file_settings']:
+                current_results_dir = new_config['file_settings']['results_dir']
+                # 如果导入的results_dir是相对路径，则转换为绝对路径
+                if not os.path.isabs(current_results_dir):
+                    # 获取主程序的BASE_PATH来构建绝对路径
+                    app_base_path = get_base_path_for_module() # 或者直接 self.parent_window.BASE_PATH
+                    new_config['file_settings']['results_dir'] = os.path.join(app_base_path, current_results_dir)
+
             if self._write_config_and_apply(new_config):
-                self.load_settings()
+                self.load_settings() # 重新加载UI以反映新配置
                 QMessageBox.information(self, "成功", "配置文件已成功导入并应用。")
         except Exception as e:
             QMessageBox.critical(self, "导入失败", f"无法导入配置文件:\n{e}")
@@ -448,7 +607,17 @@ class SettingsPage(QWidget):
         filepath, _ = QFileDialog.getSaveFileName(self, "导出配置文件", "PhonAcq_settings.json", "JSON 文件 (*.json)")
         if not filepath: return
         try:
-            with open(filepath, 'w', encoding='utf-8') as f: json.dump(self.parent_window.config, f, indent=4)
+            # 导出时，如果 results_dir 是在BASE_PATH下，可以将其转换为相对路径，更通用
+            config_to_export = self.parent_window.config # 复制一份，避免修改live config
+            
+            if 'file_settings' in config_to_export and 'results_dir' in config_to_export['file_settings']:
+                current_results_dir = config_to_export['file_settings']['results_dir']
+                app_base_path = get_base_path_for_module() # 或者直接 self.parent_window.BASE_PATH
+                # 如果是绝对路径且在BASE_PATH内，则转换为相对路径
+                if os.path.isabs(current_results_dir) and current_results_dir.startswith(app_base_path):
+                    config_to_export['file_settings']['results_dir'] = os.path.relpath(current_results_dir, app_base_path)
+            
+            with open(filepath, 'w', encoding='utf-8') as f: json.dump(config_to_export, f, indent=4)
             QMessageBox.information(self, "导出成功", f"当前配置已成功导出至:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "导出失败", f"无法导出文件:\n{e}")

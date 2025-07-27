@@ -92,7 +92,7 @@ class FlashcardPage(QWidget):
         self.answer_input_widget.hide()
         center_bottom_bar = QWidget(); center_bottom_layout = QHBoxLayout(center_bottom_bar)
         self.prev_btn = QPushButton("上一个"); self.prev_btn.setToolTip("显示上一张卡片 (快捷键: ← 左方向键)。")
-        self.show_answer_btn = QPushButton("显示/隐藏答案"); self.show_answer_btn.setObjectName("AccentButton"); self.show_answer_btn.setToolTip("显示或隐藏当前卡片的答案 (快捷键: 空格键)。")
+        self.show_answer_btn = QPushButton("答案"); self.show_answer_btn.setObjectName("AccentButton"); self.show_answer_btn.setToolTip("显示或隐藏当前卡片的答案 (快捷键: 空格键)。")
         self.next_btn = QPushButton("下一个"); self.next_btn.setToolTip("显示下一张卡片 (快捷键: → 右方向键)。")
         self.play_audio_btn = QPushButton("播放音频"); self.play_audio_btn.setToolTip("播放当前卡片关联的音频 (快捷键: P)。")
         center_bottom_layout.addStretch(); center_bottom_layout.addWidget(self.prev_btn); center_bottom_layout.addWidget(self.show_answer_btn); center_bottom_layout.addWidget(self.next_btn); center_bottom_layout.addWidget(self.play_audio_btn); center_bottom_layout.addStretch()

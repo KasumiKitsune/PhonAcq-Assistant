@@ -1629,7 +1629,7 @@ class AudioManagerPage(QWidget):
                 icon = self.icon_manager.get_icon(icon_name_map.get(action_key, 'delete'))
                 btn.setIcon(icon)
 
-        self.set_start_btn.setIcon(self.icon_manager.get_icon("next")); self.set_end_btn.setIcon(self.icon_manager.get_icon("prev")); self.clear_trim_btn.setIcon(self.icon_manager.get_icon("clear_marker")); self.preview_trim_btn.setIcon(self.icon_manager.get_icon("preview")); self.save_trim_btn.setIcon(self.icon_manager.get_icon("save"))
+        self.set_start_btn.setIcon(self.icon_manager.get_icon("next")); self.set_end_btn.setIcon(self.icon_manager.get_icon("prev")); self.clear_trim_btn.setIcon(self.icon_manager.get_icon("clear_marker")); self.preview_trim_btn.setIcon(self.icon_manager.get_icon("preview")); self.save_trim_btn.setIcon(self.icon_manager.get_icon("save_2"))
         self.connect_staged_btn.setIcon(self.icon_manager.get_icon("concatenate"))
         self.clear_staged_btn.setIcon(self.icon_manager.get_icon("clear"))
         

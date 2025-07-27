@@ -192,7 +192,7 @@ def setup_and_load_config():
         "file_settings": {"word_list_file": "", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True},
         "app_settings": {"enable_logging": True},
-        "theme": "default.qss"
+        "theme": "默认.qss"
     }
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -317,27 +317,63 @@ class Worker(QObject):
         except Exception as e:
             self.error.emit(f"后台任务失败: {e}")
 
+
 class ToggleSwitch(QCheckBox):
-    """一个可自定义样式的切换开关控件。"""
+    """
+    一个可自定义样式的切换开关控件，其悬停行为（包括尺寸变化）可通过QSS进行精细控制。
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.PointingHandCursor)
+        
+        # --- 默认状态属性 ---
         self._trackColorOff = QColor("#E0E0E0")
         self._trackColorOn = QColor("#8F4C33")
         self._knobColor = QColor("#FFFFFF")
+        self._borderColor = QColor(Qt.transparent)
+        
+        # --- 悬停状态专属属性 ---
+        self._hover_knobColor = QColor(Qt.transparent)
+        self._hover_trackColorOff = QColor(Qt.transparent)
+        self._hover_trackColorOn = QColor(Qt.transparent)
+        self._hover_borderColor = QColor(Qt.transparent)
+        
+        # --- [核心修改 1] 新增控制悬停尺寸的属性 ---
+        self._hover_knobMarginOffset = 0 # 默认为0，表示大小不变
+
+        # --- 其他视觉属性 ---
         self._trackBorderRadius = 14
         self._knobMargin = 3
         self._knobShape = 'ellipse'
         self._knobBorderRadius = 0 
-        self._borderColor = QColor(Qt.transparent)
-        self._borderWidth = 0 
+        self._borderWidth = 0
+        
+        self._is_hovering = False
+
+    # ... (enterEvent, leaveEvent, 和所有颜色相关的 pyqtProperty 保持不变) ...
+    @pyqtProperty(bool)
+    def hover(self):
+        return self._is_hovering
+
+    def enterEvent(self, event):
+        self._is_hovering = True
+        self.update()
+        self.style().unpolish(self)
+        self.style().polish(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._is_hovering = False
+        self.update()
+        self.style().unpolish(self)
+        self.style().polish(self)
+        super().leaveEvent(event)
     
-    # 定义可在样式表中设置的属性
     @pyqtProperty(QColor)
     def trackColorOff(self): return self._trackColorOff
     @trackColorOff.setter
     def trackColorOff(self, color): self._trackColorOff = color; self.update()
-
+    
     @pyqtProperty(QColor)
     def trackColorOn(self): return self._trackColorOn
     @trackColorOn.setter
@@ -347,6 +383,11 @@ class ToggleSwitch(QCheckBox):
     def knobColor(self): return self._knobColor
     @knobColor.setter
     def knobColor(self, color): self._knobColor = color; self.update()
+
+    @pyqtProperty(QColor)
+    def borderColor(self): return self._borderColor
+    @borderColor.setter
+    def borderColor(self, color): self._borderColor = color; self.update()
 
     @pyqtProperty(int)
     def trackBorderRadius(self): return self._trackBorderRadius
@@ -368,59 +409,85 @@ class ToggleSwitch(QCheckBox):
     def knobBorderRadius(self): return self._knobBorderRadius
     @knobBorderRadius.setter
     def knobBorderRadius(self, radius): self._knobBorderRadius = radius; self.update()
-
-    @pyqtProperty(QColor)
-    def borderColor(self): return self._borderColor
-    @borderColor.setter
-    def borderColor(self, color): self._borderColor = color; self.update()
-
+    
     @pyqtProperty(int)
     def borderWidth(self): return self._borderWidth
     @borderWidth.setter
     def borderWidth(self, width): self._borderWidth = width; self.update()
+    
+    @pyqtProperty(QColor)
+    def hoverKnobColor(self): return self._hover_knobColor
+    @hoverKnobColor.setter
+    def hoverKnobColor(self, color): self._hover_knobColor = color; self.update()
+
+    @pyqtProperty(QColor)
+    def hoverTrackColorOff(self): return self._hover_trackColorOff
+    @hoverTrackColorOff.setter
+    def hoverTrackColorOff(self, color): self._hover_trackColorOff = color; self.update()
+    
+    @pyqtProperty(QColor)
+    def hoverTrackColorOn(self): return self._hover_trackColorOn
+    @hoverTrackColorOn.setter
+    def hoverTrackColorOn(self, color): self._hover_trackColorOn = color; self.update()
+    
+    @pyqtProperty(QColor)
+    def hoverBorderColor(self): return self._hover_borderColor
+    @hoverBorderColor.setter
+    def hoverBorderColor(self, color): self._hover_borderColor = color; self.update()
+
+    # --- [核心修改 2] 为新的尺寸控制属性创建 pyqtProperty ---
+    @pyqtProperty(int)
+    def hoverKnobMarginOffset(self): return self._hover_knobMarginOffset
+    @hoverKnobMarginOffset.setter
+    def hoverKnobMarginOffset(self, offset): self._hover_knobMarginOffset = offset; self.update()
+
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         rect = self.rect()
 
-        # 绘制边框
-        if self._borderWidth > 0 and self._borderColor.isValid() and self._borderColor.alpha() > 0:
-            pen = QPen(self._borderColor, self._borderWidth)
-            pen.setJoinStyle(Qt.RoundJoin)
-            p.setPen(pen)
-            half_pen_width = self._borderWidth // 2
-            border_rect = rect.adjusted(half_pen_width, half_pen_width, -half_pen_width, -half_pen_width)
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(border_rect, self.trackBorderRadius, self.trackBorderRadius)
+        # 颜色选择逻辑 (保持不变)
+        border_color = self._hover_borderColor if self._is_hovering and self._hover_borderColor.isValid() else self._borderColor
+        track_on_color = self._hover_trackColorOn if self._is_hovering and self._hover_trackColorOn.isValid() else self._trackColorOn
+        track_off_color = self._hover_trackColorOff if self._is_hovering and self._hover_trackColorOff.isValid() else self._trackColorOff
+        knob_color = self._hover_knobColor if self._is_hovering and self._hover_knobColor.isValid() else self._knobColor
 
-        # 绘制轨道
-        p.setPen(Qt.NoPen)
-        track_color = self.trackColorOn if self.isChecked() else self.trackColorOff
-        p.setBrush(QBrush(track_color))
-        track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
-        track_inner_radius = max(0, self.trackBorderRadius - self._borderWidth)
+        # 边框绘制 (保持不变)
+        if self._borderWidth > 0 and border_color.isValid() and border_color.alpha() > 0:
+            pen = QPen(border_color, self._borderWidth); pen.setJoinStyle(Qt.RoundJoin); p.setPen(pen)
+            border_rect = rect.adjusted(self._borderWidth//2, self._borderWidth//2, -self._borderWidth//2, -self._borderWidth//2)
+            p.setBrush(Qt.NoBrush); p.drawRoundedRect(border_rect, self._trackBorderRadius, self._trackBorderRadius)
+        
+        # 轨道绘制 (保持不变)
+        p.setPen(Qt.NoPen); track_color_to_use = track_on_color if self.isChecked() else track_off_color
+        p.setBrush(QBrush(track_color_to_use)); track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
+        track_inner_radius = max(0, self._trackBorderRadius - self._borderWidth)
         p.drawRoundedRect(track_rect, track_inner_radius, track_inner_radius)
         
-        # 绘制滑块
-        margin = self.knobMargin
+        # --- [核心修复] ---
+        margin = self._knobMargin
+        if self._is_hovering:
+            # 1. 首先应用默认的放大效果
+            default_offset = -1
+            
+            # 2. 检查QSS是否定义了偏移量。如果定义了（非0），则使用QSS的值覆盖默认值。
+            if self._hover_knobMarginOffset != 0:
+                margin += self._hover_knobMarginOffset
+            else:
+                margin += default_offset
+        
         knob_height = track_rect.height() - (2 * margin)
         knob_width = knob_height 
         x_pos = track_rect.right() - knob_width - margin + 1 if self.isChecked() else track_rect.left() + margin
         knob_rect = QRect(x_pos, track_rect.top() + margin, knob_width, knob_height)
-        p.setBrush(QBrush(self.knobColor))
-        if self.knobShape == 'rectangle':
-            p.drawRoundedRect(knob_rect, self.knobBorderRadius, self.knobBorderRadius)
-        else:
-            p.drawEllipse(knob_rect)
-
+        
+        p.setBrush(QBrush(knob_color))
+        
+        if self.knobShape == 'rectangle': p.drawRoundedRect(knob_rect, self._knobBorderRadius, self._knobBorderRadius)
+        else: p.drawEllipse(knob_rect)
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.setChecked(not self.isChecked())
-            event.accept() 
-        else:
-            super().mousePressEvent(event)
-
+        if event.button() == Qt.LeftButton: self.setChecked(not self.isChecked()); event.accept() 
+        else: super().mousePressEvent(event)
 
 def resolve_recording_device(config):
     """
@@ -501,8 +568,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PhonAcq - 风纳客")
         # [新增] 定义默认和紧凑两种最小尺寸
         self.DEFAULT_MIN_SIZE = (1350, 1000)
-        self.COMPACT_MIN_SIZE = (1100, 800)
+        self.COMPACT_MIN_SIZE = (1150, 850)
         
+        # 将初始尺寸设置为默认值
         self.setGeometry(100, 100, self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
         self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
 
@@ -819,56 +887,68 @@ class MainWindow(QMainWindow):
                 self.help_page.update_help_content()
             
     def apply_theme(self):
-        theme_file_path = self.config.get("theme", "default.qss")
-        if not theme_file_path: theme_file_path = "default.qss"
+        theme_file_path = self.config.get("theme", "默认.qss")
+        if not theme_file_path: theme_file_path = "默认.qss"
         absolute_theme_path = os.path.join(THEMES_DIR, theme_file_path)
         
-        is_compact_theme = False # [新增] 默认不为紧凑主题
+        # --- 初始化所有元数据标志 ---
+        is_compact_theme = False
+        icons_disabled = False
 
         if os.path.exists(absolute_theme_path):
             with open(absolute_theme_path, "r", encoding="utf-8") as f:
                 stylesheet = f.read()
                 
-                # --- [核心修改] 解析主题元属性 ---
-                # 解析图标路径
+                # --- 解析所有主题元属性 ---
+                
+                # 1. 解析图标路径 (@icon-path)
                 theme_icon_path_to_set = None
-                icon_match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
-                if icon_match:
-                    relative_icon_path_str = icon_match.group(1).replace("\\", "/")
+                icon_path_match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
+                if icon_path_match:
+                    relative_icon_path_str = icon_path_match.group(1).replace("\\", "/")
                     qss_file_directory = os.path.dirname(absolute_theme_path)
                     absolute_icon_path = os.path.join(qss_file_directory, relative_icon_path_str)
                     theme_icon_path_to_set = os.path.normpath(absolute_icon_path)
                 
-                # [新增] 解析紧凑模式属性
+                # 2. 解析图标禁用标志 (@icon-theme: none)
+                icon_theme_match = re.search(r'/\*\s*@icon-theme:\s*none\s*\*/', stylesheet)
+                if icon_theme_match:
+                    icons_disabled = True
+                
+                # 3. 解析紧凑主题标志 (@theme-property-compact: true)
                 compact_match = re.search(r'/\*\s*@theme-property-compact:\s*true\s*\*/', stylesheet)
                 if compact_match:
                     is_compact_theme = True
-                # --- 结束核心修改 ---
                 
-                # 1. 首先设置IconManager的路径
-                icon_manager.set_theme_icon_path(theme_icon_path_to_set)
-                
-                # 2. 然后应用样式表
+                # 应用样式表和图标设置
+                icon_manager.set_theme_icon_path(theme_icon_path_to_set, icons_disabled=icons_disabled)
                 self.setStyleSheet(stylesheet)
         else:
+            # 文件未找到时的回退逻辑
             print(f"主题文件未找到: {absolute_theme_path}", file=sys.stderr)
             self.setStyleSheet("") 
-            icon_manager.set_theme_icon_path(None)
+            icon_manager.set_theme_icon_path(None, icons_disabled=False) # 确保图标不被禁用
         
-        # [新增] 根据是否为紧凑主题，调整窗口最小尺寸
+        # --- [核心修复] 恢复并整合紧凑主题的尺寸调整逻辑 ---
         if is_compact_theme:
+            # 1. 设置紧凑的最小尺寸
             self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
+            # 2. (关键) 强制将窗口的当前尺寸调整为紧凑尺寸
+            self.resize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
         else:
+            # 1. 设置默认的最小尺寸
             self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
-            # 如果当前窗口尺寸小于默认最小尺寸，则将其放大
+            # 2. 如果当前窗口尺寸小于默认最小尺寸，则将其放大，确保UI不会被裁切
             if self.width() < self.DEFAULT_MIN_SIZE[0] or self.height() < self.DEFAULT_MIN_SIZE[1]:
                 self.resize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+        # --- 修复结束 ---
 
-        # 3. (关键) 通知所有相关模块刷新它们的图标
+        # (后续的图标刷新等逻辑保持不变)
         self.update_all_module_icons()
         
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
+
     def update_all_module_icons(self):
         """遍历所有已创建的页面，如果它们有 update_icons 方法，就调用它。"""
         # [修改] 将 dialect_visual_collector_module 添加到通知列表
@@ -957,40 +1037,28 @@ class MainWindow(QMainWindow):
 
     # [新增] 插件UI设置
     def setup_plugin_ui(self):
-        """
-        [重构] 创建插件栏的静态UI框架。
-        这个框架包含一个水平布局，用于容纳固定的插件按钮和主菜单按钮。
-        """
-        # 1. 创建一个容器 QWidget 来作为 cornerWidget
         self.corner_widget = QWidget()
-        # 2. 创建一个水平布局来排列按钮
         self.plugin_bar_layout = QHBoxLayout(self.corner_widget)
-        self.plugin_bar_layout.setContentsMargins(0, 5, 15, 5) # 调整边距
-        self.plugin_bar_layout.setSpacing(5) # 按钮间的间距
+        self.plugin_bar_layout.setContentsMargins(0, 5, 15, 5)
+        self.plugin_bar_layout.setSpacing(5)
 
-        # 3. 创建一个占位符，用于动态添加固定的插件按钮
         self.pinned_plugins_widget = QWidget()
         self.pinned_plugins_layout = QHBoxLayout(self.pinned_plugins_widget)
         self.pinned_plugins_layout.setContentsMargins(0, 0, 0, 0)
         self.pinned_plugins_layout.setSpacing(5)
-        self.pinned_plugins_layout.setAlignment(Qt.AlignRight) # 确保图标从右向左添加
+        self.pinned_plugins_layout.setAlignment(Qt.AlignRight)
 
-        # 4. 创建主插件菜单按钮
         self.plugin_menu_button = QPushButton("插件") 
+        # --- [核心修改] 图标设置现在通过 icon_manager 进行，它会自动处理禁用情况 ---
         self.plugin_menu_button.setIcon(self.icon_manager.get_icon("plugin"))
         self.plugin_menu_button.setToolTip("管理和执行已安装的插件")
-        # [核心样式] 设置为圆形按钮
         self.plugin_menu_button.setObjectName("PluginMenuButtonCircular")
-        self.plugin_menu_button.setFixedSize(32, 32) # 固定大小以保持圆形
-
-        # 5. 将组件添加到主布局中
+        self.plugin_menu_button.setFixedSize(32, 32)
+        
         self.plugin_bar_layout.addWidget(self.pinned_plugins_widget)
         self.plugin_bar_layout.addWidget(self.plugin_menu_button)
         
-        # 6. 将整个容器设置为 QTabWidget 的角落控件
         self.main_tabs.setCornerWidget(self.corner_widget, Qt.TopRightCorner)
-        
-        # 7. 连接信号
         self.plugin_menu_button.clicked.connect(self._show_plugin_menu)
 
     def update_pinned_plugins_ui(self):

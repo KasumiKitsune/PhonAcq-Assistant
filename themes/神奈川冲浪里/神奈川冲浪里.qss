@@ -6,452 +6,923 @@
  */
 /* @icon-path: "icons/" */
 
-/* ================== 全局样式 (Daylight Sky & Ink) ================== */
+
+/* ==========================================================================
+   全局样式 (Global Styles - Daylight Sky & Ink)
+   ========================================================================== */
+
+/* 定义所有控件的基础字体、颜色和背景 */
 QWidget {
-    font-family: "Microsoft YaHei", "Yu Gothic", "Meiryo", sans-serif;
-    color: #1C2A40; /* Deep Prussian Blue (Ink) */
-    background-color: transparent;
-    font-size: 18px;
-    font-weight: bold; 
+    font-family: "Microsoft YaHei", "Yu Gothic", "Meiryo", sans-serif; /* 优先使用微软雅黑等现代字体 */
+    color: #1C2A40;               /* 文字颜色：深普鲁士蓝 (Deep Prussian Blue)，如同版画的墨色 */
+    background-color: transparent;   /* 背景默认透明，由父控件决定颜色 */
+    font-size: 18px;                 /* 基础字号 */
+    font-weight: bold;               /* 基础字重为粗体 */
 }
 
-QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
-    background-color: #F5F8FA; /* Very Light Blue-Gray (Sky) */
+/* 为主窗口和核心内容区域设置统一的背景色 */
+QMainWindow,
+QWidget#CentralWidget,
+QStackedWidget > QWidget,
+QTabWidget::pane > QWidget {
+    background-color: #F5F8FA; /* 背景颜色：极浅的蓝灰色 (Very Light Blue-Gray)，如同晴空的颜色 */
 }
 
-QMessageBox, QDialog { 
-    background-color: #FFFFFF; /* Pure White */
-    border: 1px solid #8AB2D6; /* Soft Wave Blue */
-    border-radius: 0px;
+/* 消息框和对话框的样式 */
+QMessageBox,
+QDialog {
+    background-color: #FFFFFF;     /* 背景颜色：纯白 */
+    border: 1px solid #8AB2D6;     /* 边框颜色：柔和波浪蓝 (Soft Wave Blue) */
+    border-radius: 0px;            /* 边框圆角：无圆角，保持锐利风格 */
 }
-QMessageBox QLabel, QDialog QLabel { 
-    font-size: 18px; 
-    color: #1C2A40;
-}
-
-/* ================== 一级标签页 (Sunlit Waves) ================== */
-QTabWidget#MainTabWidget::pane { 
-    border: 1px solid #8AB2D6;
-    border-top: none;
-    background-color: #F5F8FA;
-}
-QTabWidget#MainTabWidget::tab-bar { 
-    alignment: left; 
-    background-color: transparent;
+/* 消息框和对话框内的文本标签样式 */
+QMessageBox QLabel,
+QDialog QLabel {
+    font-size: 18px;               /* 字号 */
+    color: #1C2A40;                 /* 文字颜色：深普鲁士蓝 (墨色) */
 }
 
+
+/* ==========================================================================
+   一级标签页 (Main Tabs - Sunlit Waves)
+   ========================================================================== */
+
+/* 一级标签页的内容面板 */
+QTabWidget#MainTabWidget::pane {
+    border: 1px solid #8AB2D6; /* 边框颜色：柔和波浪蓝 */
+    border-top: none;          /* 顶部无边框，与标签栏无缝衔接 */
+    background-color: #F5F8FA; /* 背景颜色：晴空蓝灰 */
+}
+
+/* 一级标签页的标签栏 */
+QTabWidget#MainTabWidget::tab-bar {
+    alignment: left;           /* 标签左对齐 */
+    background-color: transparent; /* 背景透明 */
+}
+
+/* 一级标签页的单个标签 */
 QTabWidget#MainTabWidget QTabBar::tab {
-    background-color: #E8EEF4; /* Lighter Sky */
-    color: #A79B82; /* Sand/Wood Color */
-    border: 1px solid #C5D9E8;
-    border-bottom: none;
-    font-size: 20px;
-    margin-right: 2px; 
-    min-width: 180px;
-    padding: 12px 25px 12px 15px; 
-    border-top-left-radius: 0px;
-    border-top-right-radius: 10px;
+    background-color: #E8EEF4;     /* 背景颜色：更亮的晴空色 (Lighter Sky) */
+    color: #A79B82;                 /* 文字颜色：沙/木色 (Sand/Wood Color) */
+    border: 1px solid #C5D9E8;     /* 边框颜色：浅天蓝 */
+    border-bottom: none;           /* 底部无边框 */
+    font-size: 20px;               /* 字号 */
+    margin-right: 2px;             /* 标签之间的右边距 */
+    min-width: 180px;              /* 最小宽度 */
+    padding: 12px 25px 12px 15px;  /* 内边距 (上 右 下 左) */
+    border-top-left-radius: 0px;   /* 左上角无圆角 */
+    border-top-right-radius: 10px; /* 右上角圆角，形成不对称的波浪感 */
 }
+
+/* 鼠标悬停在未选中的一级标签上时 */
 QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
-    background-color: #FFFFFF; 
-    color: #3B6894; /* Deep Wave Blue */
+    background-color: #FFFFFF;     /* 背景变为纯白 */
+    color: #3B6894;                 /* 文字变为深浪蓝 (Deep Wave Blue) */
 }
+
+/* 选中的一级标签 */
 QTabWidget#MainTabWidget QTabBar::tab:selected {
-    background-color: #F5F8FA; 
-    color: #3B6894; 
-    border-color: #8AB2D6 #8AB2D6 transparent #8AB2D6; 
-    padding-bottom: 13px; 
+    background-color: #F5F8FA;     /* 背景与内容面板颜色一致，融为一体 */
+    color: #3B6894;                 /* 文字变为深浪蓝 */
+    border-color: #8AB2D6 #8AB2D6 transparent #8AB2D6; /* 左右边框为柔和波浪蓝，底部边框透明 */
+    padding-bottom: 13px;          /* 增加底部内边距，使标签轻微“下沉”，覆盖面板顶部边框 */
 }
+
+/* 禁用的一级标签 */
 QTabWidget#MainTabWidget QTabBar::tab:disabled {
-    background-color: #E8EEF4; color: #A8B8C8; border-color: #D5E0E8;
+    background-color: #E8EEF4;     /* 背景颜色 */
+    color: #A8B8C8;                 /* 文字颜色变灰 */
+    border-color: #D5E0E8;         /* 边框颜色变浅 */
 }
 
-/* ================== 二级标签页 (Ripples) ================== */
-QTabWidget#SubTabWidget::pane { border: none; background-color: transparent; }
-QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 1px solid #C5D9E8; }
 
+/* ==========================================================================
+   二级标签页 (Sub-Tabs - Ripples)
+   ========================================================================== */
+
+/* 二级标签页的内容面板 */
+QTabWidget#SubTabWidget::pane {
+    border: none;              /* 无边框 */
+    background-color: transparent; /* 背景透明 */
+}
+
+/* 二级标签页的标签栏 */
+QTabWidget#SubTabWidget::tab-bar {
+    alignment: left;           /* 标签左对齐 */
+    border-bottom: 1px solid #C5D9E8; /* 底部有一条浅天蓝色分隔线 */
+}
+
+/* 二级标签页的单个标签 */
 QTabWidget#SubTabWidget QTabBar::tab {
-    background: transparent; color: #8AB2D6; border: none;
-    border-bottom: 4px solid transparent; 
-    padding: 8px 20px; 
-    font-size: 18px;
+    background: transparent;       /* 背景透明 */
+    color: #8AB2D6;                 /* 文字颜色：柔和波浪蓝 */
+    border: none;                  /* 无边框 */
+    border-bottom: 4px solid transparent; /* 底部有4像素高的透明边框，用于占位 */
+    padding: 8px 20px;             /* 内边距 */
+    font-size: 18px;               /* 字号 */
 }
+
+/* 鼠标悬停在未选中的二级标签上时 */
 QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
-    color: #3B6894; 
-    border-bottom: 4px solid #A79B82;
+    color: #3B6894;                 /* 文字变为深浪蓝 */
+    border-bottom: 4px solid #A79B82; /* 底部占位边框变为沙/木色 */
 }
+
+/* 选中的二级标签 */
 QTabWidget#SubTabWidget QTabBar::tab:selected {
-    color: #3B6894; font-weight: bold; border-bottom: 4px solid #3B6894; 
+    color: #3B6894;                 /* 文字变为深浪蓝 */
+    font-weight: bold;             /* 字体加粗 */
+    border-bottom: 4px solid #3B6894; /* 底部占位边框变为深浪蓝 */
 }
-QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #A8B8C8; }
 
-/* ================== 按钮样式 (Driftwood & Sea) ================== */
+/* 禁用的二级标签 */
+QTabWidget#SubTabWidget QTabBar::tab:disabled {
+    color: #A8B8C8; /* 文字颜色变灰 */
+}
+
+
+/* ==========================================================================
+   按钮样式 (Buttons - Driftwood & Sea)
+   ========================================================================== */
+
+/* 默认按钮样式 */
 QPushButton {
-    border: 1px solid #A79B82; 
-    padding: 10px 22px; border-radius: 0px; 
-    font-size: 18px; background-color: transparent; color: #A79B82; 
-    min-height: 30px;
+    border: 1px solid #A79B82;     /* 边框颜色：沙/木色 (Driftwood) */
+    padding: 10px 22px;            /* 内边距 */
+    border-radius: 0px;            /* 无圆角 */
+    font-size: 18px;               /* 字号 */
+    background-color: transparent; /* 背景透明 */
+    color: #A79B82;                 /* 文字颜色：沙/木色 */
+    min-height: 30px;              /* 最小高度 */
 }
-QPushButton:hover { background-color: rgba(167, 155, 130, 0.1); color: #1C2A40; border-color: #1C2A40;}
-QPushButton:pressed { background-color: rgba(138, 178, 214, 0.2); border-color: #8AB2D6;}
-QPushButton:disabled { background-color: transparent; color: #A8B8C8; border-color: #D5E0E8;}
-
-QPushButton#AccentButton { 
-    background-color: #3B6894; color: #FFFFFF; font-weight: bold; border: 1px solid #1C2A40; 
-    padding: 12px 24px;
+/* 鼠标悬停在默认按钮上时 */
+QPushButton:hover {
+    background-color: rgba(167, 155, 130, 0.1); /* 半透明的沙/木色背景 */
+    color: #1C2A40;                             /* 文字变为墨色 */
+    border-color: #1C2A40;                      /* 边框变为墨色 */
 }
-QPushButton#AccentButton:hover { background-color: #4A7BA8; }
-QPushButton#AccentButton:pressed { background-color: #2C5A80; }
+/* 按下默认按钮时 */
+QPushButton:pressed {
+    background-color: rgba(138, 178, 214, 0.2); /* 半透明的柔和波浪蓝色背景 */
+    border-color: #8AB2D6;                      /* 边框变为柔和波浪蓝 */
+}
+/* 禁用的默认按钮 */
+QPushButton:disabled {
+    background-color: transparent; /* 背景透明 */
+    color: #A8B8C8;                 /* 文字颜色变灰 */
+    border-color: #D5E0E8;         /* 边框颜色变浅 */
+}
 
+/* 强调/主要按钮样式 */
+QPushButton#AccentButton {
+    background-color: #3B6894; /* 背景颜色：深浪蓝 (Sea) */
+    color: #FFFFFF;            /* 文字颜色：纯白 */
+    font-weight: bold;         /* 字体加粗 */
+    border: 1px solid #1C2A40; /* 边框颜色：墨色 */
+    padding: 12px 24px;        /* 更大的内边距 */
+}
+/* 鼠标悬停在强调按钮上时 */
+QPushButton#AccentButton:hover {
+    background-color: #4A7BA8; /* 背景颜色加深 */
+}
+/* 按下强调按钮时 */
+QPushButton#AccentButton:pressed {
+    background-color: #2C5A80; /* 背景颜色变得更深 */
+}
+
+/* 链接式按钮样式 */
 QPushButton#LinkButton {
-    background-color: transparent; color: #A79B82; border: none;
-    text-decoration: none; padding: 5px; font-size: 17px;
-    border-bottom: 1px dashed #A79B82; min-height: 0px;
+    background-color: transparent;     /* 背景透明 */
+    color: #A79B82;                     /* 文字颜色：沙/木色 */
+    border: none;                      /* 无常规边框 */
+    text-decoration: none;             /* 无文本下划线 */
+    padding: 5px;                      /* 内边距 */
+    font-size: 17px;                   /* 字号 */
+    border-bottom: 1px dashed #A79B82; /* 底部有沙/木色的虚线 */
+    min-height: 0px;                   /* 移除最小高度限制 */
 }
-QPushButton#LinkButton:hover { color: #1C2A40; border-bottom: 1px solid #1C2A40; }
-QPushButton#LinkButton:pressed { color: #3B6894; }
+/* 鼠标悬停在链接按钮上时 */
+QPushButton#LinkButton:hover {
+    color: #1C2A40;                     /* 文字变为墨色 */
+    border-bottom: 1px solid #1C2A40;   /* 底部虚线变为实线，颜色变为墨色 */
+}
+/* 按下链接按钮时 */
+QPushButton#LinkButton:pressed {
+    color: #3B6894; /* 文字变为深浪蓝 */
+}
 
+/* 删除操作按钮样式 */
 QPushButton#ActionButton_Delete {
-    background-color: transparent; color: #E53935; font-weight: bold; border: 1px solid #E53935;
-    padding: 12px 24px;
+    background-color: transparent; /* 背景透明 */
+    color: #E53935;                /* 文字颜色：醒目的红色 */
+    font-weight: bold;             /* 字体加粗 */
+    border: 1px solid #E53935;     /* 边框颜色：醒目的红色 */
+    padding: 12px 24px;            /* 内边距 */
 }
-QPushButton#ActionButton_Delete:hover { background-color: rgba(229, 57, 53, 0.1); }
-QPushButton#ActionButton_Delete:pressed { background-color: rgba(229, 57, 53, 0.2); }
-
-/* ================== 其他常用控件 ================== */
-QLabel { color: #1C2A40; background-color: transparent; }
-
-QLineEdit, QPlainTextEdit, QTextBrowser { 
-    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px; 
-    padding: 8px; color: #1C2A40; 
-    selection-background-color: #8AB2D6; selection-color: #FFFFFF; 
+/* 鼠标悬停在删除按钮上时 */
+QPushButton#ActionButton_Delete:hover {
+    background-color: rgba(229, 57, 53, 0.1); /* 半透明的红色背景 */
 }
-QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border-color: #3B6894; }
-QTextBrowser a { color: #3B6894; text-decoration: none; }
-QTextBrowser a:hover { text-decoration: underline; color: #1C2A40; }
-
-QComboBox { 
-    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px; 
-    padding: 7px 8px; color: #1C2A40; min-height: 26px;
-}
-QComboBox:focus { border-color: #3B6894; }
-QComboBox::drop-down { border: none; background-color: #E8EEF4; width: 20px;}
-QComboBox QAbstractItemView { 
-    border: 1px solid #8AB2D6; background-color: #FFFFFF; 
-    selection-background-color: #E8EEF4; selection-color: #1C2A40; 
-    outline: 0px; border-radius: 0px; color: #1C2A40;
-}
-QComboBox QAbstractItemView::item { padding: 8px 12px; }
-
-QGroupBox { 
-    border: none;
-    border-top: 3px solid qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8AB2D6, stop:1 #A79B82); 
-    border-bottom: 1px solid #C5D9E8;
-    margin-top: 15px; 
-    padding: 25px 15px 15px 15px;
-    background-color: transparent;
-}
-QGroupBox::title { 
-    subcontrol-origin: margin; subcontrol-position: top left; 
-    padding: 2px 10px; margin-left: 5px; 
-    background-color: #C5D9E8; color: #1C2A40; 
-    font-weight: bold; border-radius: 0px;
+/* 按下删除按钮时 */
+QPushButton#ActionButton_Delete:pressed {
+    background-color: rgba(229, 57, 53, 0.2); /* 更深的半透明红色背景 */
 }
 
-QListWidget, QTableWidget { 
-    background-color: #FFFFFF; border: 1px solid #C5D9E8; 
-    border-radius: 0px; outline: 0px;
-    alternate-background-color: #F8FAFC; gridline-color: #E8EEF4; 
-}
-QTableCornerButton::section { background-color: #E8EEF4; border: 1px solid #C5D9E8; }
-QListWidget::item { padding: 10px; border-bottom: 1px solid #E8EEF4; color: #1C2A40; }
-QListWidget::item:selected, QTableWidget::item:selected { 
-    background-color: #3B6894; color: #FFFFFF; 
-}
-QTableWidget QLineEdit { border-radius: 0px; border: 1px solid #3B6894; background-color: #FFFFFF; color: #1C2A40; }
 
-QHeaderView::section { 
-    background-color: #E8EEF4; padding: 10px; border: none;
-    border-bottom: 2px solid #3B6894; font-weight: bold; color: #3B6894;
-}
+/* ==========================================================================
+   其他常用控件 (Other Common Controls)
+   ========================================================================== */
 
-QProgressBar { 
-    border: 1px solid #A79B82; border-radius: 0px; text-align: center; 
-    color: #FFFFFF; height: 22px; background-color: #F5F8FA; font-weight: bold;
+/* 文本标签 */
+QLabel {
+    color: #1C2A40;                 /* 文字颜色：墨色 */
+    background-color: transparent; /* 背景透明 */
 }
-QProgressBar::chunk { 
-    background-color: #3B6894; /* Deep Wave Blue */
-    margin: 1px;
+/* --- [核心修改] --- */
+/*
+ * 新增：鼠标悬停在 QLabel 上时的效果。
+ * 注意：这个规则会应用到所有普通的 QLabel 上。
+ * 我们已经在其他地方为有特殊背景或功能的 QLabel (如 #PromptTextLabel)
+ * 定义了更具体的样式，所以它们不会受到这个通用规则的影响。
+ */
+QLabel:hover {
+    color: #3B6894; /* 文字颜色变为“深浪蓝” */
 }
 
-QSlider::groove:horizontal { 
-    border: none; height: 4px; background: #C5D9E8; margin: 2px 0; border-radius: 0px; 
+/* 单行输入框、多行纯文本输入框、文本浏览器 */
+QLineEdit,
+QPlainTextEdit,
+QTextBrowser {
+    background-color: #FFFFFF;     /* 背景颜色：纯白 */
+    border: 1px solid #C5D9E8;     /* 默认边框：浅天蓝 (Light Sky Blue) */
+    border-radius: 0px;            /* 无圆角 */
+    padding: 8px;                  /* 内边距 */
+    color: #1C2A40;                 /* 文字颜色：墨色 */
+    selection-background-color: #8AB2D6; /* 选中文本的背景色：柔和波浪蓝 */
+    selection-color: #FFFFFF;      /* 选中文本的文字颜色：纯白 */
 }
-QSlider::handle:horizontal { 
-    background: #FFFFFF; border: 1px solid #3B6894; width: 10px; 
-    height: 20px; margin: -8px 0; border-radius: 0px; 
+/* --- [核心修改] --- */
+QLineEdit:hover,
+QPlainTextEdit:hover,
+QTextBrowser:hover {
+    /* 悬停时，边框变为更明确的“柔和波浪蓝” */
+    border-color: #8AB2D6; /* 边框颜色：柔和波浪蓝 (Soft Wave Blue) */
+}
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextBrowser:focus {
+    /* 获得焦点时，边框变为最醒目的“深浪蓝” */
+    border-color: #3B6894; /* 边框颜色：深浪蓝 (Deep Wave Blue) */
 }
 
-QScrollBar:vertical { border: none; background: #F5F8FA; width: 14px; margin: 0; }
-QScrollBar::handle:vertical { background: #C5D9E8; min-height: 30px; border-radius: 0px; }
-QScrollBar:horizontal { border: none; background: #F5F8FA; height: 14px; margin: 0; }
-QScrollBar::handle:horizontal { background: #C5D9E8; min-width: 30px; border-radius: 0px; }
-QScrollBar::add-line, QScrollBar::sub-line { border: none; background: #E8EEF4; }
-QScrollBar::up-arrow, QScrollBar::down-arrow, QScrollBar::left-arrow, QScrollBar::right-arrow { width: 0; height: 0;}
+/* 文本浏览器内的链接样式 */
+QTextBrowser a {
+    color: #3B6894;          /* 链接颜色：深浪蓝 */
+    text-decoration: none;  /* 无下划线 */
+}
+QTextBrowser a:hover {
+    text-decoration: underline; /* 鼠标悬停时显示下划线 */
+    color: #1C2A40;              /* 颜色变为墨色 */
+}
 
+/* 下拉选择框 */
+QComboBox {
+    background-color: #FFFFFF;     /* 背景颜色：纯白 */
+    border: 1px solid #C5D9E8;     /* 默认边框：浅天蓝 */
+    border-radius: 0px;            /* 无圆角 */
+    padding: 7px 8px;              /* 内边距 */
+    color: #1C2A40;                 /* 文字颜色：墨色 */
+    min-height: 26px;              /* 最小高度 */
+}
+/* --- [核心修改] --- */
+QComboBox:hover {
+    /* 悬停时，边框变为更明确的“柔和波浪蓝” */
+    border-color: #8AB2D6; /* 边框颜色：柔和波浪蓝 */
+}
+QComboBox:focus {
+    /* 获得焦点时，边框变为最醒目的“深浪蓝” */
+    border-color: #3B6894; /* 边框颜色：深浪蓝 */
+}
+
+/* 下拉选择框的下拉箭头区域 */
+QComboBox::drop-down {
+    border: none;              /* 无边框 */
+    background-color: #E8EEF4; /* 背景颜色：更亮的晴空色 */
+    width: 20px;               /* 宽度 */
+}
+/* 下拉选择框的弹出菜单视图 */
+QComboBox QAbstractItemView {
+    border: 1px solid #8AB2D6;     /* 边框颜色：柔和波浪蓝 */
+    background-color: #FFFFFF;     /* 背景颜色：纯白 */
+    selection-background-color: #E8EEF4; /* 选中项背景色：更亮的晴空色 */
+    selection-color: #1C2A40;      /* 选中项文字颜色：墨色 */
+    outline: 0px;                  /* 移除焦点时的虚线框 */
+    border-radius: 0px;            /* 无圆角 */
+    color: #1C2A40;                 /* 默认文字颜色：墨色 */
+}
+/* 下拉菜单中的每个项目 */
+QComboBox QAbstractItemView::item {
+    padding: 8px 12px; /* 内边距 */
+}
+
+/* 分组框 */
+QGroupBox {
+    border: none;                  /* 移除默认的边框 */
+    /* 顶部边框：从柔和波浪蓝到沙/木色的线性渐变 */
+    border-top: 3px solid qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8AB2D6, stop:1 #A79B82);
+    border-bottom: 1px solid #C5D9E8; /* 底部边框：浅天蓝 */
+    margin-top: 15px;              /* 顶部外边距，为标题留出空间 */
+    padding: 25px 15px 15px 15px;  /* 内边距 (上 右 下 左) */
+    background-color: transparent; /* 背景透明 */
+}
+/* 分组框的标题 */
+QGroupBox::title {
+    subcontrol-origin: margin;       /* 标题的原点基于外边距 */
+    subcontrol-position: top left;   /* 标题位于左上角 */
+    padding: 2px 10px;               /* 内边距 */
+    margin-left: 5px;                /* 左外边距 */
+    background-color: #C5D9E8;       /* 背景颜色：浅天蓝 */
+    color: #1C2A40;                   /* 文字颜色：墨色 */
+    font-weight: bold;               /* 字体加粗 */
+    border-radius: 0px;              /* 无圆角 */
+}
+
+/* 列表和表格控件 */
+QListWidget,
+QTableWidget {
+    background-color: #FFFFFF;         /* 背景颜色：纯白 */
+    border: 1px solid #C5D9E8;         /* 边框颜色：浅天蓝 */
+    border-radius: 0px;                /* 无圆角 */
+    outline: 0px;                      /* 移除焦点时的虚线框 */
+    alternate-background-color: #F8FAFC; /* 交替行颜色，产生条纹效果 */
+    gridline-color: #E8EEF4;           /* 网格线颜色 */
+}
+/* 表格左上角的全选角按钮 */
+QTableCornerButton::section {
+    background-color: #E8EEF4; /* 默认背景：浅天蓝 */
+    border: 1px solid #C5D9E8; /* 默认边框：浅天蓝 */
+}
+/* --- [核心修改] --- */
+/* 新增：鼠标悬停在左上角全选角按钮上时的效果 */
+QTableCornerButton::section:hover {
+    background-color: #FFFFFF; /* 背景变为纯白，产生“浮起”感 */
+    border: 1px solid #8AB2D6; /* 边框变为柔和波浪蓝 */
+}
+/* 新增：鼠标按下左上角全选角按钮时的效果 */
+QTableCornerButton::section:pressed {
+    background-color: #D5E0E8; /* 背景变为更深的灰色，模拟“按下” */
+    border: 1px solid #3B6894; /* 边框变为深浪蓝 */
+}
+
+/* 列表控件中的项目 */
+QListWidget::item {
+    padding: 10px;                   /* 内边距 */
+    border-bottom: 1px solid #E8EEF4; /* 底部边框作为分隔线 */
+    color: #1C2A40;                   /* 文字颜色：墨色 */
+}
+/* --- [核心修改] --- */
+/* 新增：鼠标悬停在未选中的列表项目上时的效果 */
+QListWidget::item:hover:!selected {
+    background-color: rgba(138, 178, 214, 0.2); /* 背景色：柔和的、半透明的波浪蓝色 */
+}
+/* 选中的列表项目 */
+QListWidget::item:selected {
+    background-color: #3B6894; /* 背景色：实色的深浪蓝 */
+    color: #FFFFFF;            /* 文字颜色：纯白 */
+}
+
+/* --- [核心修改] 表格单元格样式 --- */
+/* 新增：鼠标悬停在未选中的表格单元格上时的效果 */
+QTableWidget::item:hover:!selected {
+    background-color: rgba(138, 178, 214, 0.2); /* 背景色：与QListWidget::item:hover一致 */
+}
+/* 选中的表格单元格 */
+QTableWidget::item:selected {
+    background-color: #3B6894; /* 背景色：深浪蓝 */
+    color: #FFFFFF;            /* 文字颜色：纯白 */
+}
+/* 表格内用于编辑的输入框 */
+QTableWidget QLineEdit {
+    border-radius: 0px;        /* 无圆角 */
+    border: 1px solid #3B6894; /* 边框：深浪蓝，表示正在编辑 */
+    background-color: #FFFFFF; /* 背景：纯白 */
+    color: #1C2A40;             /* 文字：墨色 */
+}
+
+/* 列表和表格的表头 */
+QHeaderView::section {
+    background-color: #E8EEF4;       /* 背景颜色：更亮的晴空色 */
+    padding: 10px;                   /* 内边距 */
+    border: none;                    /* 无常规边框 */
+    border-bottom: 2px solid #3B6894;/* 底部边框：深浪蓝 */
+    font-weight: bold;               /* 字体加粗 */
+    color: #3B6894;                   /* 文字颜色：深浪蓝 */
+}
+/* --- [核心修改] 更细微的悬停效果 --- */
+QHeaderView::section:hover {
+    background-color: #D3DDE9;     /* 背景颜色加深 */
+    color: #1C2A40;                 /* 文字变为更深的“墨色” */
+    border-bottom-color: #A79B82;   /* 底部边框变为“沙/木色” */
+}
+
+/* 进度条 */
+QProgressBar {
+    border: 1px solid #A79B82; /* 边框：沙/木色 */
+    border-radius: 0px;        /* 无圆角 */
+    text-align: center;        /* 文本居中 */
+    color: #FFFFFF;            /* 文字颜色：纯白 (显示在进度块上) */
+    height: 22px;              /* 高度 */
+    background-color: #F5F8FA; /* 背景(未填充部分)：晴空蓝灰 */
+    font-weight: bold;         /* 字体加粗 */
+}
+/* 进度条的已填充部分 */
+QProgressBar::chunk {
+    background-color: #3B6894; /* 背景颜色：深浪蓝 */
+    margin: 1px;               /* 与边框留出1像素的间距 */
+}
+
+/* 水平滑动条的凹槽 (轨道) */
+QSlider::groove:horizontal {
+    border: none;              /* 无边框 */
+    height: 4px;               /* 轨道高度 */
+    background: #C5D9E8;       /* 轨道背景：浅天蓝 */
+    margin: 2px 0;             /* 上下外边距 */
+    border-radius: 0px;        /* 无圆角 */
+}
+/* --- [核心修改] --- */
+QSlider::groove:horizontal:hover {
+    /* 悬停在轨道上时，轨道颜色加深 */
+    background: #8AB2D6;
+}
+
+/* 水平滑动条的滑块 */
+QSlider::handle:horizontal {
+    background: #FFFFFF;       /* 滑块背景：纯白 */
+    border: 1px solid #3B6894; /* 默认边框：深浪蓝 */
+    width: 10px;               /* 滑块宽度 */
+    height: 20px;              /* 滑块高度 */
+    margin: -8px 0;            /* 上下负外边距，使滑块在视觉上“跨”在轨道上 */
+    border-radius: 0px;        /* 无圆角 */
+}
+/* 悬停在滑块上时 */
+QSlider::handle:horizontal:hover {
+    border: 1px solid #1C2A40; /* 边框变为墨色 */
+    background: #A79B82;       /* 背景变为沙/木色 */
+}
+/* 按下滑块时 */
+QSlider::handle:horizontal:pressed {
+    border: 1px solid #1C2A40; /* 边框变为墨色 */
+    background: #3B6894;       /* 背景变为深浪蓝 */
+}
+
+/* 垂直滚动条 */
+QScrollBar:vertical {
+    border: none;              /* 无边框 */
+    background: #F5F8FA;       /* 背景：晴空蓝灰 */
+    width: 14px;               /* 宽度 */
+    margin: 0;                 /* 无外边距 */
+}
+/* 垂直滚动条的滑块 */
+QScrollBar::handle:vertical {
+    background: #C5D9E8;       /* 默认背景：浅天蓝 */
+    min-height: 30px;          /* 最小高度 */
+    border-radius: 0px;        /* 无圆角 */
+}
+
+/* 水平滚动条 */
+QScrollBar:horizontal {
+    border: none;              /* 无边框 */
+    background: #F5F8FA;       /* 背景：晴空蓝灰 */
+    height: 14px;              /* 高度 */
+    margin: 0;                 /* 无外边距 */
+}
+/* 水平滚动条的滑块 */
+QScrollBar::handle:horizontal {
+    background: #C5D9E8;       /* 默认背景：浅天蓝 */
+    min-width: 30px;           /* 最小宽度 */
+    border-radius: 0px;        /* 无圆角 */
+}
+
+/* --- [核心修改] --- */
+/* 新增：鼠标悬停在滑块上时的效果 (垂直和水平通用) */
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {
+    background: #A8B8C8; /* 颜色加深 */
+}
+/* 新增：鼠标按下并拖动滑块时的效果 (垂直和水平通用) */
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed {
+    background: #8AB2D6; /* 变为更醒目的柔和波浪蓝 */
+}
+/* --- [修改结束] --- */
+
+/* 滚动条的 add-line 和 sub-line (通常是末端的按钮区域) */
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    border: none;        /* 无边框 */
+    background: #E8EEF4; /* 背景：更亮的晴空色 */
+}
+/* 滚动条的箭头图标 */
+QScrollBar::up-arrow,
+QScrollBar::down-arrow,
+QScrollBar::left-arrow,
+QScrollBar::right-arrow {
+    width: 0;  /* 隐藏默认箭头 */
+    height: 0;
+}
+
+/* 弹出菜单 */
 QMenu {
-    background-color: #FFFFFF; color: #1C2A40; border: 1px solid #8AB2D6; 
-    padding: 4px; border-radius: 0px;
+    background-color: #FFFFFF; /* 背景：纯白 */
+    color: #1C2A40;            /* 文字：墨色 */
+    border: 1px solid #8AB2D6; /* 边框：柔和波浪蓝 */
+    padding: 4px;              /* 内边距 */
+    border-radius: 0px;        /* 无圆角 */
 }
+/* 菜单中的项目 */
 QMenu::item {
-    background-color: transparent; color: #1C2A40; padding: 8px 25px;
-    border: none;
+    background-color: transparent; /* 背景透明 */
+    color: #1C2A40;                /* 文字：墨色 */
+    padding: 8px 25px;             /* 内边距 */
+    border: none;                  /* 无边框 */
 }
-QMenu::item:selected { background-color: #E8EEF4; color: #3B6894; }
-QMenu::item:disabled { color: #A8B8C8; }
-QMenu::separator { height: 1px; background: #E8EEF4; margin: 4px 2px; }
-QMenu::icon { padding-left: 8px; width: 16px; height: 16px; }
+/* 选中的菜单项目 */
+QMenu::item:selected {
+    background-color: #E8EEF4; /* 背景：更亮的晴空色 */
+    color: #3B6894;            /* 文字：深浪蓝 */
+}
+QMenu::item:pressed {
+    background-color: #C5D9E8; /* 背景变为更深的蓝色，模拟“按下”的凹陷感 */
+    color: #1C2A40; /* 文字颜色保持深色以确保可读性 */
+}
+/* 禁用的菜单项目 */
+QMenu::item:disabled {
+    color: #A8B8C8; /* 文字变灰 */
+}
+/* 菜单中的分隔线 */
+QMenu::separator {
+    height: 1px;         /* 高度 */
+    background: #E8EEF4; /* 颜色：更亮的晴空色 */
+    margin: 4px 2px;     /* 上下和左右外边距 */
+}
+/* 菜单项目前的图标区域 */
+QMenu::icon {
+    padding-left: 8px; /* 左内边距 */
+    width: 16px;       /* 宽度 */
+    height: 16px;      /* 高度 */
+}
 
-/* ================== ToggleSwitch 样式 (The Great Wave - Daylight) ================== */
-ToggleSwitch {
-    qproperty-trackColorOff: #C5D9E8;      /* 关闭时: 浅天蓝 */
-    qproperty-trackColorOn: #3B6894;       /* 打开时: 深浪蓝 */
-    qproperty-knobColor: #FFFFFF;          /* 滑块: 纯白 */
-    qproperty-trackBorderRadius: 0;        
-    qproperty-borderWidth: 1;              
-    qproperty-borderColor: #8AB2D6;        
-    qproperty-knobMargin: 1;               
-    qproperty-knobShape: 'rectangle';      
-    min-width: 60px; max-width: 60px;                       
-    min-height: 28px; max-height: 28px;                      
-}
-ToggleSwitch:hover {
-    qproperty-borderColor: #3B6894;
-}
 
-/* --- 方言图文采集页面 --- */
+/* ==========================================================================
+   特定页面样式：方言图文采集 (Page-Specific: Dialect Collection)
+   ========================================================================== */
+
+/* 可缩放的图片显示标签 */
 QLabel#ScalableImageLabel {
-    border: 1px solid #C5D9E8;
-    background-color: #FFFFFF;
-    color: #A8B8C8; 
+    border: 1px solid #C5D9E8; /* 边框：浅天蓝 */
+    background-color: #FFFFFF; /* 背景：纯白 */
+    color: #A8B8C8;            /* 文字(提示语)：灰色 */
 }
+/* 提示文本标签 */
 QLabel#PromptTextLabel {
-    padding: 8px; color: #1C2A40; font-size: 20px; font-weight: bold;
-    background-color: transparent; border: none; border-bottom: 2px solid #A79B82;
+    padding: 8px;                    /* 内边距 */
+    color: #1C2A40;                   /* 文字：墨色 */
+    font-size: 20px;                 /* 字号 */
+    font-weight: bold;               /* 字体加粗 */
+    background-color: transparent;   /* 背景透明 */
+    border: none;                    /* 无常规边框 */
+    border-bottom: 2px solid #A79B82;/* 底部边框：沙/木色 */
 }
+/* 备注文本输入框 */
 QTextEdit#NotesTextEdit {
-    background-color: #FFFFFF; border: 1px solid #C5D9E8; border-radius: 0px;
-    padding: 8px; color: #A79B82;
+    background-color: #FFFFFF; /* 背景：纯白 */
+    border: 1px solid #C5D9E8; /* 边框：浅天蓝 */
+    border-radius: 0px;        /* 无圆角 */
+    padding: 8px;              /* 内边距 */
+    color: #A79B82;             /* 文字(占位符或默认)：沙/木色 */
 }
-/* ================== 单选按钮样式 (Radio Button as Square Toggle) ================== */
+
+
+/* ==========================================================================
+   单选按钮样式 (Radio Button as Square Toggle)
+   ========================================================================== */
+
+/* 单选按钮整体 */
 QRadioButton {
-    spacing: 12px; /* 指示器和文本之间的距离 */
-    padding: 8px 0;
-    font-size: 18px;
-    font-weight: normal; /* 未选中时为正常粗细 */
-    color: #8AB2D6; /* 未选中时为柔和的波浪蓝 */
+    spacing: 12px;           /* 指示器和文本之间的距离 */
+    padding: 8px 0;          /* 上下内边距 */
+    font-size: 18px;         /* 字号 */
+    font-weight: normal;     /* 未选中时为正常粗细 */
+    color: #8AB2D6;           /* 未选中时文字颜色：柔和波浪蓝 */
 }
-
+/* 鼠标悬停在单选按钮上时 */
 QRadioButton:hover {
-    color: #3B6894; /* 悬停时为深波浪蓝 */
+    color: #3B6894; /* 悬停时文字颜色：深波浪蓝 */
 }
-
+/* 选中的单选按钮 */
 QRadioButton:checked {
-    color: #1C2A40; /* 选中时为深普鲁士蓝 (墨色) */
-    font-weight: bold; /* 选中时加粗 */
+    color: #1C2A40;     /* 选中时文字颜色：墨色 */
+    font-weight: bold; /* 选中时字体加粗 */
 }
 
 /* --- 指示器 (Indicator) --- */
+/* 单选按钮的指示器 (即那个“点”) */
 QRadioButton::indicator {
-    width: 22px; /* 调整为方形尺寸 */
-    height: 22px;
-    border-radius: 0px; /* [核心修改] 方形 */
-    border: 1px solid #C5D9E8; /* 默认边框: 浅天蓝 */
-    background-color: #FFFFFF; /* 默认背景: 纯白 */
+    width: 22px;               /* 宽度 */
+    height: 22px;              /* 高度 */
+    border-radius: 0px;        /* [核心修改] 方形，无圆角 */
+    border: 1px solid #C5D9E8; /* 默认边框：浅天蓝 */
+    background-color: #FFFFFF; /* 默认背景：纯白 */
 }
-
+/* 鼠标悬停在指示器上时 */
 QRadioButton::indicator:hover {
-    border: 1px solid #8AB2D6; /* 悬停边框: 柔和波浪蓝 */
+    border: 1px solid #8AB2D6; /* 悬停边框：柔和波浪蓝 */
 }
-
+/* 选中的指示器 */
 QRadioButton::indicator:checked {
-    image: none; /* [新增] 确保不显示任何意外的默认图像 */
-    border: 1px solid #1C2A40; /* 选中边框: 深普鲁士蓝 (墨色) */
-    background-color: #3B6894; }
-
+    image: none;               /* [新增] 确保不显示任何意外的默认图像 */
+    border: 1px solid #1C2A40; /* 选中边框：墨色 */
+    background-color: #3B6894; /* 选中背景：深浪蓝 */
+}
+/* 禁用的指示器 */
 QRadioButton::indicator:disabled {
-    border: 1px solid #E8EEF4;
-    background-color: #F5F8FA;
+    border: 1px solid #E8EEF4; /* 边框变浅 */
+    background-color: #F5F8FA; /* 背景变灰 */
 }
-
+/* 禁用的单选按钮文本 */
 QRadioButton:disabled {
-    color: #A8B8C8;
+    color: #A8B8C8; /* 文字变灰 */
 }
 
-/* --- 为新的 WaveformWidget 添加样式 --- */
-/*
- * 通过 qproperty- 语法设置我们在 WaveformWidget 中定义的自定义属性
- * 这使得主题可以完全控制波形图的颜色
- */
+
+/* ==========================================================================
+   自定义控件样式 (Custom Widgets)
+   ========================================================================== */
+
+/* --- WaveformWidget 波形图控件 --- */
+/* 通过 qproperty- 语法设置在 C++ 中定义的自定义属性 */
 WaveformWidget {
     qproperty-waveformColor: #3B6894;       /* 波形颜色: 深浪蓝 */
     qproperty-cursorColor: #E53935;         /* 播放头光标颜色: 醒目的红色 */
-    qproperty-selectionColor: rgba(138, 178, 214, 100); /* 选区颜色: 半透明的柔和波浪蓝 */
-    border: 1px solid #C5D9E8;
-    border-radius: 0px;
+    qproperty-selectionColor: rgba(138, 178, 214, 100); /* 选区颜色: 半透明的柔和波浪蓝 (100/255 Alpha) */
+    border: 1px solid #C5D9E8;              /* 边框：浅天蓝 */
+    border-radius: 0px;                     /* 无圆角 */
+}
+/* 禁用的波形图控件 */
+WaveformWidget:disabled {
+    /* 当被禁用时，降低其不透明度以提供视觉反馈 */
+    qproperty-waveformColor: #A8B8C8; /* 波形颜色变灰 */
+    opacity: 0.5;                     /* 整体不透明度降低 */
 }
 
-WaveformWidget:disabled {
-    /* 当被禁用时（例如多选文件时），降低其不透明度以提供视觉反馈 */
-    qproperty-waveformColor: #A8B8C8; 
-    opacity: 0.5;
-}
+/* --- QToolTip 悬浮提示框 --- */
 QToolTip {
-    /* [核心] 使用主题中的沙/木色作为背景，而不是常见的深色，以呼应“白昼”主题 */
-    background-color: #F5F8FA; 
-    
-    /* [核心] 使用主题中的“墨色”作为文字和边框，形成高对比度，如同木刻版画 */
+    /* [核心] 使用主题中的晴空蓝灰作为背景，呼应“白昼”主题 */
+    background-color: #F5F8FA;
+    /* [核心] 使用主题中的深色作为文字和边框，形成高对比度 */
     color: #3B6894;
     border: 1px solid #3B6894;
-    
-    padding: 6px 10px; /* 内边距，提供呼吸空间 */
-    
+    padding: 6px 10px;        /* 内边距 */
     /* [核心] 坚持主题的锐利、无圆角风格 */
-    border-radius: 0px; 
-    
+    border-radius: 0px;
     /* 字体与主题保持一致 */
     font-size: 16px;
     font-weight: bold;
 }
+
 /* --- 主波形图 (顶部的概览波形) --- */
 #AudioAnalysisPage > QWidget > WaveformWidget {
-    border: 1px solid #C5D9E8; /* 浅天蓝色边框 */
-    border-bottom: none; /* 与下方的语谱图无缝连接 */
-    border-radius: 0px;
-    
+    border: 1px solid #C5D9E8; /* 边框：浅天蓝 */
+    border-bottom: none;       /* 与下方的语谱图无缝连接，移除底部边框 */
+    border-radius: 0px;        /* 无圆角 */
     /* [修复] 在浅色主题下，背景色应为纯白以获得最佳对比度 */
     qproperty-backgroundColor: #FFFFFF;
-    
-    /* 概览波形颜色: 使用柔和的波浪蓝，作为背景参考 */
-    qproperty-waveformColor: #8AB2D6; 
+    /* 概览波形颜色：使用柔和的波浪蓝，作为背景参考 */
+    qproperty-waveformColor: #8AB2D6;
 }
 
 /* --- 语谱图控件 (核心可视化区域) --- */
 SpectrogramWidget {
-    /* 语谱图背景色: 能量最低处，使用非常浅的蓝灰色，与主背景区分 */
-    qproperty-spectrogramMinColor: #F5F8FA; 
-    
-    /* 能量最高处: 使用主题中的“墨色”，形成强烈的黑白对比 */
-    qproperty-spectrogramMaxColor: #1C2A40; 
-    
-    /* 强度曲线颜色: 使用稳重的“深波浪蓝” */
+    /* 语谱图背景色(能量最低处)：使用晴空蓝灰，与主背景区分 */
+    qproperty-spectrogramMinColor: #F5F8FA;
+    /* 能量最高处颜色：使用墨色，形成强烈的黑白对比 */
+    qproperty-spectrogramMaxColor: #1C2A40;
+    /* 强度曲线颜色：使用稳重的深浪蓝 */
     qproperty-intensityColor: #3B6894;
-    
-    /* 原始F0点的颜色: 使用醒目的红色，提供高辨识度 */
+    /* 原始F0点的颜色：使用醒目的红色，提供高辨识度 */
     qproperty-f0Color: #E53935;
-    
-    /* 派生F0曲线的颜色: 使用略暗的红色，作为F0点的连接线 */
+    /* 派生F0曲线的颜色：使用略暗的红色，作为F0点的连接线 */
     qproperty-f0DerivedColor: #C62828;
-    
-    /* F1高亮颜色: 使用最深的“墨色”，代表最重要的共振峰 */
+    /* F1高亮颜色：使用最深的墨色，代表最重要的共振峰 */
     qproperty-f1Color: #1C2A40;
-
-    /* 其他共振峰颜色: 使用深波浪蓝，作为次要信息 */
+    /* 其他共振峰颜色：使用深浪蓝，作为次要信息 */
     qproperty-formantColor: #3B6894;
-    
-    /* 播放头光标颜色: 保持醒目的红色 */
+    /* 播放头光标颜色：保持醒目的红色 */
     qproperty-cursorColor: #E53935;
-    
-    /* 鼠标悬停信息框的文字和背景色: 白色背景，深色文字，与全局Tooltip风格一致 */
-    qproperty-infoTextColor: #1C2A40;
-    qproperty-infoBackgroundColor: rgba(255, 255, 255, 0.85);
-    
+    /* 鼠标悬停信息框的文字和背景色 */
+    qproperty-infoTextColor: #1C2A40; /* 文字颜色：墨色 */
+    qproperty-infoBackgroundColor: rgba(255, 255, 255, 0.85); /* 背景：85%不透明度的纯白 */
     /* 边框样式 */
-    border: 1px solid #C5D9E8; /* 浅天蓝色边框 */
-    border-radius: 0px;
+    border: 1px solid #C5D9E8; /* 边框：浅天蓝 */
+    border-radius: 0px;        /* 无圆角 */
 }
+
+
+/* ==========================================================================
+   特定页面样式：欢迎页面 (Page-Specific: Welcome Page)
+   ========================================================================== */
+
 /* --- 欢迎页面左侧导航栏 --- */
 #WelcomeNavList {
-    background-color: #E8EEF4; /* 使用主题中的“浅天蓝”作为背景 */
-    border-right: 1px solid #C5D9E8; /* 使用更浅的边框色 */
-    outline: 0px; /* 移除焦点时的虚线框 */
+    background-color: #E8EEF4;     /* 背景：浅天蓝 */
+    border-right: 1px solid #C5D9E8;/* 右边框作为与内容区的分隔 */
+    outline: 0px;                  /* 移除焦点时的虚线框 */
 }
-
+/* 导航栏中的项目 */
 #WelcomeNavList::item {
-    padding: 12px 20px;
-    border: none;
+    padding: 12px 20px;          /* 内边距 */
+    border: none;                /* 无常规边框 */
     border-bottom: 1px solid #D5E0E8; /* 用更浅的颜色做分隔线 */
-    color: #8AB2D6; /* 未选中时：柔和波浪蓝 */
-    font-size: 17px;
-    font-weight: bold;
+    color: #8AB2D6;               /* 未选中时文字：柔和波浪蓝 */
+    font-size: 17px;             /* 字号 */
+    font-weight: bold;           /* 字体加粗 */
 }
-
+/* 鼠标悬停在导航项目上时 */
 #WelcomeNavList::item:hover {
-    background-color: #FFFFFF; /* 悬停时：纯白背景 */
-    color: #3B6894; /* 悬停时：深浪蓝文字 */
+    background-color: #FFFFFF; /* 背景：纯白 */
+    color: #3B6894;            /* 文字：深浪蓝 */
 }
-
+/* 选中的导航项目 */
 #WelcomeNavList::item:selected {
-    background-color: #FFFFFF; /* 选中时：纯白背景，与右侧内容区融为一体 */
-    color: #1C2A40; /* 选中时：深普鲁士蓝(墨色)文字，形成高对比度 */
-    /* [核心] 用一个锐利的左边框来指示选中状态，呼应主题的锐利风格 */
-    border-left: 4px solid #A79B82; /* Driftwood/Sand color */
-    padding-left: 16px; /* 因为左边框占了4px，所以内边距相应调整 */
+    background-color: #FFFFFF; /* 选中时背景：纯白，与右侧内容区融为一体 */
+    color: #1C2A40;            /* 选中时文字：墨色，形成高对比度 */
+    /* [核心] 用一个锐利的左边框来指示选中状态 */
+    border-left: 4px solid #A79B82; /* 左边框：4像素宽的沙/木色 */
+    padding-left: 16px;        /* 因为左边框占了4px，所以左内边距相应减少 (20-4=16) */
 }
 
 /* --- 欢迎页面右侧内容区 --- */
 #WelcomeContentStack > QWidget {
     background-color: #FFFFFF; /* 右侧内容区使用纯白背景 */
 }
-
 /* 右侧内容区内的 QTextBrowser，使其与背景无缝融合 */
 #WelcomeContentStack QTextBrowser {
-    background-color: transparent;
-    border: none;
+    background-color: transparent; /* 背景透明 */
+    border: none;                  /* 无边框 */
 }
 
 /* 版本标签的特殊样式 */
 #VersionLabel {
-    color: #A79B82; /* 使用主题中的沙/木色 */
-    font-size: 12px;
-    font-weight: normal;
+    color: #A79B82;         /* 文字：沙/木色 */
+    font-size: 12px;       /* 较小的字号 */
+    font-weight: normal;   /* 正常字重 */
 }
-
 /* 底部按钮区的分隔线 */
 #WelcomeContentStack QFrame[frameShape="4"] { /* 4是HLine的枚举值 */
-    background-color: #C5D9E8; /* 使用浅天蓝色作为分隔线 */
-    max-height: 1px;
+    background-color: #C5D9E8; /* 分隔线颜色：浅天蓝 */
+    max-height: 1px;           /* 高度为1像素 */
 }
 
-/* --- 在 QSS 文件末尾添加 --- */
+
+/* ==========================================================================
+   插件相关样式 (Plugin-related Styles)
+   ========================================================================== */
 
 /* 主插件菜单圆形按钮 */
 QPushButton#PluginMenuButtonCircular {
-    border-radius: 18px; /* 关键：半径为按钮尺寸的一半 */
-    border: 2px solid #C5D9E8; /* 浅色边框 */
-    background-color: #F5F8FA; /* 与背景色稍有区别 */
-    /* [核心修改] 调整内边距以容纳图标和文字 */
-    padding: 2px 15px 2px 10px; /* 上 右 下 左 */
-    min-width: 75px; /* 设置一个最小宽度，防止被过度压缩 */
+    border-radius: 18px;           /* 关键：半径为按钮高度的一半，形成圆形 */
+    border: 2px solid #C5D9E8;     /* 边框：浅天蓝 */
+    background-color: #F5F8FA;     /* 背景：晴空蓝灰 */
+    padding: 2px 15px 2px 10px;    /* 内边距 (上 右 下 左) */
+    min-width: 75px;               /* 最小宽度 */
 }
 QPushButton#PluginMenuButtonCircular:hover {
-    background-color: #FFFFFF;
-    border-color: #3B6894;
+    background-color: #FFFFFF;     /* 悬停背景：纯白 */
+    border-color: #3B6894;         /* 悬停边框：深浪蓝 */
 }
 QPushButton#PluginMenuButtonCircular:pressed {
-    background-color: #E8EEF4;
+    background-color: #E8EEF4; /* 按下背景：更亮的晴空色 */
 }
 
 /* 固定的插件快捷按钮 */
 QPushButton#PinnedPluginButton {
-    border-radius: 16px;
+    border-radius: 16px;           /* 圆角半径 */
     border: 1px solid transparent; /* 默认无边框 */
     background-color: transparent; /* 默认透明 */
-    padding: 0;
+    padding: 0;                    /* 无内边距 */
 }
 QPushButton#PinnedPluginButton:hover {
-    background-color: rgba(138, 178, 214, 0.5); /* 半透明悬停效果 */
+    background-color: rgba(138, 178, 214, 0.5); /* 悬停时半透明蓝色背景 */
 }
 QPushButton#PinnedPluginButton:pressed {
-    background-color: rgba(138, 178, 214, 0.7);
+    background-color: rgba(138, 178, 214, 0.7); /* 按下时更深的半透明蓝色背景 */
+}
+
+/* 插件菜单中的工具按钮 */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent; /* 默认透明 */
+    border: 1px solid transparent; /* 默认无边框 */
+    border-radius: 0px;            /* 无圆角，匹配主题风格 */
+    padding: 2px;                  /* 内边距 */
+    color: #1C2A40;                 /* 默认文字颜色：墨色 */
+}
+QToolButton#PluginMenuItemToolButton:hover {
+    background-color: rgba(138, 178, 214, 0.2); /* 柔和的半透明蓝色背景 */
+    border: 1px solid #8AB2D6;                  /* 柔和的蓝色边框 */
+}
+QToolButton#PluginMenuItemToolButton:pressed {
+    background-color: rgba(138, 178, 214, 0.4); /* 更深的按下效果 */
+}
+
+
+/* ==========================================================================
+   标签栏滚动箭头样式 (Tab Bar Scroller Arrow Styling)
+   ========================================================================== */
+
+/* 1. 滚动区域的整体容器 */
+QTabBar::scroller {
+    width: 40px; /* 设置滚动箭头的可用总宽度 */
+}
+
+/* 2. 左右滚动箭头按钮的通用样式 */
+QTabBar QToolButton {
+    background-color: transparent; /* 默认透明背景 */
+    border: 1px solid transparent; /* 默认透明边框 */
+    border-radius: 4px;            /* 轻微的圆角 */
+    min-width: 16px;               /* 最小宽度 */
+    min-height: 16px;              /* 最小高度 */
+}
+
+/* 3. 鼠标悬停在按钮上时的效果 */
+QTabBar QToolButton:hover {
+    background-color: rgba(0, 0, 0, 0.1); /* 轻微的半透明黑色背景 */
+    border: 1px solid rgba(0, 0, 0, 0.2); /* 轻微的半透明黑色边框 */
+}
+
+/* 4. [最关键] 为左右箭头分别设置图标和边距 */
+/* 左滚动箭头，通过Qt的内部对象名 #qt_scrolltab_left_button 来选择 */
+QTabBar QToolButton#qt_scrolltab_left_button {
+    /* 使用 qproperty-icon 语法设置图标，路径相对于资源系统 */
+    qproperty-icon: url(://icons/prev.svg);
+    margin-right: 3px; /* 增加右边距，使其不紧贴着标签页 */
+}
+/* 右滚动箭头，通过Qt的内部对象名 #qt_scrolltab_right_button 来选择 */
+QTabBar QToolButton#qt_scrolltab_right_button {
+    qproperty-icon: url(://icons/next.svg);
+    margin-left: 3px; /* 增加左边距，使其不紧贴着标签页 */
+}
+
+/* 5. 当箭头不可用时（例如，滚动到最左或最右时）的样式 */
+QTabBar QToolButton:disabled {
+    background-color: transparent; /* 背景透明 */
+    border: 1px solid transparent; /* 边框透明 */
+    opacity: 0.3;                  /* 让图标变淡，表示不可用 */
+}
+
+
+/* ==========================================================================
+   开关控件样式 (ToggleSwitch Style)
+   ========================================================================== */
+
+ToggleSwitch {
+    /* 默认状态下的颜色属性 */
+    qproperty-trackColorOff: #C5D9E8; /* 关闭时轨道的颜色：浅天蓝 */
+    qproperty-trackColorOn: #3B6894;  /* 打开时轨道的颜色：深浪蓝 */
+    qproperty-knobColor: #FFFFFF;     /* 滑块的颜色：纯白 */
+    qproperty-borderColor: #8AB2D6;   /* 边框的颜色：柔和波浪蓝 */
+    
+    /* 形状和尺寸属性 */
+    qproperty-trackBorderRadius: 0;   /* 轨道的圆角：无 */
+    qproperty-borderWidth: 1;         /* 边框宽度 */
+    qproperty-knobMargin: 1;          /* 滑块与轨道边缘的间距 */
+    qproperty-knobShape: 'rectangle'; /* 滑块形状：矩形 */
+    
+    /* 控件的固定尺寸 */
+    min-width: 60px; max-width: 60px;
+    min-height: 28px; max-height: 28px;
+    
+    /* 布局和文本相关 */
+    spacing: 0; padding: 0;           /* 无间距和内边距 */
+    font-weight: normal; color: transparent; /* 隐藏关联的文本 */
+}
+
+/* 隐藏原生的指示器，因为我们用自定义绘制代替了它 */
+ToggleSwitch::indicator {
+    width: 0px; height: 0px; border: none; margin: 0; padding: 0;
+}
+
+/* 悬停状态，通过控件的动态属性 [hover="true"] 来选择 */
+ToggleSwitch[hover="true"] {
+    /* 悬停状态下的颜色属性 */
+    qproperty-hoverTrackColorOn: #8AB2D6;  /* 悬停在打开状态时轨道的颜色 */
+    qproperty-hoverTrackColorOff: #A8B8C8; /* 悬停在关闭状态时轨道的颜色 */
+    qproperty-hoverKnobColor: #F5F8FA;     /* 悬停时滑块的颜色 */
+    qproperty-hoverBorderColor: #A79B82;   /* 悬停时边框的颜色 */
+    
+    /* --- [核心修改] --- */
+    /*
+     * 设置悬停时滑块边距的偏移量。
+     * 正数表示增加边距，从而使滑块在视觉上缩小。
+     */
+    qproperty-hoverKnobMarginOffset: 2; /* 悬停时，滑块边距增加2px，使其看起来更小 */
 }

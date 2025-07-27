@@ -1,0 +1,779 @@
+/*
+ * ============================================================================
+ *  Windows 1.0 Revival Theme v2.0 - Final Replica
+ *  Author: AI Assistant (Successor)
+ *  Description: A meticulously recreated Windows 1.0 UI aesthetic using Qt QSS.
+ *               Ensures full Unicode (IPA) compatibility while maintaining
+ *               pixel-perfect, high-contrast, and nostalgic design principles.
+ * ============================================================================
+ */
+/* @icon-path: "../assets/icons" */
+/* @theme-property-compact: true */ /* Windows 1.0 风格天然紧凑 */
+/* @icon-theme: none */
+/* ============================================================================
+ *  1. 全局与基础样式 (Global & Base Styles - Monochrome & Blue Accent)
+ * ============================================================================ */
+
+/* --- 基础字体与颜色 --- */
+QWidget {
+    /* [核心修改 1] 字体兼容音标：Fixedsys 优先，然后是通用的 Sans-serif，最后是音标字体 */
+    font-family: "Fixedsys", "MS Shell Dlg 2", "Consolas", sans-serif, "Doulos SIL", "Charis SIL";
+    color: #000000; /* 纯黑 */
+    background-color: #FFFFFF; /* 纯白 */
+    font-size: 16px;
+    font-weight: normal;
+    /* text-rendering: optimizeSpeed; /* [可选] 如果Qt版本支持，尝试禁用抗锯齿以增强像素感 */
+    /* font-smoothing: none; */ /* [可选] 非标准，可能不起作用，但可尝试 */
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget {
+    background-color: #FFFFFF;
+}
+
+QMessageBox, QDialog { 
+    border: 1px solid #000000;
+    background-color: #FFFFFF;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 16px; 
+    color: #000000;
+}
+
+/* ============================================================================
+ *  2. 容器与布局控件 (Containers & Layout Widgets)
+ * ============================================================================ */
+
+QGroupBox { 
+    border: 1px solid #000000;
+    /* 3D边框效果 */
+    border-top-color: #FFFFFF;
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+    margin-top: 15px;
+    padding: 15px 10px 10px 10px;
+    border-radius: 0px;
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top left; 
+    padding: 2px 5px;
+    margin-left: 5px;
+    color: #FFFFFF; /* 白色文字 */
+    background-color: #0000FF; /* 亮蓝色背景 */
+    font-weight: bold;
+    border-radius: 0px;
+}
+
+QSplitter::handle {
+    background-color: #C0C0C0; /* 经典的灰色 */
+    border: 1px solid #000000; /* 细黑边框 */
+}
+QSplitter::handle:horizontal {
+    width: 2px;
+}
+QSplitter::handle:vertical {
+    height: 2px;
+}
+QSplitter::handle:hover {
+    background-color: #808080; /* 悬停时变暗 */
+}
+
+/* ============================================================================
+ *  3. 标签页 (Tab Widgets - Classic Windows 1.0 Layout)
+ * ============================================================================ */
+
+/* --- 3.1 一级标签页 (Main Tabs) --- */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #000000;
+    border-top: none; /* 与选中标签页无缝连接 */
+    background-color: #FFFFFF;
+    border-radius: 0px;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: #C0C0C0; /* 经典灰色 */
+    color: #000000;
+    border: 1px solid #000000;
+    border-bottom: none; /* 默认不显示底部边框 */
+    font-size: 16px;
+    font-weight: bold;
+    margin-left: -1px; /* 负边距使标签页边框重叠，经典样式 */
+    /* [核心修改 2] 稍微增加宽度 */
+    min-width: 105px; 
+    padding: 15px 15px; /* 调整内边距 */
+    border-radius: 0px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    background-color: #E0E0E0; /* 悬停时稍微变亮 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #FFFFFF; /* 选中时背景色与 Pane 一致 */
+    color: #000000; 
+    border-bottom-color: #FFFFFF; /* 底部边框与背景融合，造成“切入”效果 */
+    margin-bottom: -1px; /* 微调以消除间隙 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    color: #808080; /* 灰色 */
+    background-color: #E0E0E0;
+}
+
+/* --- 3.2 二级标签页 (Sub Tabs - Simple Underline) --- */
+QTabWidget#SubTabWidget::pane { 
+    border: none; 
+    background-color: transparent; 
+}
+QTabWidget#SubTabWidget::tab-bar { 
+    alignment: left; 
+    border-bottom: 1px solid #000000; /* 细黑线分隔 */
+}
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; 
+    color: #000000; 
+    border: none;
+    border-bottom: 3px solid transparent; 
+    padding: 5px 15px; 
+    font-size: 16px;
+    font-weight: normal;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    background-color: #E0E0E0; /* 悬停背景 */
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #FFFFFF; 
+    background-color: #0000FF; 
+    border-bottom: 3px solid #0000FF; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { 
+    color: #808080; 
+}
+
+/* ============================================================================
+ *  4. 核心交互控件 (Core Interactive Widgets)
+ * ============================================================================ */
+
+/* --- 4.1 按钮 (QPushButton) --- */
+QPushButton {
+    /* [核心修复] 还原为Windows 1.0的扁平、高对比度样式 */
+    background-color: #FFFFFF; /* 白色背景 */
+    color: #000000;           /* 黑色文字 */
+    border: 1px solid #000000; /* 单像素黑色边框 */
+    padding: 8px 15px; 
+    border-radius: 0px; 
+    font-size: 16px; 
+}
+QPushButton:hover {
+    /* 悬停时，颜色反转 */
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QPushButton:pressed {
+    /* 按下时，保持颜色反转，并增加轻微位移模拟按压 */
+    background-color: #000000;
+    color: #FFFFFF;
+    padding-top: 9px;
+    padding-left: 16px;
+}
+QPushButton:disabled {
+    color: #808080;
+    background-color: #C0C0C0; /* 经典灰色 */
+    border: 1px solid #808080;
+}
+
+/* --- 强调按钮和删除按钮 (Windows 1.0 风格) --- */
+
+/* [核心修复] 强调按钮使用主题的亮蓝色 */
+QPushButton#AccentButton {
+    background-color: #0000FF; /* 亮蓝色 */
+    color: #FFFFFF;
+    border: 1px solid #000000;
+}
+QPushButton#AccentButton:hover {
+    background-color: #FFFFFF; /* 深蓝色 */
+    color: #0000FF;
+}
+QPushButton#AccentButton:pressed {
+    background-color: #000000; /* 深蓝色 */
+    color: #FFFFFF;
+    padding-top: 9px;
+    padding-left: 16px;
+}
+
+/* [核心修复] 警示/删除按钮使用反转色（黑底白字） */
+QPushButton#ActionButton_Delete {
+    background-color: #000000;
+    color: #FFFFFF;
+    border: 1px solid #000000;
+}
+QPushButton#ActionButton_Delete:hover {
+    /* 悬停时，边框变为亮蓝色以示激活 */
+    border: 1px solid #000000;
+    background-color: #FF0000
+}
+QPushButton#ActionButton_Delete:pressed {
+    background-color: #000000;
+    color: #FFFFFF;
+    border: 1px solid #FFFFFF; /* 按下时边框变白 */
+    padding-top: 9px;
+    padding-left: 16px;
+}
+
+
+/* --- 4.2 输入框 (QLineEdit, QPlainTextEdit, QTextBrowser) --- */
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000;
+    border-radius: 0px; 
+    padding: 5px;
+    color: #000000; /* 默认黑色文字 */
+    selection-background-color: #0000FF; 
+    selection-color: #FFFFFF; 
+}
+/* [核心修改] 悬停时背景变蓝，文字变白 */
+QLineEdit:hover, QPlainTextEdit:hover, QTextBrowser:hover {
+    background-color: #0000FF; /* 亮蓝色背景 */
+    color: #FFFFFF; /* 白色文字 */
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { 
+    border-color: #0000FF; 
+    /* 保持焦点时的颜色反转，文字白色 */
+    background-color: #FFFFFF;
+    color: #0000FF;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #E0E0E0;
+    color: #808080;
+    border-color: #C0C0C0;
+}
+QTextBrowser a { color: #0000FF; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; color: #000080; }
+
+/* --- 4.3 下拉框 (QComboBox) --- */
+QComboBox { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    padding: 5px; /* 与输入框一致 */
+    color: #000000; 
+    min-height: 26px;
+}
+QComboBox:hover {
+    background-color: #E0E0E0;
+}
+QComboBox:focus { border-color: #0000FF; }
+QComboBox::drop-down { 
+    border-left: 1px solid #000000; /* 经典分隔线 */
+    background-color: #C0C0C0;
+    width: 20px;
+    border-radius: 0px;
+}
+QComboBox::drop-down:hover {
+    background-color: #808080; /* 悬停时变暗 */
+}
+QComboBox::down-arrow {
+    image: url(icon:arrow_down_win1); /* 需要一个像素化的箭头图标 */
+    width: 12px; height: 12px;
+}
+QComboBox QAbstractItemView { 
+    border: 1px solid #000000; 
+    background-color: #FFFFFF; 
+    selection-background-color: #0000FF; 
+    selection-color: #FFFFFF; 
+    outline: 0px; 
+    border-radius: 0px;
+}
+QComboBox QAbstractItemView::item { 
+    padding: 5px; 
+    min-height: 22px; 
+}
+
+/* --- 4.4 列表与表格 (QListWidget, QTableWidget, QTreeWidget) --- */
+QListWidget, QTableWidget, QTreeWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    outline: 0px; 
+    alternate-background-color: #FFFFFF; /* 不做隔行变色 */
+    gridline-color: #C0C0C0; /* 浅灰色网格线 */
+}
+QListWidget::item { padding: 5px; border: none; } /* 消除默认边框 */
+QTableWidget::item { padding: 0px; border: none; }
+QTreeWidget::item { padding: 5px; border: none; }
+
+/* --- [核心修改] 列表/表格项悬停效果 --- */
+QListWidget::item:hover, 
+QTableWidget::item:hover, 
+QTreeWidget::item:hover {
+    background-color: #E0E0E0; /* 悬停时背景变亮 */
+    
+    /* [新增] 改变文本颜色，使其更突出 */
+    color: #0000FF; /* 例如：变为亮蓝色 */
+    
+    /* [可选增强] 增加一个边框或改变现有边框颜色 */
+    /* border: 1px solid #0000FF; */ 
+}
+
+QListWidget::item:selected, 
+QTableWidget::item:selected, 
+QTreeWidget::item:selected { 
+    background-color: #0000FF; /* 亮蓝色 */
+    color: #FFFFFF; /* 白色文字 */
+}
+
+QHeaderView::section { 
+    background-color: #C0C0C0; /* 经典灰色 */
+    padding: 5px; 
+    border: 1px solid #000000;
+    /* 3D边框效果 */
+    border-top-color: #FFFFFF;
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+    font-weight: bold; 
+    color: #000000;
+    border-radius: 0px;
+}
+
+/* --- [核心修改] 悬停和按下效果 --- */
+QHeaderView::section:hover {
+    background-color: #E0E0E0; /* 悬停时背景变亮 */
+    /* 边框可以稍微改变，例如加粗或颜色变蓝，但保持3D浮雕不变 */
+    border-top-color: #FFFFFF; 
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+}
+
+QHeaderView::section:pressed {
+    /* 模拟按下效果：背景色变暗，3D边框颜色反转 */
+    background-color: #808080; /* 按下时背景变暗 */
+    border-top-color: #808080;   /* 边框反转 */
+    border-left-color: #808080;
+    border-right-color: #FFFFFF;
+    border-bottom-color: #FFFFFF;
+    
+    /* 内容轻微位移，模拟物理按压感 */
+    padding-top: 6px; /* 下移1px */
+    padding-left: 6px; /* 右移1px */
+}
+
+QTableCornerButton::section { 
+    /* ... (TableCornerButton 样式保持不变) ... */
+    background-color: #C0C0C0; 
+    border: 1px solid #000000; 
+    border-top-color: #FFFFFF;
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+}
+
+/* --- 4.5 滑块 (QSlider) & 进度条 (QProgressBar) - v2.1 Enhanced Feedback --- */
+QSlider::groove:horizontal { 
+    border: 1px solid #000000; /* 黑色边框 */
+    background: #FFFFFF; /* 白色凹槽 */
+    height: 4px; 
+    margin: 2px 0;
+    border-radius: 0px; 
+}
+/* [核心修改 1] 凹槽悬停和按下效果 */
+QSlider::groove:horizontal:hover {
+    background: #0000FF; /* 悬停时背景变亮 */
+}
+QSlider::groove:horizontal:pressed {
+    background: #000000; /* 按下时背景变暗 */
+}
+
+QSlider::handle:horizontal { 
+    background: #C0C0C0; /* 灰色滑块 */
+    border: 1px solid #000000; 
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    width: 12px; height: 12px; /* 方形滑块 */
+    margin: -5px 0; /* 调整垂直位置，使其居中 */
+    border-radius: 0px; 
+}
+/* [核心修改 2] 滑块悬停和按下效果 */
+QSlider::handle:horizontal:hover { 
+    background: #E0E0E0; /* 悬停时背景变亮 */
+}
+QSlider::handle:horizontal:pressed { 
+    background: #808080; /* 按下时背景变暗 */
+    /* 边框颜色反转，模拟凹陷 */
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+
+QProgressBar { 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    text-align: center; 
+    color: #000000; 
+    background-color: #FFFFFF;
+    height: 20px;
+    font-weight: bold;
+}
+QProgressBar::chunk { 
+    background-color: #00FF00; /* 亮绿色 */
+    margin: 0px; 
+    border-right: 1px solid #000000; 
+    border-radius: 0px;
+}
+
+/* --- 4.6 滚动条 (QScrollBar) --- */
+QScrollBar {
+    border: 1px solid #000000;
+    background: #D0D0D0; /* 经典灰色 */
+    border-radius: 0px;
+}
+QScrollBar:vertical { width: 15px; }
+QScrollBar:horizontal { height: 15px; }
+
+/* --- 滑块 (Handle) --- */
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: #C0C0C0;
+    border: 1px solid #000000;
+    /* 默认的3D浮雕 */
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    border-radius: 0px;
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+    background: #E0E0E0; /* 悬停时变亮 */
+}
+QScrollBar::handle:vertical:pressed, QScrollBar::handle:horizontal:pressed {
+    background: #808080; /* 按下时背景变暗 */
+    /* 边框颜色反转，模拟凹陷 */
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+
+/* --- 滚动条两端的按钮 (add-line, sub-line) --- */
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: 1px solid #000000;
+    background: #E0E0E0;
+    border-radius: 0px;
+    subcontrol-origin: margin;
+}
+
+QScrollBar::add-line:vertical { height: 15px; subcontrol-position: bottom; }
+QScrollBar::sub-line:vertical { height: 15px; subcontrol-position: top; }
+QScrollBar::add-line:horizontal { width: 15px; subcontrol-position: right; }
+QScrollBar::sub-line:horizontal { width: 15px; subcontrol-position: left; }
+
+QScrollBar::add-line:vertical:hover, QScrollBar::sub-line:vertical:hover,
+QScrollBar::add-line:horizontal:hover, QScrollBar::sub-line:horizontal:hover {
+    background: #E0E0E0; /* 悬停时变亮 */
+}
+QScrollBar::add-line:vertical:pressed, QScrollBar::sub-line:vertical:pressed,
+QScrollBar::add-line:horizontal:pressed, QScrollBar::sub-line:horizontal:pressed {
+    background: #808080; /* 按下时背景变暗 */
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+
+/* --- [核心修改] 彻底隐藏滚动条的页面区域和箭头图标 --- */
+/* QScrollBar::add-page 和 QScrollBar::sub-page 定义了滚动条中间的空白区域 */
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none; /* 移除背景 */
+    border: none;     /* 移除边框 */
+    width: 0px;       /* 强制宽度为0 */
+    height: 0px;      /* 强制高度为0 */
+}
+
+/* 再次确认彻底移除所有箭头图标，即使是可能默认绘制的 */
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+    image: none;      /* 强制移除所有箭头图标 */
+    width: 0px;       /* 确保不占用任何空间 */
+    height: 0px;      /* 确保不占用任何空间 */
+    background: none; /* 确保背景也透明 */
+    border: none;     /* 确保没有边框 */
+}
+
+/* --- 4.7 菜单 (QMenu) --- */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #000000;
+    padding: 1px; /* 紧凑 */
+    border-radius: 0px;
+}
+QMenu::item {
+    background-color: transparent; /* 默认透明 */
+    color: #000000;
+    padding: 3px 20px 3px 5px; /* 上下3px，右20px，左5px */
+    border-radius: 0px;
+}
+QMenu::item:hover { /* 悬停颜色反转 */
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QMenu::item:selected { /* 选中颜色反转 */
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QMenu::item:disabled { color: #808080; }
+QMenu::separator { 
+    height: 1px; 
+    background: #000000; /* 黑色细线分隔 */
+    margin: 2px 0px; 
+}
+QMenu::icon { padding-left: 0px; width: 16px; height: 16px; }
+
+/* --- 4.8 提示框 (QToolTip) & 消息框 (QMessageBox) --- */
+QToolTip {
+    /* [核心修改] */
+    background-color: #FFFFFF; /* 白色背景 */
+    color: #0000FF;           /* 亮蓝色字体 */
+    
+    border: 1px solid #000000;
+    padding: 3px 5px;
+    border-radius: 0px;
+    font-size: 14px;
+    font-weight: normal;
+}
+
+QMessageBox, QDialog {
+    /* MessageBox 样式保持不变 */
+    border: 1px solid #000000;
+    background-color: #FFFFFF;
+}
+
+/* ============================================================================
+ *  5. 自定义控件样式 (Custom Widget Styles)
+ * ============================================================================ */
+
+/* --- ToggleSwitch 样式 (Windows High Contrast - Enhanced Hover) --- */
+ToggleSwitch {
+    /* 默认状态 */
+    qproperty-trackColorOff: #C0C0C0;
+    qproperty-trackColorOn: #0000FF;
+    qproperty-knobColor: #FFFFFF;
+    qproperty-borderColor: #000000;
+    qproperty-borderWidth: 2;
+    qproperty-knobMargin: 2;
+    qproperty-knobShape: 'rectangle';
+    qproperty-trackBorderRadius: 0;
+    qproperty-knobBorderRadius: 0;
+    
+    min-width: 40px; max-width: 40px;
+    min-height: 20px; max-height: 20px;
+    
+    spacing: 0; padding: 0;
+    font-weight: normal; color: transparent;
+}
+
+/* --- [核心修改] 悬停时应用多重视觉变化 --- */
+ToggleSwitch[hover="true"] {
+    /* 1. 边框颜色高亮 (保持) */
+    qproperty-hoverBorderColor: #0000FF;
+    
+    /* 2. 滑块颜色反转：从白色变为黑色 */
+    qproperty-hoverKnobColor: #0000FF;
+    
+    /* 3. 滑块尺寸缩小：通过增加边距实现 */
+    qproperty-hoverKnobMarginOffset: 1; /* 增加2px边距，使滑块在视觉上向内收缩 */
+    
+    /* 注意：我们不再改变轨道颜色，让边框和滑块的变化成为视觉焦点 */
+}
+
+/* --- QRadioButton 和 QCheckBox --- */
+QRadioButton, QCheckBox {
+    spacing: 5px; /* 指示器和文本之间更小间距 */
+    padding: 2px 0;
+    font-size: 16px;
+    font-weight: normal;
+    color: #000000; /* 默认黑色 */
+}
+QRadioButton:hover, QCheckBox:hover { color: #0000FF; } /* 悬停时变蓝 */
+QRadioButton:checked, QCheckBox:checked { color: #000000; font-weight: bold; } /* 选中时不变色，但可能加粗 */
+
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 14px; height: 14px; /* 经典尺寸 */
+    border: 1px solid #000000; /* 黑色边框 */
+    background-color: #C0C0C0; /* 灰色背景 */
+    /* 3D浮雕 */
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+}
+QRadioButton::indicator { border-radius: 7px; } /* 圆形指示器 */
+QCheckBox::indicator { border-radius: 0px; } /* 方形指示器 */
+
+QRadioButton::indicator:hover, QCheckBox::indicator:hover {
+    background-color: #E0E0E0; /* 悬停时变亮 */
+}
+QRadioButton::indicator:checked {
+    background-color: #FFFFFF; /* 选中时背景变白 */
+    /* 圆点 */
+    image: url(icon:radio_dot); /* 需要一个像素化的圆点图标 */
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+QCheckBox::indicator:checked {
+    background-color: #FFFFFF; /* 选中时背景变白 */
+    image: url(icon:check_mark); /* 需要一个像素化的勾选图标 */
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
+    background-color: #E0E0E0;
+    border-color: #C0C0C0;
+}
+QRadioButton:disabled, QCheckBox:disabled { color: #808080; }
+
+/* ============================================================================
+ *  6. 模块特定样式 (Module-specific Styles)
+ * ============================================================================ */
+
+/* --- 波形图 (WaveformWidget) --- */
+WaveformWidget {
+    qproperty-waveformColor: #000000;    /* 波形颜色: 黑色 */
+    qproperty-cursorColor: #FF0000;      /* 播放头光标颜色: 红色 */
+    qproperty-selectionColor: rgba(0, 0, 255, 100); /* 选区颜色: 半透明蓝色 */
+    background-color: #FFFFFF; /* 背景: 纯白 */
+    border: 1px solid #000000; /* 边框: 黑色 */
+    border-radius: 0px;
+}
+WaveformWidget:disabled { 
+    qproperty-waveformColor: #808080; /* 禁用时变灰 */
+    background-color: #E0E0E0; /* 禁用时背景变灰 */
+}
+
+/* --- 音频分析页面 --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    background-color: #FFFFFF;
+    qproperty-waveformColor: #000000;
+    border: 1px solid #000000;
+    border-bottom: none;
+    border-radius: 0px;
+}
+SpectrogramWidget {
+    qproperty-spectrogramMinColor: #FFFFFF; /* 能量最低处: 纯白 */
+    qproperty-spectrogramMaxColor: #000000; /* 能量最高处: 纯黑 */
+    qproperty-intensityColor: #00FF00;      /* 强度曲线: 亮绿色 */
+    qproperty-f0Color: #0000FF;             /* 原始F0点: 亮蓝色 */
+    qproperty-f0DerivedColor: #0080FF;      /* 派生F0曲线: 深蓝色 */
+    qproperty-f1Color: #000000;             /* F1共振峰: 黑色 */
+    qproperty-formantColor: #808080;        /* 其他共振峰: 灰色 */
+    qproperty-cursorColor: #FF0000;         /* 光标: 红色 */
+    
+    background-color: #FFFFFF; /* 背景: 纯白 */
+    border: 1px solid #000000;
+    border-radius: 0px;
+}
+
+/* --- 欢迎页面 --- */
+#WelcomeNavList {
+    background-color: #E0E0E0; /* 浅灰色背景 */
+    border-right: 1px solid #000000; /* 黑色分隔线 */
+    outline: 0px;
+}
+#WelcomeNavList::item {
+    background-color: #E0E0E0;
+    color: #000000;
+    padding: 5px 10px;
+    border: none;
+    border-bottom: 1px solid #C0C0C0; /* 灰色分隔线 */
+    border-radius: 0px;
+}
+#WelcomeNavList::item:hover {
+    background-color: #0000FF; /* 悬停时亮蓝色 */
+    color: #FFFFFF;
+}
+#WelcomeNavList::item:selected {
+    background-color: #FFFFFF; /* 选中时白色背景 */
+    border-left: 3px solid #000000; /* 黑色左边框 */
+    padding-left: 7px; /* 调整内边距 */
+    color: #000000;
+}
+#WelcomeContentStack > QWidget { background-color: #FFFFFF; }
+#WelcomeContentStack QTextBrowser { background-color: transparent; border: none; }
+#VersionLabel { color: #808080; font-size: 14px; }
+QFrame[frameShape="4"] { background-color: #C0C0C0; } /* 底部按钮分隔线 */
+
+/* ============================================================================
+ *  7. 插件栏按钮样式 (Plugin Bar - Classic MS-DOS Executive style)
+ * ============================================================================ */
+
+/* --- 主插件菜单按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    background-color: #C0C0C0; /* 经典灰色 */
+    color: #000000;
+    
+    /* 经典3D浮雕边框 */
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF;
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+    
+    border-radius: 16px; /* 严格无圆角 */
+    min-height: 25px;   /* 紧凑的高度 */
+    padding: 2px 8px;   /* 紧凑的内边距 */
+    min-width: 75px; 
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #E0E0E0; /* 悬停时变亮 */
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    /* 按下时，边框反转产生凹陷感 */
+    border-top-color: #808080;
+    border-left-color: #808080;
+    border-right-color: #FFFFFF;
+    border-bottom-color: #FFFFFF;
+    
+    /* 内容轻微下移，模拟物理按压 */
+    padding-top: 3px;
+    padding-left: 9px;
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    background-color: #C0C0C0;
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF;
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+    
+    border-radius: 15px;
+    padding: 0px;
+    min-width: 30px;  /* 固定的正方形尺寸 */
+    min-height: 30px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: #E0E0E0;
+}
+QPushButton#PinnedPluginButton:pressed {
+    border-top-color: #808080;
+    border-left-color: #808080;
+    border-right-color: #FFFFFF;
+    border-bottom-color: #FFFFFF;
+    
+    /* 图标轻微下移和右移 */
+    padding-top: 1px;
+    padding-left: 1px;
+}
+
+/* --- 插件菜单 QToolButton 样式 (保持不变) --- */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 0px;
+    padding: 2px;
+    color: #000000;
+}
+QToolButton#PluginMenuItemToolButton:hover {
+    background-color: #FFFFFF;
+    color: #0000FF;
+    border: 1px solid #0000FF;
+}
+QToolButton#PluginMenuItemToolButton:pressed {
+    background-color: #0000FF; /* 深蓝色 */
+    color: #FFFFFF;
+}

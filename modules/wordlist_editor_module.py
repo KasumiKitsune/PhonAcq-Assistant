@@ -338,7 +338,7 @@ class WordlistEditorPage(QWidget):
         
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(5) # 5列: 组别, 单词/短语, 备注(IPA), 语言(可选), 状态
-        self.table_widget.setHorizontalHeaderLabels(["组别", "单词/短语", "备注 (IPA)", "语言 (可选)", "状态"])
+        self.table_widget.setHorizontalHeaderLabels(["组别", "单词/短语", "备注 (IPA)", "语言 (可选)", ""])
         self.table_widget.setToolTip("在此表格中编辑单词/词语。\n'状态'列显示相关音频资源的可用性。")
         
         # 调整列的拉伸模式和宽度

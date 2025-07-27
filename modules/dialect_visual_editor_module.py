@@ -200,9 +200,9 @@ class DialectVisualEditorPage(QWidget):
         self.redo_btn = QPushButton("重做"); self.redo_btn.setToolTip("重做上一步已撤销的操作 (快捷键: Ctrl+Y)。")
         table_btn_layout.addWidget(self.undo_btn); table_btn_layout.addWidget(self.redo_btn); table_btn_layout.addSpacing(20) # 增加间距
         
-        self.auto_detect_btn = QPushButton("自动检测图片"); self.auto_detect_btn.setToolTip("遍历所有行，为ID有值但图片为空的项，\n自动查找并填充图片文件。")
+        self.auto_detect_btn = QPushButton("检测图片"); self.auto_detect_btn.setToolTip("遍历所有行，为ID有值但图片为空的项，\n自动查找并填充图片文件。")
         self.smart_detect_switch = self.ToggleSwitch(); self.smart_detect_switch.setToolTip("启用后，将忽略大小写、下划线和空格，\n并尝试为项目ID匹配最相似的图片名。")
-        self.add_row_btn = QPushButton("添加项目"); self.remove_row_btn = QPushButton("移除选中项目")
+        self.add_row_btn = QPushButton("添加"); self.remove_row_btn = QPushButton("移除选中项")
         
         table_btn_layout.addWidget(self.auto_detect_btn); table_btn_layout.addWidget(QLabel("智能检测:")); table_btn_layout.addWidget(self.smart_detect_switch)
         table_btn_layout.addStretch() # 移动到右侧，以平衡布局

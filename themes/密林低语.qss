@@ -425,3 +425,108 @@ QPushButton#PinnedPluginButton:hover {
 QPushButton#PinnedPluginButton:pressed {
     background-color: #EAE0C9; /* 不透明的按钮背景色 */
 }
+/* --- 插件菜单 QToolButton 样式 (Whispering Woods) --- */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent; /* 默认透明 */
+    border: 1px solid transparent; /* 默认无边框 */
+    border-radius: 6px; /* 匹配主题的圆角 */
+    padding: 2px; /* 适当内边距 */
+    color: #4A4034; /* 默认文本颜色 */
+}
+QToolButton#PluginMenuItemToolButton:hover {
+    background-color: #F5EDE2; /* 浅米色背景 */
+    border: 1px solid #B8A990; /* 匹配主题边框 */
+}
+QToolButton#PluginMenuItemToolButton:pressed {
+    background-color: #EAE0C9; /* 按下时更深 */
+}
+/*
+================================================================================
+【新增】自定义控件悬停效果 (Whispering Woods)
+================================================================================ 
+*/
+
+/* --- ToggleSwitch 悬停效果 --- */
+ToggleSwitch[hover="true"] {
+    /* 悬停时，边框变为主题中的“古金色”，提供高亮效果 */
+    qproperty-hoverBorderColor: #C9A870;
+
+    /* 悬停时，“开启”状态的轨道颜色变为更亮的绿色 */
+    qproperty-hoverTrackColorOn: #8A9E7A;
+    
+    /* 悬停时，“关闭”状态的轨道颜色变为“浅米色”，提供柔和的反馈 */
+    qproperty-hoverTrackColorOff: #EAE0C9;
+    
+    /* 悬停时，滑块的颜色变为与主背景一致的羊皮纸白 */
+    qproperty-hoverKnobColor: #FDFBF5;
+}
+/* ============================================================================
+ *  7. 交互动作增强 (Interaction Enhancement - Whisperwood)
+ * ============================================================================ */
+
+/* --- 7.1 表格与列表悬停效果 --- */
+
+/* 为 QListWidget 和 QTableWidget 的未选中项添加悬停效果 */
+/* [核心要求] 使用米色作为悬停背景，而不是绿色 */
+QListWidget::item:hover:!selected,
+QTableWidget::item:hover:!selected {
+    background-color: #EDE9E1; /* Light Beige */
+}
+
+/* --- 7.2 表头悬停效果 --- */
+QHeaderView::section:hover {
+    background-color: #404D3A; /* 背景色加深 */
+    color: #F4F1EA;            /* 文字变为最亮的米白色 */
+}
+
+/* --- 7.3 表格左上角全选柄交互效果 --- */
+QTableCornerButton::section:hover {
+    background-color: #404D3A;
+    border: 1px solid #637854;
+}
+QTableCornerButton::section:pressed {
+    background-color: #2F382A;
+    border: 1px solid #829D71;
+}
+
+/* --- 7.4 滑块与滚动条交互效果 --- */
+/* 悬停在滑块凹槽上时 */
+QSlider::groove:horizontal:hover {
+    background: #637854;
+}
+/* 悬停在滑块拖动控件上时 */
+QSlider::handle:horizontal:hover {
+    background: #F4F1EA; /* 滑块背景变为最亮的米白色 */
+}
+/* 按下并拖动滑块时 */
+QSlider::handle:horizontal:pressed {
+    background: #EDE9E1; /* 滑块背景变为浅米色 */
+    border-color: #F4F1EA;
+}
+
+/* 悬停在滚动条滑块上时 */
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover {
+    background: #637854;
+}
+/* 按下并拖动滚动条滑块时 */
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed {
+    background: #829D71;
+}
+
+/* --- 7.5 菜单项按下效果 --- */
+QMenu::item:pressed {
+    background-color: #404D3A; /* 背景变为深苔藓绿 */
+    color: #F4F1EA;            /* 文字变为最亮的米白色 */
+}
+
+/* --- 7.6 普通QLabel悬停效果 --- */
+QLabel:hover {
+    color: #829D71; /* 文字颜色变为主题中的亮绿色 */
+}
+
+/* --- 7.7 下拉框悬停效果 --- */
+QComboBox:hover {
+    border-color: #637854; /* 边框颜色变为中苔藓绿 */
+}
