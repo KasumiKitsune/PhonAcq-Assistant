@@ -11,7 +11,7 @@ import threading
 import queue
 import time
 import json
-
+from collections import deque
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QHeaderView, QAbstractItemView,
@@ -101,6 +101,7 @@ class VoicebankRecorderPage(QWidget):
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1; self.logger = None
         self.audio_folder = None # [新增] 用于存储当前会话的动态文件夹路径
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
+        self.volume_history = deque(maxlen=5)
         self.recording_thread = None; self.session_stop_event = threading.Event()
         self.last_warning_log_time = 0
         
@@ -284,7 +285,7 @@ class VoicebankRecorderPage(QWidget):
             self.session_stop_event.clear()
             self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
             self.recording_thread.start()
-            self.update_timer.start(30)
+            self.update_timer.start(16)
             
             self.word_list_combo.hide()
             self.session_name_input.hide() # 隐藏批次名称输入框
@@ -340,12 +341,29 @@ class VoicebankRecorderPage(QWidget):
     def _audio_callback(self, indata, frames, time, status):
         if status:
             current_time = time.monotonic()
-            if current_time - self.last_warning_log_time > 5: self.last_warning_log_time = current_time; print(f"Audio callback status: {status}", file=sys.stderr)
-        try: self.volume_meter_queue.put_nowait(indata.copy())
-        except queue.Full: pass
+            if current_time - self.last_warning_log_time > 5:
+                self.last_warning_log_time = current_time
+                print(f"Audio callback status: {status}", file=sys.stderr)
+ 
+        # --- START OF FIX ---
+        # 1. 将原始、未经修改的数据放入录音队列，用于最终保存。
         if self.is_recording:
-            try: self.audio_queue.put(indata.copy())
-            except queue.Full: pass
+            try:
+                self.audio_queue.put(indata.copy())
+            except queue.Full:
+                pass
+ 
+        # 2. 创建一个临时副本，应用增益，然后放入音量条队列，用于UI实时反馈。
+        gain = self.config.get('audio_settings', {}).get('recording_gain', 1.0)
+        
+        processed_for_meter = indata
+        if gain != 1.0:
+            processed_for_meter = np.clip(indata * gain, -1.0, 1.0)
+ 
+        try:
+            self.volume_meter_queue.put_nowait(processed_for_meter.copy())
+        except queue.Full:
+            pass
     def show_recording_device_error(self, error_message):
         QMessageBox.critical(self, "录音设备错误", error_message); self.log("录音设备错误，请检查设置。")
         if self.session_active: self.end_session(force=True)
@@ -358,9 +376,30 @@ class VoicebankRecorderPage(QWidget):
             if self.is_recording: self.stop_recording(); event.accept()
         else: super().keyReleaseEvent(event)
     def update_volume_meter(self):
-        try: data_chunk = self.volume_meter_queue.get_nowait(); volume_norm = np.linalg.norm(data_chunk) * 20; self.volume_meter.setValue(int(volume_norm))
-        except queue.Empty: self.volume_meter.setValue(int(self.volume_meter.value() * 0.8))
-        except Exception: pass
+        # --- START OF REFACTOR (V3) ---
+        raw_target_value = 0
+        try:
+            data_chunk = self.volume_meter_queue.get_nowait()
+            rms = np.linalg.norm(data_chunk) / np.sqrt(len(data_chunk)) if data_chunk.any() else 0
+            dbfs = 20 * np.log10(rms + 1e-7)
+            raw_target_value = max(0, min(100, (dbfs + 60) * (100 / 60)))
+        except queue.Empty:
+            raw_target_value = 0
+        except Exception:
+            pass
+ 
+        self.volume_history.append(raw_target_value)
+        smoothed_target_value = sum(self.volume_history) / len(self.volume_history)
+ 
+        current_value = self.volume_meter.value()
+        smoothing_factor = 0.4
+        new_value = int(current_value * (1 - smoothing_factor) + smoothed_target_value * smoothing_factor)
+        
+        if abs(new_value - smoothed_target_value) < 2:
+            new_value = int(smoothed_target_value)
+            
+        self.volume_meter.setValue(new_value)
+
     def start_recording(self):
         if not self.session_active or self.is_recording: return
         self.current_word_index = self.list_widget.currentRow()

@@ -13,7 +13,7 @@ import random
 import sys
 import json
 import subprocess
-
+from collections import deque
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QLineEdit, QHeaderView,
@@ -147,7 +147,9 @@ class AccentCollectionPage(QWidget):
         self.resolve_device_func = resolve_device_func # [新增] 保存解析函数
         self.WORD_LIST_DIR = WORD_LIST_DIR; self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR; self.AUDIO_TTS_DIR = AUDIO_TTS_DIR; self.BASE_PATH = BASE_PATH
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1
-        self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2); self.recording_thread = None
+        self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
+        self.volume_history = deque(maxlen=5)
+        self.recording_thread = None
         self.session_stop_event = threading.Event(); self.logger = None
         self.prompt_mode = 'tts' # 默认提示音模式
         
@@ -345,11 +347,31 @@ class AccentCollectionPage(QWidget):
         else: super().keyPressEvent(event)
 
     def update_volume_meter(self):
+        # --- START OF REFACTOR (V3) ---
+        raw_target_value = 0
         try:
             data_chunk = self.volume_meter_queue.get_nowait()
-            if data_chunk is not None: volume_norm = np.linalg.norm(data_chunk) * 20; self.volume_meter.setValue(int(volume_norm))
-        except queue.Empty: self.volume_meter.setValue(int(self.volume_meter.value() * 0.8))
-        except Exception as e: print(f"Error calculating volume: {e}")
+            if data_chunk is not None:
+                rms = np.linalg.norm(data_chunk) / np.sqrt(len(data_chunk)) if data_chunk.any() else 0
+                dbfs = 20 * np.log10(rms + 1e-7)
+                raw_target_value = max(0, min(100, (dbfs + 60) * (100 / 60)))
+        except queue.Empty:
+            raw_target_value = 0
+        except Exception as e:
+            print(f"Error calculating volume: {e}")
+            raw_target_value = 0
+        
+        self.volume_history.append(raw_target_value)
+        smoothed_target_value = sum(self.volume_history) / len(self.volume_history)
+ 
+        current_value = self.volume_meter.value()
+        smoothing_factor = 0.4
+        new_value = int(current_value * (1 - smoothing_factor) + smoothed_target_value * smoothing_factor)
+        
+        if abs(new_value - smoothed_target_value) < 2:
+            new_value = int(smoothed_target_value)
+            
+        self.volume_meter.setValue(new_value)
             
     def _start_recording_logic(self):
         self.recording_indicator.setText("● 正在录音"); self.recording_indicator.setStyleSheet("color: red;")
@@ -928,11 +950,37 @@ class AccentCollectionPage(QWidget):
             if self.logger: self.logger.log(f"[ERROR] Persistent recorder task failed: {error_msg}")
             self.recording_device_error_signal.emit(error_msg)
             
-    def _audio_callback(self, indata, frames, time, status):
-        if status: print(f"录音状态警告: {status}", file=sys.stderr)
-        try: self.volume_meter_queue.put_nowait(indata.copy())
-        except queue.Full: pass
-        if self.is_recording: self.audio_queue.put(indata.copy())
+    def _audio_callback(self, indata, frames, time_info, status):
+        if status and (status.input_overflow or status.output_overflow or status.priming_output):
+            current_time = time.monotonic()
+            if current_time - self.last_warning_log_time > 5:
+                self.last_warning_log_time = current_time
+                warning_msg = f"Audio callback status: {status}"
+                print(warning_msg, file=sys.stderr)
+                if self.logger: self.logger.log(f"[WARNING] {warning_msg}")
+ 
+        # --- START OF FIX ---
+        # 1. 将原始、未经修改的数据放入录音队列，用于最终保存。
+        if self.is_recording:
+            try:
+                self.audio_queue.put(indata.copy())
+            except queue.Full:
+                pass
+ 
+        # 2. 创建一个临时副本，应用增益，然后放入音量条队列，用于UI实时反馈。
+        gain = self.config.get('audio_settings', {}).get('recording_gain', 1.0)
+        
+        # 如果增益不为1.0，则处理数据；否则直接使用原始数据以提高效率
+        processed_for_meter = indata
+        if gain != 1.0:
+            # 使用 np.clip 防止应用增益后数据超出范围，这对于音量条的准确性很重要
+            processed_for_meter = np.clip(indata * gain, -1.0, 1.0)
+ 
+        try:
+            # 将处理过的数据放入音量条队列
+            self.volume_meter_queue.put_nowait(processed_for_meter.copy())
+        except queue.Full:
+            pass
         
     def save_recording_task(self, worker):
         if self.audio_queue.empty(): return None 
@@ -1006,7 +1054,7 @@ class AccentCollectionPage(QWidget):
         self.session_stop_event.clear()
         self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
         self.recording_thread.start()
-        self.update_timer.start(30)
+        self.update_timer.start(16)
         
         self.status_label.setText("状态：音频准备就绪。")
         self.pre_session_widget.hide()

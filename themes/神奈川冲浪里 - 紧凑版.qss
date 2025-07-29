@@ -189,6 +189,11 @@ QHeaderView::section {
     border-bottom: 2px solid #3B6894; 
     font-weight: bold; color: #3B6894;
 }
+QHeaderView::section:pressed {
+    background-color: #B0C4DE; /* 比悬停更深的背景色，模拟按下 */
+    color: #1C2A40;            /* 文字颜色保持不变 */
+    border-bottom-color: #1C2A40; /* 底部边框颜色变为更深的墨色，模拟凹陷 */
+}
 
 QProgressBar { 
     border: 1px solid #A79B82; border-radius: 0px; text-align: center; 
@@ -423,4 +428,39 @@ QMenu::item:pressed {
 /* --- 7. 普通QLabel悬停效果 --- */
 QLabel:hover {
     color: #3B6894;
+}
+/* --- RangeSlider 仿真样式 --- */
+RangeSlider {
+    /* --- 轨道颜色 --- */
+    qproperty-trackColor: #C5D9E8;
+    qproperty-rangeColor: #3B6894;
+    qproperty-hoverTrackColor: #8AB2D6;
+    qproperty-hoverRangeColor: #4A7BA8;
+
+    /* --- 滑块颜色 --- */
+    qproperty-handleColor: #FFFFFF;
+    qproperty-handleBorderColor: #3B6894;
+    qproperty-hoverHandleColor: #A79B82;
+    qproperty-pressedHandleColor: #3B6894;
+    qproperty-pressedHandleBorderColor: #1C2A40; 
+    
+    /* --- 尺寸与形状 (核心修改) --- */
+    qproperty-barHeight: 4;
+    qproperty-handleBorderWidth: 1;
+    qproperty-handleRadius: 0;
+    
+    /* [核心] 精确设置滑块的基础宽度和高度 */
+    qproperty-handleWidth: 10;
+    qproperty-handleHeight: 20;
+    
+    /* 
+     * 动画效果：
+     * 悬停时，宽度和高度都增加4px。
+     * 按下时，宽度和高度都减小2px。
+     * 这将保持其细长的矩形比例。
+    */
+    qproperty-hoverHandleWidth: 14;
+    qproperty-hoverHandleHeight: 24;
+    qproperty-pressedHandleWidth: 8;
+    qproperty-pressedHandleHeight: 18;
 }

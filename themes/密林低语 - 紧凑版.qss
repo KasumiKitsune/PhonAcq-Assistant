@@ -1,0 +1,586 @@
+/*
+ * ============================================================================
+ *  Whispering Woods - Compact v1.0
+ *  Author: AI Assistant & Sager
+ *  Description: A compact version of the Whispering Woods theme.
+ *               Reduces padding, margins, and font sizes for an information-dense
+ *               layout, while preserving the original warm and fantasy aesthetic.
+ * ============================================================================
+ */
+
+/* @theme-property-compact: true */ /* [核心] 标记为紧凑主题，程序将自动应用小尺寸窗口 */
+
+
+/* ============================================================================
+ *  1. 全局样式 (Global Styles - Compact)
+ * ============================================================================ */
+
+/* --- 基础字体与颜色 --- */
+QWidget {
+    font-family: "Microsoft YaHei", "Georgia", "Times New Roman", serif;
+    color: #4A4034; 
+    background-color: transparent;
+    font-size: 15px; /* [修改] 基础字体从 18px 减小到 15px */
+    font-weight: normal;
+}
+
+/* --- 主窗口与对话框背景 (颜色不变) --- */
+QMainWindow, 
+QWidget#CentralWidget, 
+QStackedWidget > QWidget, 
+QTabWidget::pane > QWidget {
+    background-color: #FDFBF5;
+}
+
+QMessageBox, QDialog { 
+    background-color: #FDFBF5;
+    border: 1px solid #B8A990;
+    border-radius: 6px; /* [修改] 圆角减小 */
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 15px; /* [修改] 匹配减小后的全局字体 */
+    color: #4A4034; 
+}
+
+
+/* ============================================================================
+ *  2. 导航控件 (Navigation Controls - Compact)
+ * ============================================================================ */
+
+/* --- 一级标签页 (Main Tabs - Compact) --- */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #B8A990;
+    border-top: 2px solid #C9A870;
+    background-color: #FDFBF5;
+    border-radius: 0 0 8px 8px; /* [修改] 圆角减小 */
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+    background-color: #EAE0C9; 
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: transparent; 
+    color: #788C67; 
+    border: 1px solid transparent;
+    border-bottom: none;
+    font-size: 17px; /* [修改] 字体从 20px 减小到 17px */
+    font-weight: normal;
+    margin-right: 2px; 
+    min-width: 140px; /* [修改] 最小宽度从 180px 减小到 140px */
+    padding: 8px 15px; /* [修改] 内边距从 11px 20px 减小 */
+    border-top-left-radius: 8px; /* [修改] 圆角减小 */
+    border-top-right-radius: 8px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    background-color: #F5EDE2; 
+    color: #4A4034; 
+    border-color: #D8CFC0;
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #FDFBF5; 
+    color: #4A4034; 
+    border: 1px solid #B8A990; 
+    border-bottom: 2px solid #FDFBF5; 
+    font-weight: bold;
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    background-color: #EFEBE4; color: #9E9382; border-color: #D8CFC0;
+}
+
+/* --- 二级标签页 (Sub Tabs - Compact) --- */
+QTabWidget#SubTabWidget::pane { border: none; background-color: transparent; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 1px solid #DCD0C0; }
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; color: #788C67; border: none;
+    border-bottom: 3px solid transparent; 
+    padding: 6px 18px; /* [修改] 内边距从 9px 22px 减小 */
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+    margin-right: 8px; /* [修改] 标签间距从 10px 减小到 8px */
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #4A4034; border-bottom: 3px solid #EAE0C9; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #4A4034; font-weight: bold; border-bottom: 3px solid #788C67; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #9E9382; }
+
+
+/* ============================================================================
+ *  3. 按钮 (Buttons - Compact)
+ * ============================================================================ */
+
+/* --- 默认按钮 (Compact) --- */
+QPushButton {
+    border: 1px solid #B8A990; 
+    padding: 7px 18px; /* [修改] 内边距从 10px 22px 减小 */
+    border-radius: 15px; /* [修改] 适当减小圆角 */
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+    background-color: #EAE0C9; 
+    color: #4A4034; 
+    min-height: 24px; /* [修改] 最小高度从 30px 减小到 24px */
+}
+QPushButton:hover { background-color: #F5EDE2; border-color: #788C67; }
+QPushButton:pressed { background-color: #DCD0C0; }
+QPushButton:disabled { background-color: #EFEBE4; color: #9E9382; border-color: #D8CFC0;}
+
+/* --- 主强调按钮 (Compact) --- */
+QPushButton#AccentButton { 
+    background-color: #788C67; color: #FDFBF5; font-weight: bold; border: 1px solid #5A6B4F; 
+    border-radius: 16px; /* [修改] 适当减小圆角 */
+    padding: 9px 20px; /* [修改] 内边距从 12px 24px 减小 */
+}
+QPushButton#AccentButton:hover { background-color: #8A9E7A; }
+QPushButton#AccentButton:pressed { background-color: #667959; }
+
+/* --- 链接式按钮 (Compact) --- */
+QPushButton#LinkButton {
+    background-color: transparent; color: #788C67; border: none;
+    text-decoration: underline; 
+    padding: 3px; /* [修改] 内边距从 5px 减小 */
+    border-radius: 0px; 
+    font-size: 14px; /* [修改] 字体从 17px 减小到 14px */
+    min-height: 0px;
+}
+QPushButton#LinkButton:hover { color: #5A6B4F; }
+QPushButton#LinkButton:pressed { color: #4A4034; }
+
+/* --- 危险操作按钮 (Compact) --- */
+QPushButton#ActionButton_Delete {
+    background-color: #D48C50; color: #FDFBF5; font-weight: bold; border: 1px solid #B87740;
+    border-radius: 16px; /* [修改] 适当减小圆角 */
+    padding: 9px 20px; /* [修改] 内边距从 12px 24px 减小 */
+}
+QPushButton#ActionButton_Delete:hover { background-color: #E09D65; }
+QPushButton#ActionButton_Delete:pressed { background-color: #C07740; }
+
+
+/* ============================================================================
+ *  4. 输入与视图控件 (Input & View Controls - Compact)
+ * ============================================================================ */
+
+/* --- 文本输入框与浏览器 (Compact) --- */
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; border: 1px solid #B8A990; 
+    border-radius: 4px; /* [修改] 圆角从 6px 减小到 4px */
+    padding: 6px; /* [修改] 内边距从 8px 减小到 6px */
+    color: #4A4034; 
+    selection-background-color: #C9A870; selection-color: #FDFBF5; 
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border-color: #C9A870; }
+QTextBrowser a { color: #788C67; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; }
+
+/* --- 下拉选择框 (Compact) --- */
+QComboBox { 
+    background-color: #FFFFFF; border: 1px solid #B8A990; 
+    border-radius: 4px; /* [修改] 圆角从 6px 减小到 4px */
+    padding: 6px; /* [修改] 内边距从 8px 减小到 6px */
+    color: #4A4034; 
+    min-height: 22px; /* [修改] 最小高度从 26px 减小到 22px */
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+}
+QComboBox:focus { border-color: #C9A870; }
+QComboBox::drop-down { border: none; }
+QComboBox QAbstractItemView { 
+    border: 1px solid #B8A990; background-color: #FDFBF5; 
+    selection-background-color: #EAE0C9; selection-color: #4A4034; 
+    outline: 0px; border-radius: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 8px 12px; /* [修改] 减小菜单项内边距 */
+    min-height: 20px; /* [修改] 减小菜单项最小高度 */
+}
+
+
+/* --- 组框 (Compact) --- */
+QGroupBox { 
+    border: 1px solid #B8A990; 
+    border-radius: 8px; /* [修改] 圆角从 10px 减小到 8px */
+    margin-top: 12px; /* [修改] 上外边距从 15px 减小到 12px */
+    padding-top: 16px; /* [修改] 上内边距从 20px 减小到 16px */
+    padding-right: 12px;
+    padding-bottom: 12px;
+    padding-left: 12px;
+    background-color: rgba(253, 251, 245, 0.5); 
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top center; 
+    padding: 3px 15px; /* [修改] 标题内边距从 4px 18px 减小 */
+    background-color: #FDFBF5; 
+    color: #788C67; 
+    font-weight: bold;
+    border: 1px solid #B8A990;
+    border-radius: 12px; /* [修改] 标题圆角从 15px 减小到 12px */
+    margin-top: 0px; 
+    margin-left: 15px; /* [修改] 标题左右外边距从 20px 减小到 15px */
+    margin-right: 15px;
+    font-size: 14px; /* [修改] 标题字体从 18px 减小到 14px */
+}
+
+/* --- 列表与表格 (Compact) --- */
+QListWidget, QTableWidget { 
+    background-color: #FFFFFF; border: 1px solid #DCD0C0; 
+    border-radius: 6px; /* [修改] 圆角从 8px 减小到 6px */
+    outline: 0px;
+}
+QTableWidget { alternate-background-color: #F9F7F0; gridline-color: #EAE0D6; }
+QTableCornerButton::section { background-color: #EAE0D6; border-bottom: 2px solid #C9A870; }
+QListWidget::item { 
+    padding: 7px; /* [修改] 内边距从 10px 减小到 7px */
+    border-bottom: 1px solid #EAE0D6; color: #4A4034; 
+}
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #EAE0C9; color: #4A4034; 
+}
+QTableWidget QLineEdit { border-radius: 0px; border: 1px solid #788C67; }
+
+QHeaderView::section { 
+    background-color: #EAE0C9; padding: 7px; /* [修改] 内边距从 10px 减小到 7px */
+    border: none;
+    border-bottom: 2px solid #C9A870; font-weight: bold; color: #4A4034;
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+}
+
+/* --- 进度条 (Compact) --- */
+QProgressBar { 
+    border: 1px solid #B8A990; 
+    border-radius: 10px; /* [修改] 圆角从 15px 减小到 10px */
+    text-align: center; 
+    color: #4A4034; 
+    height: 18px; /* [修改] 高度从 22px 减小到 18px */
+    background-color: #FDFBF5;
+    font-size: 14px; /* [修改] 字体减小 */
+}
+QProgressBar::chunk { 
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #A8D8A8, stop:1 #788C67); 
+    border-radius: 9px; /* [修改] 圆角从 14px 减小到 9px */
+}
+
+/* --- 滑块 (Compact) --- */
+QSlider::groove:horizontal { 
+    border: 1px solid #B8A990; height: 7px; /* [修改] 高度从 10px 减小到 7px */
+    background: #FDFBF5; 
+    margin: 1px 0; /* [修改] 边距从 2px 减小到 1px */
+    border-radius: 4px; /* [修改] 圆角从 5px 减小到 4px */
+}
+QSlider::handle:horizontal { 
+    background: #788C67; border: 1px solid #5A6B4F; width: 14px; /* [修改] 宽度从 18px 减小到 14px */
+    height: 14px; /* [修改] 高度从 18px 减小到 14px */
+    margin: -4px 0; /* [修改] 边距从 -5px 减小到 -4px */
+    border-radius: 7px; /* [修改] 圆角从 9px 减小到 7px */
+}
+
+/* --- 滚动条 (Compact) --- */
+QScrollBar:vertical { 
+    border: none; background: #EAE0C9; 
+    width: 12px; /* [修改] 宽度从 16px 减小到 12px */
+    margin: 0; 
+}
+QScrollBar::handle:vertical { 
+    background: #B8A990; 
+    min-height: 25px; /* [修改] 最小高度从 30px 减小到 25px */
+    border-radius: 6px; /* [修改] 圆角从 8px 减小到 6px */
+}
+QScrollBar:horizontal { 
+    border: none; background: #EAE0C9; 
+    height: 12px; /* [修改] 高度从 16px 减小到 12px */
+    margin: 0; 
+}
+QScrollBar::handle:horizontal { 
+    background: #B8A990; 
+    min-width: 25px; /* [修改] 最小宽度从 30px 减小到 25px */
+    border-radius: 6px; /* [修改] 圆角从 8px 减小到 6px */
+}
+QScrollBar::add-line, QScrollBar::sub-line { border: none; background: none; height: 0px; width: 0px; }
+
+
+/* --- 弹出菜单 (Compact) --- */
+QMenu {
+    background-color: #FDFBF5; color: #4A4034; border: 1px solid #B8A990; 
+    padding: 5px; /* [修改] 内边距从 6px 减小到 5px */
+    border-radius: 6px; /* [修改] 圆角从 8px 减小到 6px */
+}
+QMenu::item {
+    background-color: transparent; color: #4A4034; 
+    padding: 7px 24px; /* [修改] 内边距从 9px 28px 减小 */
+    border: 1px solid transparent; margin: 1px; border-radius: 5px; /* [修改] 圆角和外边距减小 */
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+}
+QMenu::item:selected { background-color: #EAE0C9; color: #4A4034; }
+QMenu::item:disabled { color: #9E9382; }
+QMenu::separator { height: 1px; background: #D8CFC0; margin: 4px 4px; /* [修改] 外边距减小 */ }
+QMenu::icon { padding-left: 8px; width: 14px; height: 14px; /* [修改] 图标尺寸减小 */ }
+
+/* --- 工具提示 (Compact) --- */
+QToolTip {
+    background-color: #4A4034; 
+    color: #FDFBF5; 
+    border: 1px solid #4A4034;
+    padding: 5px 8px; /* [修改] 内边距从 6px 8px 减小 */
+    border-radius: 4px;
+    font-size: 14px; /* [修改] 字体从 16px 减小到 14px */
+    opacity: 230; 
+}
+
+
+/* ============================================================================
+ *  5. 自定义与特殊控件 (Custom & Special Controls - Compact)
+ * ============================================================================ */
+
+/* --- 自定义开关 (Compact) --- */
+ToggleSwitch {
+    qproperty-trackColorOff: #DCD0C0;      
+    qproperty-trackColorOn: #B8A990;       
+    qproperty-knobColor: #FFFFFF;          
+    qproperty-trackBorderRadius: 12; /* [修改] 圆角从 15 减小到 12 */
+    qproperty-borderWidth: 2;              
+    qproperty-borderColor: #B8A990;        
+    qproperty-knobMargin: 1; /* [修改] 滑块边距从 2 减小到 1 */
+    qproperty-knobShape: 'ellipse';      
+    min-width: 50px; max-width: 50px; /* [修改] 宽度从 60px 减小到 50px */                       
+    min-height: 24px; max-height: 24px; /* [修改] 高度从 30px 减小到 24px */                      
+}
+
+/* --- 单选按钮 (Compact) --- */
+QRadioButton {
+    spacing: 8px; /* [修改] 间距从 12px 减小到 8px */
+    padding: 6px 0; /* [修改] 内边距从 8px 减小到 6px */
+    font-size: 15px; /* [修改] 字体从 18px 减小到 15px */
+    font-weight: normal;
+    color: #788C67; 
+}
+QRadioButton::indicator {
+    width: 18px; /* [修改] 尺寸从 20px 减小到 18px */
+    height: 18px; 
+    border-radius: 3px; /* [修改] 圆角从 4px 减小到 3px */
+    border: 1px solid #DCD0C0; 
+    background-color: #FFFFFF;
+}
+QRadioButton::indicator:hover { border: 1px solid #B8A990; }
+QRadioButton::indicator:checked { border: 1px solid #5A6B4F; background-color: #C9A870; }
+QRadioButton::indicator:disabled { border: 1px solid #EAE0D6; background-color: #F9F7F0; }
+QRadioButton:disabled { color: #9E9382; }
+
+/* --- 页面专属控件 (Compact) --- */
+QLabel#ScalableImageLabel {
+    border: 1px solid #B8A990; 
+    background-color: #FFFFFF;
+    color: #B8A990; 
+    border-radius: 6px; /* [修改] 圆角从 8px 减小到 6px */
+}
+QLabel#PromptTextLabel {
+    padding: 6px; /* [修改] 内边距从 8px 减小到 6px */
+    color: #4A4034;
+    font-size: 18px; /* [修改] 字体从 20px 减小到 18px */
+    font-weight: bold;
+    background-color: #F7F2E8; 
+    border: 1px solid #DCD0C0;
+    border-radius: 6px;
+}
+QTextEdit#NotesTextEdit {
+    background-color: #FAF6F4; 
+    border: 1px solid #DCD0C0;
+    border-radius: 4px; /* [修改] 圆角从 6px 减小到 4px */
+    padding: 6px; /* [修改] 内边距从 8px 减小到 6px */
+    color: #5A4E42; 
+}
+/* --- 波形图 (Compact) --- */
+WaveformWidget {
+    qproperty-waveformColor: #788C67;       
+    qproperty-cursorColor: #C9A870;         
+    qproperty-selectionColor: rgba(201, 168, 112, 100); 
+    border: 1px solid #B8A990;
+    border-radius: 4px; /* [修改] 圆角从 6px 减小到 4px */
+}
+WaveformWidget:disabled { qproperty-waveformColor: #B8A990; opacity: 0.5; }
+
+/* --- 主波形图 (Compact) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #DCD0C0;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0; /* [修改] 圆角从 8px 减小到 6px */
+    qproperty-backgroundColor: #FDFBF5; 
+    qproperty-waveformColor: #B8A990; 
+}
+
+/* --- 语谱图控件 (Compact) --- */
+SpectrogramWidget {
+    qproperty-spectrogramMinColor: #FDFBF5; 
+    qproperty-spectrogramMaxColor: #4A4034; 
+    qproperty-intensityColor: #788C67;
+    qproperty-f0Color: #C9A870;
+    qproperty-f0DerivedColor: rgba(120, 140, 103, 180);
+    qproperty-f1Color: #4A4034;
+    qproperty-formantColor: #B8A990;
+    qproperty-cursorColor: #788C67;
+    qproperty-infoTextColor: #FDFBF5;
+    qproperty-infoBackgroundColor: rgba(74, 64, 52, 0.85); 
+    border: 1px solid #DCD0C0;
+    border-radius: 0 0 6px 6px; /* [修改] 圆角从 8px 减小到 6px */
+}
+
+/* ============================================================================
+ *  6. 插件栏与菜单样式 (Plugin Bar & Menu Styles - Compact)
+ * ============================================================================ */
+
+/* --- 主插件菜单圆形按钮 (Compact) --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 14px; /* [修改] 半径从 16px 减小到 14px */
+    border: 1px solid #B8A990; 
+    background-color: #EAE0C9; 
+    padding: 0px 12px 0px 8px; /* [修改] 内边距从 2px 15px 2px 10px 减小，高度更紧凑 */
+    min-width: 65px; /* [修改] 最小宽度从 75px 减小到 65px */
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #F5EDE2; 
+    border-color: #788C67; 
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #DCD0C0; 
+}
+
+/* --- 固定的插件快捷按钮 (Compact) --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 14px; /* [修改] 半径从 16px 减小到 14px */
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(234, 224, 201, 0.7); 
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: #EAE0C9; 
+}
+
+/* --- 插件菜单 QToolButton 样式 (Compact) --- */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent; 
+    border: 1px solid transparent; 
+    border-radius: 5px; /* [修改] 圆角从 6px 减小到 5px */
+    padding: 4px; /* [修改] 内边距从 2px 减小到 4px */
+    color: #4A4034; 
+    font-size: 14px; /* [修改] 字体减小 */
+}
+QToolButton#PluginMenuItemToolButton:hover {
+    background-color: #F5EDE2; 
+    border: 1px solid #B8A990; 
+}
+QToolButton#PluginMenuItemToolButton:pressed {
+    background-color: #EAE0C9; 
+}
+
+
+/* ============================================================================
+ *  7. 交互动作增强 (Interaction Enhancement - Compact)
+ * ============================================================================ */
+
+/* --- ToggleSwitch 悬停效果 (Compact) --- */
+ToggleSwitch[hover="true"] {
+    qproperty-hoverBorderColor: #C9A870;
+    qproperty-hoverTrackColorOn: #8A9E7A;
+    qproperty-hoverTrackColorOff: #EAE0C9;
+    qproperty-hoverKnobColor: #FDFBF5;
+    qproperty-hoverKnobMarginOffset: 1; /* [修改] 适当减小悬停边距偏移 */
+}
+
+/* --- 7.1 表格与列表悬停效果 (Compact) --- */
+QListWidget::item:hover:!selected,
+QTableWidget::item:hover:!selected {
+    background-color: #EDE9E1; 
+}
+
+/* --- 7.2 表头悬停效果 (Compact) --- */
+QHeaderView::section:hover {
+    background-color: #404D3A; 
+    color: #F4F1EA;            
+}
+
+/* --- 7.3 表格左上角全选柄交互效果 (Compact) --- */
+QTableCornerButton::section:hover {
+    background-color: #404D3A;
+    border: 1px solid #637854;
+}
+QTableCornerButton::section:pressed {
+    background-color: #2F382A;
+    border: 1px solid #829D71;
+}
+
+/* --- 7.4 滑块与滚动条交互效果 (Compact) --- */
+QSlider::groove:horizontal:hover { background: #637854; }
+QSlider::handle:horizontal:hover { background: #F4F1EA; }
+QSlider::handle:horizontal:pressed { background: #EDE9E1; border-color: #F4F1EA; }
+
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover { background: #637854; }
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed { background: #829D71; }
+
+/* --- 7.5 菜单项按下效果 (Compact) --- */
+QMenu::item:pressed { background-color: #404D3A; color: #F4F1EA; }
+
+/* --- 7.6 普通QLabel悬停效果 (Compact) --- */
+QLabel:hover { color: #829D71; }
+
+/* --- 7.7 下拉框悬停效果 (Compact) --- */
+QComboBox:hover { border-color: #637854; }
+
+/* --- RangeSlider 仿真样式 (Compact) --- */
+RangeSlider {
+    qproperty-trackColor: #EAE0D6;
+    qproperty-rangeColor: #8F4C33;
+    qproperty-hoverTrackColor: #DCD0C0; 
+    qproperty-hoverRangeColor: #a45f43; 
+    qproperty-handleColor: #FFFFFF;
+    qproperty-handleBorderColor: #8F4C33;
+    qproperty-hoverHandleColor: #F5EDE2;
+    qproperty-pressedHandleColor: #EAE0D6;
+    qproperty-pressedHandleBorderColor: #7a3f23;
+    qproperty-handleRadius: 8; /* [修改] 句柄半径减小 */
+}
+
+/*
+================================================================================
+【修正】表格内按钮样式 (Button Style Fix for Tables - Compact)
+================================================================================ 
+*/
+QTableWidget QPushButton {
+    background-color: transparent; 
+    border: 1px solid transparent; 
+    padding: 2px; /* [修改] 进一步减小内边距 */
+    min-height: 0; 
+    border-radius: 3px; /* [修改] 使用一个更小的圆角 */
+}
+QTableWidget QPushButton:hover {
+    background-color: #F5EDE2; 
+    border: 1px solid #DCD0C0; 
+}
+QTableWidget QPushButton:pressed {
+    background-color: #EAE0D6; 
+    border-color: #C9A870;
+}
+
+/*
+================================================================================
+【修正】表格内下拉框样式 (ComboBox Style Fix for Tables - Compact)
+================================================================================ 
+*/
+QTableWidget QComboBox {
+    padding: 2px 4px; /* [修改] 进一步减小内边距 */
+    min-height: 0; 
+    border-radius: 3px; /* [修改] 使用一个更小的圆角 */
+}
+QTableWidget QComboBox::drop-down {
+    width: 16px; /* [修改] 进一步减小宽度 */
+    border-top-right-radius: 3px; 
+    border-bottom-right-radius: 3px;
+}
+QTableWidget QComboBox::down-arrow {
+    width: 9px; /* [修改] 进一步减小图标尺寸 */
+    height: 9px;
+}

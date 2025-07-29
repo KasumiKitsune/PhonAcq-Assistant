@@ -12,7 +12,7 @@ import queue
 import time
 import random
 import json
-
+from collections import deque
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QEvent, QTimer, QThread, QPoint
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QMessageBox, QComboBox, QFormLayout,
@@ -228,6 +228,7 @@ class DialectVisualCollectorPage(QWidget):
         self.session_active = False; self.is_recording = False; self.original_items_list = []; self.current_items_list = []
         self.current_item_index = -1; self.current_wordlist_path = None; self.current_wordlist_name = None; self.current_audio_folder = None
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
+        self.volume_history = deque(maxlen=5)
         self.recording_thread = None; self.session_stop_event = threading.Event(); self.logger = None
         self.last_warning_log_time = 0
         
@@ -551,12 +552,37 @@ class DialectVisualCollectorPage(QWidget):
         self.prompt_text_label.setText(item_data.get('prompt_text', '')); self.notes_text_edit.setPlainText(item_data.get('notes', '无备注'))
 
     def update_volume_meter(self):
+        # --- START OF REFACTOR (V3) ---
+        raw_target_value = 0
         try:
-            data_chunk = self.volume_meter_queue.get_nowait(); volume_norm = np.linalg.norm(data_chunk) * 20; self.volume_meter.setValue(int(volume_norm))
-        except queue.Empty: self.volume_meter.setValue(int(self.volume_meter.value() * 0.8))
-        except Exception as e: print(f"Error calculating volume: {e}")
+            data_chunk = self.volume_meter_queue.get_nowait()
+            rms = np.linalg.norm(data_chunk) / np.sqrt(len(data_chunk)) if data_chunk.any() else 0
+            dbfs = 20 * np.log10(rms + 1e-7)
+            raw_target_value = max(0, min(100, (dbfs + 60) * (100 / 60)))
+        except queue.Empty:
+            raw_target_value = 0
+        except Exception as e:
+            print(f"Error calculating volume: {e}")
+            raw_target_value = 0
+ 
+        # 1. 防抖动：将新计算出的原始值添加到历史记录中
+        self.volume_history.append(raw_target_value)
+        
+        # 2. 计算移动平均值作为我们新的、稳定的目标
+        smoothed_target_value = sum(self.volume_history) / len(self.volume_history)
+ 
+        # 3. 平滑动画：让当前值向“稳定的目标值”平滑过渡
+        current_value = self.volume_meter.value()
+        smoothing_factor = 0.4 
+        new_value = int(current_value * (1 - smoothing_factor) + smoothed_target_value * smoothing_factor)
+        
+        if abs(new_value - smoothed_target_value) < 2:
+            new_value = int(smoothed_target_value)
+            
+        self.volume_meter.setValue(new_value)
 
-    def log(self, msg): self.status_label.setText(f"状态: {msg}")
+    def log(self, msg):
+        self.status_label.setText(f"状态: {msg}")
 
     def populate_word_lists(self):
         self.word_list_combo.clear()
@@ -706,18 +732,29 @@ class DialectVisualCollectorPage(QWidget):
             if self.logger: self.logger.log(f"[FATAL_ERROR] Cannot start audio stream: {e}")
             self.recording_device_error_signal.emit(error_msg)
 
-    def _audio_callback(self, indata, frames, time_info, status):
-        if status and (status.input_overflow or status.output_overflow or status.priming_output):
-            current_time = time.monotonic()
-            if current_time - self.last_warning_log_time > 5:
-                self.last_warning_log_time = current_time; warning_msg = f"Audio callback status: {status}"
-                print(warning_msg, file=sys.stderr)
-                if self.logger: self.logger.log(f"[WARNING] {warning_msg}")
-        try: self.volume_meter_queue.put_nowait(indata.copy())
-        except queue.Full: pass
+    def _audio_callback(self, indata, frames, time, status):
+        if status:
+            print(f"录音状态警告: {status}", file=sys.stderr)
+ 
+        # --- START OF FIX ---
+        # 1. 将原始、未经修改的数据放入录音队列，用于最终保存。
         if self.is_recording:
-            try: self.audio_queue.put(indata.copy())
-            except queue.Full: pass
+            try:
+                self.audio_queue.put(indata.copy())
+            except queue.Full:
+                pass
+ 
+        # 2. 创建一个临时副本，应用增益，然后放入音量条队列，用于UI实时反馈。
+        gain = self.config.get('audio_settings', {}).get('recording_gain', 1.0)
+        
+        processed_for_meter = indata
+        if gain != 1.0:
+            processed_for_meter = np.clip(indata * gain, -1.0, 1.0)
+ 
+        try:
+            self.volume_meter_queue.put_nowait(processed_for_meter.copy())
+        except queue.Full:
+            pass
 
     def _save_recording_task(self, worker_instance):
         if self.audio_queue.empty(): return None

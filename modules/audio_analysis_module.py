@@ -1,4 +1,4 @@
-# --- START OF FILE modules/audio_analysis_module.py ---
+from modules.custom_widgets_module import RangeSlider# --- START OF FILE modules/audio_analysis_module.py ---
 
 # --- 模块元数据 ---
 # 定义模块的名称和描述，用于在应用程序中显示。
@@ -11,12 +11,12 @@ import re
 import sys
 from datetime import timedelta
 import math # 新增导入，用于数学计算，如对数和向上取整
-
+from modules.custom_widgets_module import RangeSlider
 # PyQt5 GUI 库的核心组件导入
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QMessageBox, QGroupBox, QFormLayout, QSizePolicy, QSlider,
                              QScrollBar, QProgressDialog, QFileDialog, QCheckBox, QLineEdit,
-                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
+                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
 from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont, QCursor, QKeySequence
@@ -33,7 +33,6 @@ except ImportError as e:
     print(f"CRITICAL: audio_analysis_module.py - Missing dependencies: {e}")
     DEPENDENCIES_MISSING = True
     MISSING_ERROR_MESSAGE = str(e)
-
 
 # --- 后台工作器 ---
 # AudioTaskWorker 类：在独立的线程中执行耗时的音频处理任务，以保持UI响应。
@@ -1784,8 +1783,8 @@ def create_page(parent_window, icon_manager, ToggleSwitchClass):
 class AudioAnalysisPage(QWidget):
     # 定义渲染精细度标签的映射
     DENSITY_LABELS = {
-            1: "最低 (极速)", 2: "很低", 3: "较低", 4: "标准", 5: "较高",
-            6: "精细", 7: "很高", 8: "极高", 9: "最高 (极慢)"
+            1: "最低", 2: "很低", 3: "较低", 4: "标准", 5: "较高",
+            6: "精细", 7: "很高", 8: "极高", 9: "最高"
         }
     # 定义需要重新分析的提示文本
     REQUIRES_ANALYSIS_HINT = '<b><font color="#e57373">注意：更改此项需要重新运行分析才能生效。</font></b>'
@@ -1903,52 +1902,73 @@ class AudioAnalysisPage(QWidget):
         center_layout.addWidget(self.spectrogram_widget, 2) # 语谱图占据2份空间
         center_layout.addWidget(self.h_scrollbar)
 
-        # 右侧面板：设置
-        self.settings_panel = QWidget()
-        self.settings_panel.setFixedWidth(300) # 固定宽度
-        settings_layout = QVBoxLayout(self.settings_panel) # 垂直布局
+        # --- [核心修改] 右侧面板：现在使用 QScrollArea ---
+        
+        # 1. 创建 QScrollArea 作为最外层容器
+        self.settings_panel_scroll_area = QScrollArea()
+        self.settings_panel_scroll_area.setFixedWidth(320) # 稍微加宽一点以容纳滚动条
+        self.settings_panel_scroll_area.setWidgetResizable(True) # 关键：让内部控件自动填充宽度
+        self.settings_panel_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # 禁用横向滚动条
+        
+        # [新增] 为 QScrollArea 设置一个唯一的对象名，以便样式表能精确匹配
+        self.settings_panel_scroll_area.setObjectName("SettingsScrollArea")
+        
+        # [修改] 使用新的样式表，不仅移除边框，还隐藏了垂直滚动条
+        self.settings_panel_scroll_area.setStyleSheet("""
+            QScrollArea#SettingsScrollArea { 
+                border: none; 
+            }
+            QScrollArea#SettingsScrollArea QScrollBar:vertical {
+                width: 0px;
+            }
+        """)
 
-        self.visualization_group = QGroupBox("可视化选项") # 可视化选项分组框
-        vis_layout = QFormLayout(self.visualization_group) # 表单布局
+        # 3. 创建一个新的内部容器QWidget，用于放置所有设置组
+        self.settings_panel_content = QWidget()
+        self.settings_panel_scroll_area.setWidget(self.settings_panel_content)
+        
+        # 4. 现在的 settings_layout 属于这个新的内部容器
+        settings_layout = QVBoxLayout(self.settings_panel_content)
+        
+        # --- (所有 GroupBox 的创建逻辑保持不变，只是它们的父布局是 settings_layout) ---
+        self.visualization_group = QGroupBox("可视化选项") 
+        vis_layout = QFormLayout(self.visualization_group)
         self.visualization_group.setToolTip("控制在语谱图上叠加显示哪些声学特征。\n这些选项的更改会<b>立即生效</b>，无需重新分析。")
         
-        # F0 显示开关和子选项
-        self.show_f0_toggle = self.ToggleSwitch() # F0总开关
+        self.show_f0_toggle = self.ToggleSwitch() 
         self.show_f0_toggle.setToolTip("总开关：是否显示任何与<b>基频（F0）</b>相关的信息。<br>基频是声带振动的频率，人耳感知为音高。")
-        self.show_f0_points_checkbox = QCheckBox("显示原始点") # 显示原始F0点复选框
+        self.show_f0_points_checkbox = QCheckBox("显示原始点") 
         self.show_f0_points_checkbox.setToolTip("显示算法直接计算出的离散基频点（橙色点）。")
-        self.show_f0_derived_checkbox = QCheckBox("显示派生曲线") # 显示派生F0曲线复选框
+        self.show_f0_derived_checkbox = QCheckBox("显示派生曲线") 
         self.show_f0_derived_checkbox.setToolTip("显示通过对原始点进行线性插值后得到的连续基频曲线（蓝色虚线）。")
-        f0_sub_layout = QVBoxLayout() # F0子选项的垂直布局
+        f0_sub_layout = QVBoxLayout() 
         f0_sub_layout.setSpacing(2)
-        f0_sub_layout.setContentsMargins(15, 0, 0, 0) # 缩进
+        f0_sub_layout.setContentsMargins(15, 0, 0, 0)
         f0_sub_layout.addWidget(self.show_f0_points_checkbox)
         f0_sub_layout.addWidget(self.show_f0_derived_checkbox)
         vis_layout.addRow("显示基频 (F0)", self.show_f0_toggle)
         vis_layout.addRow(f0_sub_layout)
         
-        # 强度显示开关和子选项
-        self.show_intensity_toggle = self.ToggleSwitch() # 强度总开关
+        self.show_intensity_toggle = self.ToggleSwitch()
         self.show_intensity_toggle.setToolTip("总开关：是否显示音频的<b>强度</b>曲线。<br>强度是声波的振幅，人耳感知为响度。")
-        self.smooth_intensity_checkbox = QCheckBox("平滑处理") # 平滑强度复选框
+        self.smooth_intensity_checkbox = QCheckBox("平滑处理")
         self.smooth_intensity_checkbox.setToolTip("对强度曲线进行移动平均平滑（窗口=5），以观察其总体趋势，滤除微小波动。")
-        intensity_sub_layout = QVBoxLayout() # 强度子选项的垂直布局
+        intensity_sub_layout = QVBoxLayout() 
         intensity_sub_layout.setSpacing(2)
         intensity_sub_layout.setContentsMargins(15, 0, 0, 0)
         intensity_sub_layout.addWidget(self.smooth_intensity_checkbox)
         vis_layout.addRow("显示强度", self.show_intensity_toggle)
         vis_layout.addRow(intensity_sub_layout)
 
-        # 共振峰显示开关和子选项
-        self.show_formants_toggle = self.ToggleSwitch() # 共振峰总开关
+        self.show_formants_toggle = self.ToggleSwitch() 
         self.show_formants_toggle.setToolTip("总开关：是否显示<b>共振峰</b>。<br>共振峰是声道（口腔、鼻腔）的共鸣频率，它决定了元音的音色，如[a],[i],[u]的区别。")
-        self.highlight_f1_checkbox = QCheckBox("突出显示 F1") # 突出显示F1复选框
+        self.highlight_f1_checkbox = QCheckBox("突出显示 F1")
         self.highlight_f1_checkbox.setToolTip("使用醒目的橙色并加描边来显示<b>第一共振峰（F1）</b>。<br>F1与元音的【开口度】（舌位高低）密切相关。")
-        self.highlight_f2_checkbox = QCheckBox("突出显示 F2") # 突出显示F2复选框
+        self.highlight_f2_checkbox = QCheckBox("突出显示 F2") 
         self.highlight_f2_checkbox.setToolTip("使用醒目的紫色并加描边来显示<b>第二共振峰（F2）</b>。<br>F2与元音的【前后】（舌位前后）密切相关。")
-        self.show_other_formants_checkbox = QCheckBox("显示其他共振峰") # 显示其他共振峰复选框
+        self.show_other_formants_checkbox = QCheckBox("显示其他共振峰") 
         self.show_other_formants_checkbox.setToolTip("显示除F1/F2以外的其他共振峰（F3, F4...），通常为蓝色。")
-        formant_sub_layout = QVBoxLayout() # 共振峰子选项的垂直布局
+        formant_sub_layout = QVBoxLayout() 
         formant_sub_layout.setSpacing(2)
         formant_sub_layout.setContentsMargins(15, 0, 0, 0)
         formant_sub_layout.addWidget(self.highlight_f1_checkbox)
@@ -1957,74 +1977,115 @@ class AudioAnalysisPage(QWidget):
         vis_layout.addRow("显示共振峰", self.show_formants_toggle)
         vis_layout.addRow(formant_sub_layout)
 
-        self.advanced_params_group = QGroupBox("高级分析参数") # 高级分析参数分组框
-        adv_layout = QFormLayout(self.advanced_params_group) # 表单布局
+        self.advanced_params_group = QGroupBox("高级分析参数")
+        # [修改] 使用 QVBoxLayout 替换 QFormLayout
+        adv_layout = QVBoxLayout(self.advanced_params_group)
         self.advanced_params_group.setToolTip(f"调整声学分析算法的核心参数，会直接影响计算结果的准确性。<br>{self.REQUIRES_ANALYSIS_HINT}")
         
-        self.pre_emphasis_checkbox = QCheckBox("应用预加重") # 预加重复选框
+        self.pre_emphasis_checkbox = QCheckBox("应用预加重")
         self.pre_emphasis_checkbox.setToolTip(f"在分析前通过一个高通滤波器提升高频部分的能量。<br>这对于在高频区域寻找共振峰（尤其是女声和童声）非常有帮助。<br>{self.REQUIRES_ANALYSIS_HINT}")
+        adv_layout.addWidget(self.pre_emphasis_checkbox)
         
-        f0_range_layout = QHBoxLayout() # F0范围输入框的水平布局
-        self.f0_min_input = QLineEdit("75") # F0最小值输入框
-        self.f0_min_input.setValidator(QIntValidator(10, 2000)) # 设置整数验证器
-        self.f0_max_input = QLineEdit("500") # F0最大值输入框
-        self.f0_max_input.setValidator(QIntValidator(50, 5000)) # 设置整数验证器
-        f0_range_layout.addWidget(self.f0_min_input)
-        f0_range_layout.addWidget(QLabel(" - "))
-        f0_range_layout.addWidget(self.f0_max_input)
-        f0_range_layout.addWidget(QLabel("Hz"))
-        f0_range_row_widget = QWidget() # 将F0范围输入框组合成一个widget
-        f0_range_row_widget.setLayout(f0_range_layout)
-        f0_range_row_widget.setToolTip(f"设置基频（F0）搜索的频率范围（单位：Hz）。<br>根据说话人类型设置合适的范围能极大提高F0提取的准确率。<br><li>典型男声: 75-300 Hz</li><li>典型女声: 100-500 Hz</li><li>典型童声: 150-600 Hz</li><br>{self.REQUIRES_ANALYSIS_HINT}")
-        adv_layout.addRow(self.pre_emphasis_checkbox)
-        adv_layout.addRow("F0 范围:", f0_range_row_widget)
+        f0_label = QLabel("F0 范围:")
+        adv_layout.addWidget(f0_label)
+
+        self.f0_range_slider = RangeSlider(Qt.Horizontal)
+        self.f0_range_slider.setRange(10, 1000) # 范围保持不变
+        # [修改] 设置新的默认值
+        self.f0_range_slider.setLowerValue(10)
+        self.f0_range_slider.setUpperValue(700)
+        # [修改] 更新 ToolTip
+        self.f0_range_slider.setToolTip(
+            "拖动滑块设置基频（F0）搜索的频率范围（单位：Hz）。<br><br>"
+            "<b>默认值 (10-700 Hz)</b> 已足够宽，适合大多数人声。<br>"
+            "如果F0提取出现跳跃或中断，请先尝试根据说话人类型<b>缩小范围</b>：<br>"
+            "<li>典型男声: 75-300 Hz</li>"
+            "<li>典型女声: 100-500 Hz</li>"
+            "<li>典型童声: 150-600 Hz</li><br>"
+            "如果F0完全无法提取，可以尝试<b>进一步扩大范围</b>。<br><br>"
+            f"{self.REQUIRES_ANALYSIS_HINT}"
+        )
+        adv_layout.addWidget(self.f0_range_slider)
         
-        # --- [修改] 重命名组框，使其更通用 ---
-        self.spectrogram_settings_group = QGroupBox("分析与渲染设置") # 语谱图设置分组框
-        spec_settings_layout = QFormLayout(self.spectrogram_settings_group) # 表单布局
+        f0_value_layout = QHBoxLayout()
+        # [修改] 更新标签的初始文本
+        self.f0_min_label = QLabel("10")
+        self.f0_max_label = QLabel("700")
+        f0_value_layout.addWidget(self.f0_min_label)
+        f0_value_layout.addStretch()
+        f0_value_layout.addWidget(self.f0_max_label)
+        adv_layout.addLayout(f0_value_layout)
+        
+        self.spectrogram_settings_group = QGroupBox("分析与渲染设置")
+        # [核心] 将布局改回 QFormLayout
+        spec_settings_layout = QFormLayout(self.spectrogram_settings_group)
         self.spectrogram_settings_group.setToolTip(f"调整声学分析算法的核心参数，会直接影响计算结果的准确性。<br>{self.REQUIRES_ANALYSIS_HINT}")
 
-        # --- [新增] 渲染精细度滑块 (用于语谱图/F0/强度) ---
-        self.render_density_slider = QSlider(Qt.Horizontal) # 渲染精细度滑块
-        self.render_density_slider.setRange(1, 5) # 限制范围 1 到 5 ("较高")
-        self.render_density_slider.setValue(4) # 默认值
+        # --- [核心] 渲染精细度布局 ---
+        self.render_density_slider = QSlider(Qt.Horizontal)
+        self.render_density_slider.setRange(1, 5)
+        self.render_density_slider.setValue(4)
         self.render_density_slider.setToolTip(
             "调整语谱图背景、F0、强度曲线的渲染精细度。\n"
             "值越高，图像越平滑，但计算稍慢。"
         )
-        self.render_density_label = QLabel() # 显示渲染精细度文本标签
-        spec_settings_layout.addRow("渲染精细度:", self.render_density_slider)
-        spec_settings_layout.addRow("", self.render_density_label)
+        self.render_density_label = QLabel()
+        
+        # 将滑块和标签放入一个水平布局
+        render_density_widget = QWidget()
+        render_density_layout = QHBoxLayout(render_density_widget)
+        render_density_layout.setContentsMargins(0, 0, 0, 0)
+        render_density_layout.addWidget(self.render_density_slider)
+        render_density_layout.addWidget(self.render_density_label)
+        render_density_layout.setStretch(0, 1) # 让滑块占据伸缩空间
 
-        # --- [新增] 共振峰分析精细度滑块 ---
-        self.formant_density_slider = QSlider(Qt.Horizontal) # 共振峰精细度滑块
-        self.formant_density_slider.setRange(1, 9) # 保持 1 到 9 的完整范围
-        self.formant_density_slider.setValue(5) # 默认值
+        spec_settings_layout.addRow("渲染精细度:", render_density_widget)
+        
+        # --- [核心] 共振峰精细度布局 ---
+        self.formant_density_slider = QSlider(Qt.Horizontal)
+        self.formant_density_slider.setRange(1, 9)
+        self.formant_density_slider.setValue(5)
         self.formant_density_slider.setToolTip(
             "调整共振峰分析的精细度。\n"
             "值越高，找到的共振峰点越密集，但计算速度会显著变慢。"
         )
-        self.formant_density_label = QLabel() # 显示共振峰精细度文本标签
-        spec_settings_layout.addRow("共振峰精细度:", self.formant_density_slider)
-        spec_settings_layout.addRow("", self.formant_density_label)
-        
-        # --- 宽带模式复选框 ---
-        self.spectrogram_type_checkbox = QCheckBox("宽带模式") # 语谱图类型复选框（宽带/窄带）
-        self.spectrogram_type_checkbox.setToolTip(f"切换语谱图的分析窗长，决定了时间和频率分辨率的取舍。<br><li><b>宽带 (勾选)</b>: 短窗，时间分辨率高，能清晰看到声门的每一次振动（垂直线），但频率分辨率低。</li><li><b>窄带 (不勾选)</b>: 长窗，频率分辨率高，能清晰看到基频的各次谐波（水平线），但时间分辨率低。</li><br>{self.REQUIRES_ANALYSIS_HINT}")
-        spec_settings_layout.addRow(self.spectrogram_type_checkbox)
+        self.formant_density_label = QLabel()
 
-        # --- 调用新的标签更新方法 ---
+        # 将滑块和标签放入一个水平布局
+        formant_density_widget = QWidget()
+        formant_density_layout = QHBoxLayout(formant_density_widget)
+        formant_density_layout.setContentsMargins(0, 0, 0, 0)
+        formant_density_layout.addWidget(self.formant_density_slider)
+        formant_density_layout.addWidget(self.formant_density_label)
+        formant_density_layout.setStretch(0, 1) # 让滑块占据伸缩空间
+        
+        spec_settings_layout.addRow("共振峰精细度:", formant_density_widget)
+        
+        # --- [核心] 宽带模式复选框 ---
+        self.spectrogram_type_checkbox = QCheckBox("宽带模式")
+        self.spectrogram_type_checkbox.setToolTip(f"切换语谱图的分析窗长，决定了时间和频率分辨率的取舍。<br><li><b>宽带 (勾选)</b>: 短窗，时间分辨率高，能清晰看到声门的每一次振动（垂直线），但频率分辨率低。</li><li><b>窄带 (不勾选)</b>: 长窗，频率分辨率高，能清晰看到基频的各次谐波（水平线），但时间分辨率低。</li><br>{self.REQUIRES_ANALYSIS_HINT}")
+        spec_settings_layout.addRow(self.spectrogram_type_checkbox) # QFormLayout 可以直接添加单行控件
+
         self._update_render_density_label(self.render_density_slider.value())
         self._update_formant_density_label(self.formant_density_slider.value())
         
+        # 5. [修改] 将所有 GroupBox 添加到 settings_layout (内部容器的布局)
         settings_layout.addWidget(self.visualization_group)
         settings_layout.addWidget(self.advanced_params_group)
         settings_layout.addWidget(self.spectrogram_settings_group)
-        settings_layout.addStretch() # 添加伸缩空间，使控件靠上
+        settings_layout.addStretch() 
 
+        # 6. [修改] 将新的 scroll_area 添加到主布局中
         main_layout.addWidget(self.info_panel)
-        main_layout.addWidget(self.center_panel, 1) # 中心面板占据1份空间
-        main_layout.addWidget(self.settings_panel)
+        main_layout.addWidget(self.center_panel, 1)
+        main_layout.addWidget(self.settings_panel_scroll_area) # 替换掉原来的 self.settings_panel
+    def _on_f0_range_changed(self, lower, upper):
+        """当F0范围滑块改变时更新标签和持久化设置。"""
+        self.f0_min_label.setText(str(lower))
+        self.f0_max_label.setText(str(upper))
+        # 分别保存最小值和最大值
+        self._on_persistent_setting_changed('f0_min', lower)
+        self._on_persistent_setting_changed('f0_max', upper)
 
     def _connect_signals(self):
         """
@@ -2091,8 +2152,9 @@ class AudioAnalysisPage(QWidget):
 
         # 高级分析参数
         self.pre_emphasis_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('pre_emphasis', bool(s)))
-        self.f0_min_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_min', t))
-        self.f0_max_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_max', t))
+        self.f0_range_slider.rangeChanged.connect(self._on_f0_range_changed)
+        #self.f0_min_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_min', t))
+        #self.f0_max_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_max', t))
         
         # 语谱图设置
         self.render_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('render_density', v))
@@ -2174,23 +2236,23 @@ class AudioAnalysisPage(QWidget):
         is_f0_on = self.show_f0_toggle.isChecked()
         self.show_f0_points_checkbox.setEnabled(is_f0_on)
         self.show_f0_derived_checkbox.setEnabled(is_f0_on)
-        if not is_f0_on: # 如果F0总开关关闭，则子选项也取消选中
-            self.show_f0_points_checkbox.setChecked(False)
-            self.show_f0_derived_checkbox.setChecked(False)
+        # if not is_f0_on: # [核心] 注释掉或删除这两行
+        #     self.show_f0_points_checkbox.setChecked(False) # [核心] 注释掉或删除这两行
+        #     self.show_f0_derived_checkbox.setChecked(False) # [核心] 注释掉或删除这两行
 
         is_intensity_on = self.show_intensity_toggle.isChecked()
         self.smooth_intensity_checkbox.setEnabled(is_intensity_on)
-        if not is_intensity_on: # 如果强度总开关关闭，则子选项也取消选中
-            self.smooth_intensity_checkbox.setChecked(False)
+        # if not is_intensity_on: # [核心] 注释掉或删除这一行
+        #     self.smooth_intensity_checkbox.setChecked(False) # [核心] 注释掉或删除这一行
 
         is_formants_on = self.show_formants_toggle.isChecked()
         self.highlight_f1_checkbox.setEnabled(is_formants_on)
         self.highlight_f2_checkbox.setEnabled(is_formants_on)
         self.show_other_formants_checkbox.setEnabled(is_formants_on)
-        if not is_formants_on: # 如果共振峰总开关关闭，则子选项也取消选中
-            self.highlight_f1_checkbox.setChecked(False)
-            self.highlight_f2_checkbox.setChecked(False)
-            self.show_other_formants_checkbox.setChecked(False)
+        # if not is_formants_on: # [核心] 注释掉或删除这三行
+        #     self.highlight_f1_checkbox.setChecked(False) # [核心] 注释掉或删除这三行
+        #     self.highlight_f2_checkbox.setChecked(False) # [核心] 注释掉或删除这三行
+        #     self.show_other_formants_checkbox.setChecked(False) # [核心] 注释掉或删除这三行
 
     def update_overlays(self):
         """
@@ -2448,16 +2510,14 @@ class AudioAnalysisPage(QWidget):
             QMessageBox.warning(self, "无音频", "请先加载音频文件。")
             return
         
-        try:
-            f0_min = int(self.f0_min_input.text())
-            f0_max = int(self.f0_max_input.text())
-            if f0_min >= f0_max:
-                QMessageBox.warning(self, "参数错误", "F0最小值必须小于最大值。")
-                return
-        except ValueError:
-            QMessageBox.warning(self, "参数错误", "F0范围必须是有效的整数。")
-            return
+        # [修改] 直接从滑块获取值，不再需要try-except和文本解析
+        f0_min = self.f0_range_slider.lowerValue()
+        f0_max = self.f0_range_slider.upperValue()
         
+        if f0_min >= f0_max:
+            QMessageBox.warning(self, "参数错误", "F0范围的最小值必须小于最大值。")
+            return
+
         # 运行后台分析任务
         self.run_task('analyze', 
                       audio_data=self.audio_data, 
@@ -3089,10 +3149,8 @@ class AudioAnalysisPage(QWidget):
             (self.highlight_f1_checkbox, 'setChecked', 'highlight_f1', True),
             (self.highlight_f2_checkbox, 'setChecked', 'highlight_f2', True),
             (self.show_other_formants_checkbox, 'setChecked', 'show_other_formants', True),
-            # 高级分析参数
+            # 高级分析参数 (只剩下一个复选框)
             (self.pre_emphasis_checkbox, 'setChecked', 'pre_emphasis', False),
-            (self.f0_min_input, 'setText', 'f0_min', "75"),
-            (self.f0_max_input, 'setText', 'f0_max', "500"),
             # 语谱图设置
             (self.render_density_slider, 'setValue', 'render_density', 4),
             (self.formant_density_slider, 'setValue', 'formant_density', 5),
@@ -3106,6 +3164,19 @@ class AudioAnalysisPage(QWidget):
             # 使用 getattr 动态调用控件的 setter 方法来设置值
             getattr(control, setter_method_name)(value_to_set)
             control.blockSignals(False) # 解除信号阻塞
+
+        # [新增] 单独加载F0范围滑块的值
+        self.f0_range_slider.blockSignals(True)
+        # [修改] 从配置中读取下限和上限，并提供新的默认值
+        lower_val = module_states.get('f0_min', 10)
+        upper_val = module_states.get('f0_max', 700)
+        # 设置滑块的值
+        self.f0_range_slider.setLowerValue(int(lower_val))
+        self.f0_range_slider.setUpperValue(int(upper_val))
+        self.f0_range_slider.blockSignals(False)
+        # 手动更新一次标签，确保UI显示正确
+        self.f0_min_label.setText(str(self.f0_range_slider.lowerValue()))
+        self.f0_max_label.setText(str(self.f0_range_slider.upperValue()))
             
         # 手动触发一次UI更新，确保依赖关系和标签正确显示
         self._update_dependent_widgets()

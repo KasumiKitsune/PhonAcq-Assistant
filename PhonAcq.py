@@ -145,10 +145,10 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem, QLineEdit, 
                              QFileDialog, QMessageBox, QComboBox, QSlider, QStyle, 
                              QFormLayout, QGroupBox, QCheckBox, QTabWidget, QScrollArea, 
-                             QSpacerItem, QSizePolicy)
+                             QSpacerItem, QSizePolicy, QGraphicsOpacityEffect, QWidgetAction)
 from PyQt5.QtGui import QIntValidator, QPainter, QPen, QBrush
-from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect, QSize
-
+from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect, QSize, QEasingCurve, QPropertyAnimation, QParallelAnimationGroup, QPoint, QEvent
+from modules.custom_widgets_module import ToggleSwitch
 try:
     import pandas as pd
     import openpyxl
@@ -187,7 +187,7 @@ def setup_and_load_config():
     """设置并加载配置文件，如果不存在则创建默认配置。"""
     if not os.path.exists(CONFIG_DIR): os.makedirs(CONFIG_DIR)
     default_settings = {
-        "ui_settings": { "collector_sidebar_width": 320, "editor_sidebar_width": 280, "hide_all_tooltips": False },
+        "ui_settings": { "collector_sidebar_width": 350, "editor_sidebar_width": 320, "hide_all_tooltips": False },
         "audio_settings": { "sample_rate": 44100, "channels": 1, "recording_gain": 1.0, "input_device_index": None, "recording_format": "wav" },
         "file_settings": {"word_list_file": "", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True},
@@ -317,178 +317,6 @@ class Worker(QObject):
         except Exception as e:
             self.error.emit(f"后台任务失败: {e}")
 
-
-class ToggleSwitch(QCheckBox):
-    """
-    一个可自定义样式的切换开关控件，其悬停行为（包括尺寸变化）可通过QSS进行精细控制。
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setCursor(Qt.PointingHandCursor)
-        
-        # --- 默认状态属性 ---
-        self._trackColorOff = QColor("#E0E0E0")
-        self._trackColorOn = QColor("#8F4C33")
-        self._knobColor = QColor("#FFFFFF")
-        self._borderColor = QColor(Qt.transparent)
-        
-        # --- 悬停状态专属属性 ---
-        self._hover_knobColor = QColor(Qt.transparent)
-        self._hover_trackColorOff = QColor(Qt.transparent)
-        self._hover_trackColorOn = QColor(Qt.transparent)
-        self._hover_borderColor = QColor(Qt.transparent)
-        
-        # --- [核心修改 1] 新增控制悬停尺寸的属性 ---
-        self._hover_knobMarginOffset = 0 # 默认为0，表示大小不变
-
-        # --- 其他视觉属性 ---
-        self._trackBorderRadius = 14
-        self._knobMargin = 3
-        self._knobShape = 'ellipse'
-        self._knobBorderRadius = 0 
-        self._borderWidth = 0
-        
-        self._is_hovering = False
-
-    # ... (enterEvent, leaveEvent, 和所有颜色相关的 pyqtProperty 保持不变) ...
-    @pyqtProperty(bool)
-    def hover(self):
-        return self._is_hovering
-
-    def enterEvent(self, event):
-        self._is_hovering = True
-        self.update()
-        self.style().unpolish(self)
-        self.style().polish(self)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._is_hovering = False
-        self.update()
-        self.style().unpolish(self)
-        self.style().polish(self)
-        super().leaveEvent(event)
-    
-    @pyqtProperty(QColor)
-    def trackColorOff(self): return self._trackColorOff
-    @trackColorOff.setter
-    def trackColorOff(self, color): self._trackColorOff = color; self.update()
-    
-    @pyqtProperty(QColor)
-    def trackColorOn(self): return self._trackColorOn
-    @trackColorOn.setter
-    def trackColorOn(self, color): self._trackColorOn = color; self.update()
-
-    @pyqtProperty(QColor)
-    def knobColor(self): return self._knobColor
-    @knobColor.setter
-    def knobColor(self, color): self._knobColor = color; self.update()
-
-    @pyqtProperty(QColor)
-    def borderColor(self): return self._borderColor
-    @borderColor.setter
-    def borderColor(self, color): self._borderColor = color; self.update()
-
-    @pyqtProperty(int)
-    def trackBorderRadius(self): return self._trackBorderRadius
-    @trackBorderRadius.setter
-    def trackBorderRadius(self, radius): self._trackBorderRadius = radius; self.update()
-
-    @pyqtProperty(int)
-    def knobMargin(self): return self._knobMargin
-    @knobMargin.setter
-    def knobMargin(self, margin): self._knobMargin = margin; self.update()
-
-    @pyqtProperty(str)
-    def knobShape(self): return self._knobShape
-    @knobShape.setter
-    def knobShape(self, shape):
-        if shape in ['ellipse', 'rectangle']: self._knobShape = shape; self.update()
-
-    @pyqtProperty(int)
-    def knobBorderRadius(self): return self._knobBorderRadius
-    @knobBorderRadius.setter
-    def knobBorderRadius(self, radius): self._knobBorderRadius = radius; self.update()
-    
-    @pyqtProperty(int)
-    def borderWidth(self): return self._borderWidth
-    @borderWidth.setter
-    def borderWidth(self, width): self._borderWidth = width; self.update()
-    
-    @pyqtProperty(QColor)
-    def hoverKnobColor(self): return self._hover_knobColor
-    @hoverKnobColor.setter
-    def hoverKnobColor(self, color): self._hover_knobColor = color; self.update()
-
-    @pyqtProperty(QColor)
-    def hoverTrackColorOff(self): return self._hover_trackColorOff
-    @hoverTrackColorOff.setter
-    def hoverTrackColorOff(self, color): self._hover_trackColorOff = color; self.update()
-    
-    @pyqtProperty(QColor)
-    def hoverTrackColorOn(self): return self._hover_trackColorOn
-    @hoverTrackColorOn.setter
-    def hoverTrackColorOn(self, color): self._hover_trackColorOn = color; self.update()
-    
-    @pyqtProperty(QColor)
-    def hoverBorderColor(self): return self._hover_borderColor
-    @hoverBorderColor.setter
-    def hoverBorderColor(self, color): self._hover_borderColor = color; self.update()
-
-    # --- [核心修改 2] 为新的尺寸控制属性创建 pyqtProperty ---
-    @pyqtProperty(int)
-    def hoverKnobMarginOffset(self): return self._hover_knobMarginOffset
-    @hoverKnobMarginOffset.setter
-    def hoverKnobMarginOffset(self, offset): self._hover_knobMarginOffset = offset; self.update()
-
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect()
-
-        # 颜色选择逻辑 (保持不变)
-        border_color = self._hover_borderColor if self._is_hovering and self._hover_borderColor.isValid() else self._borderColor
-        track_on_color = self._hover_trackColorOn if self._is_hovering and self._hover_trackColorOn.isValid() else self._trackColorOn
-        track_off_color = self._hover_trackColorOff if self._is_hovering and self._hover_trackColorOff.isValid() else self._trackColorOff
-        knob_color = self._hover_knobColor if self._is_hovering and self._hover_knobColor.isValid() else self._knobColor
-
-        # 边框绘制 (保持不变)
-        if self._borderWidth > 0 and border_color.isValid() and border_color.alpha() > 0:
-            pen = QPen(border_color, self._borderWidth); pen.setJoinStyle(Qt.RoundJoin); p.setPen(pen)
-            border_rect = rect.adjusted(self._borderWidth//2, self._borderWidth//2, -self._borderWidth//2, -self._borderWidth//2)
-            p.setBrush(Qt.NoBrush); p.drawRoundedRect(border_rect, self._trackBorderRadius, self._trackBorderRadius)
-        
-        # 轨道绘制 (保持不变)
-        p.setPen(Qt.NoPen); track_color_to_use = track_on_color if self.isChecked() else track_off_color
-        p.setBrush(QBrush(track_color_to_use)); track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
-        track_inner_radius = max(0, self._trackBorderRadius - self._borderWidth)
-        p.drawRoundedRect(track_rect, track_inner_radius, track_inner_radius)
-        
-        # --- [核心修复] ---
-        margin = self._knobMargin
-        if self._is_hovering:
-            # 1. 首先应用默认的放大效果
-            default_offset = -1
-            
-            # 2. 检查QSS是否定义了偏移量。如果定义了（非0），则使用QSS的值覆盖默认值。
-            if self._hover_knobMarginOffset != 0:
-                margin += self._hover_knobMarginOffset
-            else:
-                margin += default_offset
-        
-        knob_height = track_rect.height() - (2 * margin)
-        knob_width = knob_height 
-        x_pos = track_rect.right() - knob_width - margin + 1 if self.isChecked() else track_rect.left() + margin
-        knob_rect = QRect(x_pos, track_rect.top() + margin, knob_width, knob_height)
-        
-        p.setBrush(QBrush(knob_color))
-        
-        if self.knobShape == 'rectangle': p.drawRoundedRect(knob_rect, self._knobBorderRadius, self._knobBorderRadius)
-        else: p.drawEllipse(knob_rect)
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton: self.setChecked(not self.isChecked()); event.accept() 
-        else: super().mousePressEvent(event)
-
 def resolve_recording_device(config):
     """
     根据配置中的简易/专家模式，解析出最终要使用的物理设备索引。
@@ -553,9 +381,146 @@ def resolve_recording_device(config):
         print(f"解析录音设备时出错: {e}", file=sys.stderr)
         # 出现任何异常都安全地回退到系统默认
         return None
+
+class AnimationManager:
+    """
+    一个用于管理全局UI动画的中央引擎。
+    支持页面切换、主窗口尺寸变换，以及可配置的菜单弹出/消失动画。
+    """
+    def __init__(self, parent):
+        self.parent = parent # parent 应该是 MainWindow 实例
+        self.active_animations = {}
+
+    def slide_and_fade_in(self, widget, direction='right', duration=300, offset=30):
+        # ... (此方法保持不变) ...
+        if not widget or not self.parent.animations_enabled: return
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect(widget); widget.setGraphicsEffect(effect)
+        opacity_anim = QPropertyAnimation(effect, b"opacity")
+        opacity_anim.setDuration(duration); opacity_anim.setStartValue(0.0); opacity_anim.setEndValue(1.0)
+        opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+        pos_anim = QPropertyAnimation(widget, b"pos"); pos_anim.setDuration(duration)
+        start_pos = widget.pos(); end_pos = widget.pos()
+        if direction == 'right': start_pos.setX(end_pos.x() + offset)
+        else: start_pos.setX(end_pos.x() - offset)
+        pos_anim.setStartValue(start_pos); pos_anim.setEndValue(end_pos)
+        pos_anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim_group = QParallelAnimationGroup()
+        anim_group.addAnimation(opacity_anim); anim_group.addAnimation(pos_anim)
+        anim_group.finished.connect(lambda: self.active_animations.pop(id(widget), None))
+        self.active_animations[id(widget)] = (anim_group, effect)
+        anim_group.start(QParallelAnimationGroup.DeleteWhenStopped)
+
+    def animate_window_resize(self, target_size, duration=350):
+        # ... (此方法保持不变) ...
+        animation = QPropertyAnimation(self.parent, b"size")
+        animation.setDuration(duration); animation.setEndValue(target_size)
+        animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self.active_animations['window_resize'] = animation
+        animation.finished.connect(lambda: self.active_animations.pop('window_resize', None))
+        animation.start(QPropertyAnimation.DeleteWhenStopped)
+
+    # --- [核心修改] 新增的菜单动画方法 ---
+    def animate_menu(self, menu, final_pos):
+        """
+        为 QMenu 应用一个可配置的、双向的弹出/消失动画。
+        如果主题禁用了动画，则回退到标准的 exec_()。
+        :param menu: 要应用动画的 QMenu 实例。
+        :param final_pos: 菜单动画结束时的最终位置。
+        :return: 无
+        """
+        # 1. 检查动画是否被主题禁用
+        if not self.parent.animations_enabled:
+            menu.exec_(final_pos)
+            return
+
+        # 2. 定义动画参数
+        duration = 150
+        offset = 20
+
+        # --- 消失动画逻辑 ---
+        def create_disappear_animation():
+            anim_group_disappear = QParallelAnimationGroup(menu)
+            
+            opacity_anim_out = QPropertyAnimation(menu, b"windowOpacity")
+            opacity_anim_out.setDuration(duration)
+            opacity_anim_out.setStartValue(1.0)
+            opacity_anim_out.setEndValue(0.0)
+            opacity_anim_out.setEasingCurve(QEasingCurve.InCubic)
+            
+            pos_anim_out = QPropertyAnimation(menu, b"pos")
+            pos_anim_out.setDuration(duration)
+            pos_anim_out.setStartValue(menu.pos())
+            # 向上移动消失
+            pos_anim_out.setEndValue(QPoint(menu.pos().x(), menu.pos().y() - offset))
+            pos_anim_out.setEasingCurve(QEasingCurve.InCubic)
+            
+            anim_group_disappear.addAnimation(opacity_anim_out)
+            anim_group_disappear.addAnimation(pos_anim_out)
+            
+            # 动画结束后，才真正关闭并销毁菜单
+            anim_group_disappear.finished.connect(menu.close)
+            
+            return anim_group_disappear
+
+        # --- 启动消失动画的函数 ---
+        # 这个函数将是我们新的“关闭”命令
+        def start_disappear():
+            # 检查是否已有动画在运行，防止重复触发
+            if 'menu_disappear' in self.active_animations: return
+            
+            anim = create_disappear_animation()
+            self.active_animations['menu_disappear'] = anim
+            anim.finished.connect(lambda: self.active_animations.pop('menu_disappear', None))
+            anim.start(QParallelAnimationGroup.DeleteWhenStopped)
+        
+        # --- 出现动画逻辑 ---
+        menu.setWindowOpacity(0.0)
+        start_pos = QPoint(final_pos.x(), final_pos.y() - offset)
+        menu.move(start_pos)
+        menu.show()
+        
+        anim_group_appear = QParallelAnimationGroup(menu)
+        opacity_anim_in = QPropertyAnimation(menu, b"windowOpacity"); opacity_anim_in.setDuration(duration)
+        opacity_anim_in.setStartValue(0.0); opacity_anim_in.setEndValue(1.0); opacity_anim_in.setEasingCurve(QEasingCurve.OutCubic)
+        pos_anim_in = QPropertyAnimation(menu, b"pos"); pos_anim_in.setDuration(duration)
+        pos_anim_in.setStartValue(start_pos); pos_anim_in.setEndValue(final_pos); pos_anim_in.setEasingCurve(QEasingCurve.OutCubic)
+        anim_group_appear.addAnimation(opacity_anim_in); anim_group_appear.addAnimation(pos_anim_in)
+        
+        # --- 事件过滤器，处理外部点击 ---
+        class MenuEventFilter(QObject):
+            def __init__(self, menu, closer_func, parent=None):
+                super().__init__(parent); self.menu = menu; self.closer_func = closer_func
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.MouseButtonPress:
+                    if self.menu.isVisible() and not self.menu.rect().contains(self.menu.mapFromGlobal(event.globalPos())):
+                        self.closer_func() # 调用关闭函数（启动消失动画）
+                        QApplication.instance().removeEventFilter(self)
+                        return True
+                return super().eventFilter(obj, event)
+
+        # 绑定事件
+        menu_event_filter = MenuEventFilter(menu, start_disappear, menu)
+        QApplication.instance().installEventFilter(menu_event_filter)
+        menu.aboutToHide.connect(lambda: QApplication.instance().removeEventFilter(menu_event_filter))
+        
+        # 将“关闭函数”连接到所有菜单项的点击事件
+        for action in menu.actions():
+            if isinstance(action, QWidgetAction):
+                widget = action.defaultWidget()
+                if hasattr(widget, 'clicked'):
+                    widget.clicked.connect(start_disappear)
+
+        anim_group_appear.start(QParallelAnimationGroup.DeleteWhenStopped)
+
 class MainWindow(QMainWindow):
-    def __init__(self, splash_ref=None, tooltips_ref=None):
+    def __init__(self, app_ref, splash_ref=None, tooltips_ref=None):
         super().__init__()
+        self.app_ref = app_ref
+        self.animation_manager = AnimationManager(self)
+        self.last_sub_tab_indices = {}
+        self.animations_enabled = True # 默认启用动画
         self.BASE_PATH = BASE_PATH
         self.splash_ref = splash_ref
         self.tooltips_config = tooltips_ref if tooltips_ref is not None else {}
@@ -832,14 +797,19 @@ class MainWindow(QMainWindow):
         return page
     
     def on_main_tab_changed(self, index):
-        """主标签页切换时触发，进而触发子标签页的刷新逻辑。"""
+        """主标签页切换时触发，进而触发子标签页的刷新逻辑和动画。"""
         current_main_tab_text = self.main_tabs.tabText(index)
         current_main_widget = self.main_tabs.widget(index)
-        if current_main_widget and isinstance(current_main_widget, QTabWidget): 
+        if current_main_widget and isinstance(current_main_widget, QTabWidget):
+            # 强制将该组的上一个索引设为-1，确保总是从左侧进入
+            self.last_sub_tab_indices[current_main_tab_text] = -1
+            
+            # 调用 on_sub_tab_changed，它现在已经包含了动画逻辑
             self.on_sub_tab_changed(current_main_tab_text, current_main_widget.currentIndex())
         
     def on_sub_tab_changed(self, group_name, index):
-        """子标签页切换时触发，调用对应页面的刷新或加载方法。"""
+        """子标签页切换时触发，判断切换方向，并根据主题设置应用动画。"""
+        active_sub_tab_widget = None
         try:
             main_tab_content_widget = None
             for i in range(self.main_tabs.count()):
@@ -847,12 +817,25 @@ class MainWindow(QMainWindow):
                     main_tab_content_widget = self.main_tabs.widget(i)
                     break
             
-            if not main_tab_content_widget or not isinstance(main_tab_content_widget, QTabWidget): 
-                return
-                
-            active_sub_tab_widget = main_tab_content_widget.widget(index)
-        except Exception: 
-            active_sub_tab_widget = None
+            if main_tab_content_widget and isinstance(main_tab_content_widget, QTabWidget): 
+                active_sub_tab_widget = main_tab_content_widget.widget(index)
+        except Exception as e: 
+             print(f"Error finding active sub-tab: {e}")
+
+        # --- [核心修改] ---
+        # 只有在动画被启用时，才执行动画逻辑
+        if active_sub_tab_widget and self.animations_enabled:
+            last_index = self.last_sub_tab_indices.get(group_name, -1)
+            
+            if last_index != -1 and index > last_index:
+                direction = 'right'
+            else:
+                direction = 'left'
+            
+            self.animation_manager.slide_and_fade_in(active_sub_tab_widget, direction=direction)
+
+        # 无论动画是否播放，都更新索引记录
+        self.last_sub_tab_indices[group_name] = index
 
         # 根据标签页名称和索引，调用特定页面的刷新方法
         if group_name == "数据采集":
@@ -891,17 +874,16 @@ class MainWindow(QMainWindow):
         if not theme_file_path: theme_file_path = "默认.qss"
         absolute_theme_path = os.path.join(THEMES_DIR, theme_file_path)
         
-        # --- 初始化所有元数据标志 ---
         is_compact_theme = False
         icons_disabled = False
+        animations_were_enabled = self.animations_enabled # 记录切换前的状态
+        self.animations_enabled = True
 
         if os.path.exists(absolute_theme_path):
             with open(absolute_theme_path, "r", encoding="utf-8") as f:
                 stylesheet = f.read()
                 
                 # --- 解析所有主题元属性 ---
-                
-                # 1. 解析图标路径 (@icon-path)
                 theme_icon_path_to_set = None
                 icon_path_match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
                 if icon_path_match:
@@ -910,42 +892,55 @@ class MainWindow(QMainWindow):
                     absolute_icon_path = os.path.join(qss_file_directory, relative_icon_path_str)
                     theme_icon_path_to_set = os.path.normpath(absolute_icon_path)
                 
-                # 2. 解析图标禁用标志 (@icon-theme: none)
                 icon_theme_match = re.search(r'/\*\s*@icon-theme:\s*none\s*\*/', stylesheet)
-                if icon_theme_match:
-                    icons_disabled = True
+                if icon_theme_match: icons_disabled = True
                 
-                # 3. 解析紧凑主题标志 (@theme-property-compact: true)
                 compact_match = re.search(r'/\*\s*@theme-property-compact:\s*true\s*\*/', stylesheet)
-                if compact_match:
-                    is_compact_theme = True
+                if compact_match: is_compact_theme = True
+
+                anim_match = re.search(r'/\*\s*@animations:\s*disabled\s*\*/', stylesheet)
+                if anim_match: self.animations_enabled = False
                 
-                # 应用样式表和图标设置
                 icon_manager.set_theme_icon_path(theme_icon_path_to_set, icons_disabled=icons_disabled)
                 self.setStyleSheet(stylesheet)
         else:
-            # 文件未找到时的回退逻辑
             print(f"主题文件未找到: {absolute_theme_path}", file=sys.stderr)
             self.setStyleSheet("") 
-            icon_manager.set_theme_icon_path(None, icons_disabled=False) # 确保图标不被禁用
+            icon_manager.set_theme_icon_path(None, icons_disabled=False)
         
-        # --- [核心修复] 恢复并整合紧凑主题的尺寸调整逻辑 ---
+        # --- [核心修改] 整合动画的尺寸调整逻辑 ---
+        
+        # 1. 记录切换前的窗口尺寸
+        current_size = self.size()
+        
+        # 2. 根据主题类型，计算出最终的目标尺寸
+        target_size = None
         if is_compact_theme:
-            # 1. 设置紧凑的最小尺寸
-            self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
-            # 2. (关键) 强制将窗口的当前尺寸调整为紧凑尺寸
-            self.resize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
+            target_size = QSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
         else:
-            # 1. 设置默认的最小尺寸
-            self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
-            # 2. 如果当前窗口尺寸小于默认最小尺寸，则将其放大，确保UI不会被裁切
-            if self.width() < self.DEFAULT_MIN_SIZE[0] or self.height() < self.DEFAULT_MIN_SIZE[1]:
-                self.resize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
-        # --- 修复结束 ---
+            # 对于标准主题，确保我们不会意外缩小一个已经被用户手动放大的窗口
+            new_width = max(current_size.width(), self.DEFAULT_MIN_SIZE[0])
+            new_height = max(current_size.height(), self.DEFAULT_MIN_SIZE[1])
+            target_size = QSize(new_width, new_height)
 
-        # (后续的图标刷新等逻辑保持不变)
-        self.update_all_module_icons()
+        # 3. 立即设置最小尺寸限制，这对于动画过程中的窗口约束很重要
+        if is_compact_theme:
+            self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
+        else:
+            self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
+
+        # 4. 判断是否需要执行尺寸变换，并根据动画设置来决定方式
+        if current_size != target_size:
+            if self.animations_enabled:
+                # 如果动画启用，则调用动画管理器
+                self.animation_manager.animate_window_resize(target_size)
+            else:
+                # 如果动画禁用，则瞬间完成尺寸变换
+                self.resize(target_size)
         
+        # --- [修改结束] ---
+
+        self.update_all_module_icons()
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
 
@@ -1100,131 +1095,77 @@ class MainWindow(QMainWindow):
             # 添加到布局中
             self.pinned_plugins_layout.addWidget(btn)
 
-    # [修改] _show_plugin_menu 方法，实现多列菜单和自适应宽度
     def _show_plugin_menu(self):
-        # 确保导入必要的类
-        from PyQt5.QtWidgets import QMenu, QAction, QToolButton, QGridLayout, QWidget, QWidgetAction, QSizePolicy
+        # 导入所有必要的类
+        from PyQt5.QtWidgets import QMenu, QToolButton, QGridLayout, QWidget, QWidgetAction, QSizePolicy
         from PyQt5.QtCore import QPoint, Qt, QSize
         from PyQt5.QtGui import QIcon, QFontMetrics
 
+        # --- 菜单构建逻辑 (与之前版本完全一致) ---
         menu = QMenu(self)
         self.update_pinned_plugins_ui()
-
         active_plugins_sorted = sorted(self.plugin_manager.active_plugins.items(), 
                                        key=lambda item: self.plugin_manager.available_plugins.get(item[0], {}).get('name', item[0]))
-        
         num_active_plugins = len(active_plugins_sorted)
         
-        # --- [核心修改 1] 统一插件显示模式 ---
         if num_active_plugins == 0:
-            no_plugins_action = menu.addAction("未启用插件")
-            no_plugins_action.setEnabled(False)
+            no_plugins_action = menu.addAction("未启用插件"); no_plugins_action.setEnabled(False)
         else:
-            grid_widget = QWidget()
-            grid_layout = QGridLayout(grid_widget)
-            grid_layout.setContentsMargins(10, 10, 10, 10) 
-            grid_layout.setSpacing(10) 
-
+            grid_widget = QWidget(); grid_layout = QGridLayout(grid_widget)
+            grid_layout.setContentsMargins(10, 10, 10, 10); grid_layout.setSpacing(10)
             PLUGINS_PER_COLUMN = 6
             num_cols = (num_active_plugins - 1) // PLUGINS_PER_COLUMN + 1 if num_active_plugins > 0 else 1
-            MAX_COLUMNS = 3 # 修复：之前是 MAX_cols，现在统一为 MAX_COLUMNS
+            MAX_COLUMNS = 3
             if num_cols > MAX_COLUMNS:
-                num_cols = MAX_COLUMNS # 修复：使用正确的常量名
-                PLUGINS_PER_COLUMN = (num_active_plugins - 1) // MAX_COLUMNS + 1
-
-            for col_idx in range(num_cols):
-                grid_layout.setColumnStretch(col_idx, 1)
-
+                num_cols = MAX_COLUMNS; PLUGINS_PER_COLUMN = (num_active_plugins - 1) // MAX_COLUMNS + 1
+            for col_idx in range(num_cols): grid_layout.setColumnStretch(col_idx, 1)
             longest_plugin_name = ""
             for plugin_id, _ in active_plugins_sorted:
                 meta = self.plugin_manager.available_plugins.get(plugin_id)
-                if meta and len(meta['name']) > len(longest_plugin_name):
-                    longest_plugin_name = meta['name']
-
-            font_metrics = QFontMetrics(self.font())
-            estimated_text_width = font_metrics.width(longest_plugin_name) 
-            min_btn_width = estimated_text_width + 24 + 5 + 10 
+                if meta and len(meta['name']) > len(longest_plugin_name): longest_plugin_name = meta['name']
+            font_metrics = QFontMetrics(self.font()); estimated_text_width = font_metrics.width(longest_plugin_name) 
+            min_btn_width = estimated_text_width + 24 + 5 + 10;
             if min_btn_width < 100: min_btn_width = 100 
-
-            grid_widget.setMinimumWidth(min_btn_width * num_cols + grid_layout.spacing() * (num_cols - 1) + 
-                                        grid_layout.contentsMargins().left() + grid_layout.contentsMargins().right())
-
+            grid_widget.setMinimumWidth(min_btn_width * num_cols + grid_layout.spacing() * (num_cols - 1) + grid_layout.contentsMargins().left() + grid_layout.contentsMargins().right())
             for i, (plugin_id, instance) in enumerate(active_plugins_sorted):
-                btn = QToolButton()
-                btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon) 
-                btn.setAutoRaise(True) 
-                btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum) 
-                btn.setMinimumSize(QSize(min_btn_width, 36)) 
-
+                btn = QToolButton(); btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); btn.setAutoRaise(True) 
+                btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum); btn.setMinimumSize(QSize(min_btn_width, 36)) 
                 meta = self.plugin_manager.available_plugins.get(plugin_id)
                 if not meta: continue 
-
                 icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
                 plugin_icon = QIcon(icon_path) if os.path.exists(icon_path) else self.icon_manager.get_icon("plugin_default")
-                
-                btn.setIcon(plugin_icon)
-                btn.setIconSize(QSize(24, 24)) 
-                btn.setText(meta['name'])
-                btn.setToolTip(meta['description'])
-
+                btn.setIcon(plugin_icon); btn.setIconSize(QSize(24, 24)); btn.setText(meta['name']); btn.setToolTip(meta['description'])
                 btn.setObjectName("PluginMenuItemToolButton") 
+                # 这里不再需要连接 menu.close，动画管理器会处理
                 btn.clicked.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
-                
-                row = i % PLUGINS_PER_COLUMN
-                col = (num_cols - 1) - (i // PLUGINS_PER_COLUMN) # 从右到左填充
-
+                row = i % PLUGINS_PER_COLUMN; col = (num_cols - 1) - (i // PLUGINS_PER_COLUMN)
                 grid_layout.addWidget(btn, row, col)
-            
-            widget_action = QWidgetAction(menu)
-            widget_action.setDefaultWidget(grid_widget)
-            menu.addAction(widget_action)
+            widget_action = QWidgetAction(menu); widget_action.setDefaultWidget(grid_widget); menu.addAction(widget_action)
 
-        # --- [核心修改 2] “管理插件”按钮样式统一 ---
-        menu.addSeparator() # 分隔线
-
-        # 创建“管理插件”的 QToolButton
-        manage_btn = QToolButton()
-        manage_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        manage_btn.setAutoRaise(True)
-        manage_btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed) # 垂直方向不需要伸展
-        
-        # 按钮的宽度可以与插件按钮一致，但高度固定为标准菜单项高度
-        manage_btn_width = menu.sizeHint().width() - 20 # 估算菜单宽度减去边距
-        if manage_btn_width < 150: manage_btn_width = 150 # 确保最小宽度
-        
-        manage_btn.setMinimumSize(QSize(manage_btn_width, 36)) # 与插件按钮高度保持一致
-        
-        # 使用“管理”图标
-        manage_btn.setIcon(self.icon_manager.get_icon("check")) 
-        manage_btn.setIconSize(QSize(24, 24))
-        manage_btn.setText("管理插件...")
-        manage_btn.setToolTip("打开插件管理对话框，安装、卸载、启用或禁用插件。")
-        manage_btn.setObjectName("PluginMenuItemToolButton") # 应用相同 QSS 样式
-
+        menu.addSeparator()
+        manage_btn = QToolButton(); manage_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); manage_btn.setAutoRaise(True)
+        manage_btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        manage_btn_width = menu.sizeHint().width() - 20;
+        if manage_btn_width < 150: manage_btn_width = 150
+        manage_btn.setMinimumSize(QSize(manage_btn_width, 36))
+        manage_btn.setIcon(self.icon_manager.get_icon("check")); manage_btn.setIconSize(QSize(24, 24))
+        manage_btn.setText("管理插件..."); manage_btn.setToolTip("打开插件管理对话框，安装、卸载、启用或禁用插件。")
+        manage_btn.setObjectName("PluginMenuItemToolButton")
         manage_btn.clicked.connect(self._open_plugin_manager_dialog)
+        manage_widget_action = QWidgetAction(menu); manage_widget_action.setDefaultWidget(manage_btn); menu.addAction(manage_widget_action)
         
-        # 将 manage_btn 包装成 QWidgetAction
-        manage_widget_action = QWidgetAction(menu)
-        manage_widget_action.setDefaultWidget(manage_btn)
-        menu.addAction(manage_widget_action)
-
-        # 在按钮下方弹出菜单 (调整弹出位置的健壮性代码，保持不变)
+        # --- [核心修改] 将显示和动画全权委托给 AnimationManager ---
+        
+        # 1. 计算最终位置
         menu_size = menu.sizeHint()
         button_bottom_right = self.plugin_menu_button.mapToGlobal(self.plugin_menu_button.rect().bottomRight())
-        popup_pos = QPoint(button_bottom_right.x() - menu_size.width(), button_bottom_right.y())
+        final_pos = QPoint(button_bottom_right.x() - menu_size.width(), button_bottom_right.y())
 
-        desktop = QApplication.desktop()
-        screen_geometry = desktop.screenGeometry(desktop.screenNumber(popup_pos))
+        # 2. 调用动画管理器来处理显示
+        self.animation_manager.animate_menu(menu, final_pos)
         
-        if popup_pos.x() < screen_geometry.left():
-            popup_pos.setX(screen_geometry.left() + 5) 
-        if popup_pos.y() + menu_size.height() > screen_geometry.bottom():
-            popup_pos.setY(screen_geometry.bottom() - menu_size.height() - 5)
-            if popup_pos.y() < button_bottom_right.y() - menu_size.height(): 
-                 popup_pos.setY(button_bottom_right.y() - menu_size.height() - 5)
-
-        menu.exec_(popup_pos)
-        self.update_pinned_plugins_ui()
+        # 3. 将UI刷新连接到菜单的关闭信号
+        menu.aboutToHide.connect(self.update_pinned_plugins_ui)
 
     # [新增] 打开插件管理对话框的逻辑
     def _open_plugin_manager_dialog(self):
@@ -1287,15 +1228,30 @@ if __name__ == "__main__":
     app.processEvents()
     ensure_directories_exist()
     
-    # [修改] 确保 icon_manager 在 MainWindow 创建前实例化
     icon_manager = IconManager(DEFAULT_ICON_DIR)
     
     load_modules(progress_offset=30, progress_scale=0.4)
     
-    window = MainWindow(splash_ref=splash, tooltips_ref=tooltips_config)
+    # 将 app 实例传递给 MainWindow
+    window = MainWindow(app_ref=app, splash_ref=splash, tooltips_ref=tooltips_config)
     
     window.show()
     
-    splash.finish(window)
+    # --- [核心修改] 创建并启动淡出动画 ---
+    
+    # 1. 创建一个针对 splash 透明度的动画
+    animation = QPropertyAnimation(splash, b"windowOpacity")
+    animation.setDuration(100) # 动画时长 500ms
+    animation.setStartValue(1.0) # 从完全不透明开始
+    animation.setEndValue(0.0)   # 到完全透明结束
+    animation.setEasingCurve(QEasingCurve.OutCubic) # 平滑的缓动曲线
+
+    # 2. 当动画完成时，关闭 splash 窗口
+    animation.finished.connect(splash.close)
+
+    # 3. 启动动画
+    animation.start()
+    
+    # --- [修改结束] ---
     
     sys.exit(app.exec_())

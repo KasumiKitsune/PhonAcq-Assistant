@@ -183,8 +183,26 @@ class DialectVisualEditorPage(QWidget):
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self); self.left_panel = QWidget(); left_layout = QVBoxLayout(self.left_panel)
-        self.file_list_widget = QListWidget(); self.file_list_widget.setToolTip("所有可编辑的图文词表文件。")
-        self.new_btn = QPushButton("新建图文词表"); self.save_btn = QPushButton("保存"); self.save_as_btn = QPushButton("另存为...")
+        self.file_list_widget = QListWidget()
+        original_mousePressEvent = self.file_list_widget.mousePressEvent
+        def custom_mousePressEvent(event):
+            item = self.file_list_widget.itemAt(event.pos())
+            if item is None:
+                # 1. 如果点击了空白处，并且当前有选中项
+                if self.file_list_widget.currentItem() is not None:
+                    # 2. 使用 setCurrentItem(None) 来取消选择。
+                    #    这会可靠地触发 currentItemChanged 信号，
+                    #    并让 on_file_selected(current=None, previous=...) 被调用。
+                    self.file_list_widget.setCurrentItem(None)
+            else:
+                # 如果点击了有效项目，则调用原始的事件处理器
+                original_mousePressEvent(event)
+        
+        self.file_list_widget.mousePressEvent = custom_mousePressEvent
+        self.file_list_widget.setToolTip("所有可编辑的图文词表文件。")
+        self.new_btn = QPushButton("新建图文词表"); self.save_btn = QPushButton("保存")
+        self.save_btn.setObjectName("AccentButton")
+        self.save_as_btn = QPushButton("另存为...")
         file_btn_layout = QHBoxLayout(); file_btn_layout.addWidget(self.save_btn); file_btn_layout.addWidget(self.save_as_btn)
         left_layout.addWidget(QLabel("图文词表文件:")); left_layout.addWidget(self.file_list_widget); left_layout.addWidget(self.new_btn); left_layout.addLayout(file_btn_layout)
         right_panel = QWidget(); right_layout = QVBoxLayout(right_panel)
@@ -203,6 +221,7 @@ class DialectVisualEditorPage(QWidget):
         self.auto_detect_btn = QPushButton("检测图片"); self.auto_detect_btn.setToolTip("遍历所有行，为ID有值但图片为空的项，\n自动查找并填充图片文件。")
         self.smart_detect_switch = self.ToggleSwitch(); self.smart_detect_switch.setToolTip("启用后，将忽略大小写、下划线和空格，\n并尝试为项目ID匹配最相似的图片名。")
         self.add_row_btn = QPushButton("添加"); self.remove_row_btn = QPushButton("移除选中项")
+        self.remove_row_btn.setObjectName("ActionButton_Delete")
         
         table_btn_layout.addWidget(self.auto_detect_btn); table_btn_layout.addWidget(QLabel("智能检测:")); table_btn_layout.addWidget(self.smart_detect_switch)
         table_btn_layout.addStretch() # 移动到右侧，以平衡布局
@@ -212,7 +231,7 @@ class DialectVisualEditorPage(QWidget):
         main_layout.addWidget(self.left_panel); main_layout.addWidget(right_panel, 1)
 
     def update_icons(self):
-        self.new_btn.setIcon(self.icon_manager.get_icon("new_file")); self.save_btn.setIcon(self.icon_manager.get_icon("save")); self.save_as_btn.setIcon(self.icon_manager.get_icon("save_as"))
+        self.new_btn.setIcon(self.icon_manager.get_icon("new_file")); self.save_btn.setIcon(self.icon_manager.get_icon("save_2")); self.save_as_btn.setIcon(self.icon_manager.get_icon("save_as"))
         # [修改] 使用正确的图标名称
         self.add_row_btn.setIcon(self.icon_manager.get_icon("add_row")); self.remove_row_btn.setIcon(self.icon_manager.get_icon("remove_row"))
         self.auto_detect_btn.setIcon(self.icon_manager.get_icon("auto_detect")) # auto_detect 图标

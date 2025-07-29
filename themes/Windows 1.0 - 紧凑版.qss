@@ -10,6 +10,7 @@
 /* @icon-path: "../assets/icons" */
 /* @theme-property-compact: true */ /* Windows 1.0 风格天然紧凑 */
 /* @icon-theme: none */
+/* @animations: disabled */
 /* ============================================================================
  *  1. 全局与基础样式 (Global & Base Styles - Monochrome & Blue Accent)
  * ============================================================================ */
@@ -17,7 +18,7 @@
 /* --- 基础字体与颜色 --- */
 QWidget {
     /* [核心修改 1] 字体兼容音标：Fixedsys 优先，然后是通用的 Sans-serif，最后是音标字体 */
-    font-family: "Fixedsys", "MS Shell Dlg 2", "Consolas", sans-serif, "Doulos SIL", "Charis SIL";
+    font-family: "MS Shell Dlg 2", "Consolas", sans-serif, "Doulos SIL", "Charis SIL";
     color: #000000; /* 纯黑 */
     background-color: #FFFFFF; /* 纯白 */
     font-size: 16px;
@@ -275,7 +276,7 @@ QComboBox::drop-down:hover {
     background-color: #808080; /* 悬停时变暗 */
 }
 QComboBox::down-arrow {
-    image: url(icon:arrow_down_win1); /* 需要一个像素化的箭头图标 */
+    image: url(assets/icons/arrow_down.png); /* 需要一个像素化的箭头图标 */
     width: 12px; height: 12px;
 }
 QComboBox QAbstractItemView { 

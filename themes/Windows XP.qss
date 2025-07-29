@@ -1,0 +1,931 @@
+/*
+ * ============================================================================
+ *  Windows XP Revival Theme v2.0 - Luna Blue Edition (高保真还原)
+ *  Author: AI Assistant (Successor)
+ *  Description: A high-fidelity recreation of the classic Windows XP Luna Blue UI.
+ *               Focuses on accurate gradients, rounded corners, and 3D border effects.
+ * ============================================================================
+ */
+/* @icon-path: "../assets/icons" */ /* 使用默认图标，或替换为 XP 风格图标路径 */
+/* @theme-property-compact: false */ /* 明确设置为非紧凑主题，程序将使用默认窗口尺寸 */
+/* @animations: enabled */ /* 提示保留动画 */
+
+/* ============================================================================
+ *  调色板 (Windows XP Luna Blue - 官方色彩参考)
+ * =   XP 背景浅色: #ECF0F4 (接近纯白的极浅蓝灰) - 用于主窗口/内容区
+ *   XP 窗口/按钮默认背景 (渐变): #F0F0F0 (上), #E0E0E0 (下)
+ *   XP 边框标准灰: #808080 (深灰), #FFFFFF (亮白)
+ *   XP 主蓝 (Luna Blue): #316AC5 (按钮/选中/焦点)
+ *   XP 浅蓝 (Hover/Gradient Top): #8AB2EA (选中按钮顶部/悬停)
+ *   XP 深蓝 (Pressed/Gradient Bottom): #0C2B6B (按下按钮底部/渐变深色)
+ *   XP 标题栏蓝 (渐变): #3C6AC4 (上), #224888 (下)
+ *   XP 进度条绿: #008000 (标准绿)
+ *   XP 进度条亮绿: #00CC00 (渐变亮绿)
+ *   XP 危险红: #D44234
+ *   XP 危险暗红: #A02020
+ *   XP 工具提示黄: #FFFFC0
+ *   XP 禁用灰: #C0C0C0
+ *   XP 禁用文字灰: #808080
+ *   文字: #000000 (纯黑), #FFFFFF (纯白)
+ * ============================================================================ */
+
+/* ============================================================================
+ *  1. 全局与基础样式 (Global & Base Styles)
+ * ============================================================================ */
+
+QWidget {
+    font-family: "Tahoma", "Segoe UI", "Microsoft YaHei", sans-serif; 
+    color: #000000; 
+    background-color: #ECF0F4; /* [修改] 更接近 XP 的浅蓝灰色背景 */
+    font-size: 17px; 
+    font-weight: normal;
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
+    background-color: #ECF0F4; /* [修改] 保持一致 */
+}
+
+QMessageBox, QDialog { 
+    border: 1px solid #808080; /* [修改] 外边框使用标准XP深灰 */
+    background-color: #ECF0F4; /* [修改] 统一背景色 */
+    border-radius: 4px; 
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 17px; 
+    color: #000000;
+}
+
+/* ============================================================================
+ *  2. 容器与布局控件 (Containers & Layout Widgets)
+ * ============================================================================ */
+
+QGroupBox { 
+    /* 模仿 XP 的 3D 浮雕边框效果 */
+    border: 1px solid #808080; 
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF; 
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080; 
+    margin-top: 25px; 
+    padding: 20px 15px 15px 15px;
+    border-radius: 4px; /* [修改] GroupBox 的圆角 */
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top left; 
+    padding: 3px 10px; 
+    margin-left: 10px; 
+    color: #FFFFFF; 
+    background-color: #316AC5; 
+    font-weight: bold;
+    border-radius: 2px; 
+}
+
+QSplitter::handle {
+    background-color: #C0C0C0; 
+    border: 1px solid #808080; 
+    border-radius: 0px;
+}
+QSplitter::handle:horizontal {
+    width: 4px; 
+}
+QSplitter::handle:vertical {
+    height: 4px; 
+}
+QSplitter::handle:hover {
+    background-color: #548CD9; 
+}
+
+/* ============================================================================
+ *  3. 标签页 (Tab Widgets - XP Luna Style)
+ * ============================================================================ */
+
+/* --- 3.1 一级标签页 (Main Tabs - XP 风格的弧度) --- */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #808080; 
+    border-top: none; /* 上边框被标签覆盖 */
+    background-color: #FFFFFF; /* 纯白内容区 */
+    border-radius: 0 0 8px 8px; /* 底部圆角 */
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; /* [修改] 尝试居中对齐 */
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    /* 默认标签的背景和边框 */
+    background-color: #F2F3ED; /* [修改] XP 未选中标签背景 */
+    color: #000000;
+    border: 1px solid #F2F3ED; /* [修改] 默认状态的背景色边框，模拟浮雕 */
+    border-bottom: none; 
+    border-top-left-radius: 8px; /* [修改] XP 标签的圆角 */
+    border-top-right-radius: 8px;
+    font-size: 18px; 
+    margin-right: 0px; /* 标签之间重叠 */
+    min-width: 120px; /* [修改] 调整最小宽度 */
+    padding: 8px 18px; /* [修改] 调整内边距 */
+    
+    /* 模拟 XP 选中标签的凹凸边框效果 */
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF; /* 亮边 */
+    border-right: 1px solid #D9D7C9; border-bottom: 1px solid #D9D7C9; /* 暗边 */
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    /* 悬停时背景变亮 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F8F8F8, stop: 1 #E8E8E8); /* [修改] 悬停时亮灰渐变 */
+    color: #000000;
+    /* 悬停时也应用 3D 边框 */
+    font-weight: bold;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #D9D7C9; border-bottom: 1px solid #D9D7C9;
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #FFFFFF; /* [修改] 选中时纯白 */
+    color: #000000; 
+    font-weight: bold;
+    border: 1px solid #808080; /* [修改] 选中时边框变黑 */
+    /* 选中时顶部出现黄色线 */
+    border-image: url(border_top_selected.png) 1 1 1 1 stretch; /* [需要外部图片] */
+    border-top: 3px solid #F2AF44; /* [修改] 选中时顶部黄色线 */
+    
+    border-top-left-radius: 3px; border-top-right-radius: 3px; /* [修改] 保持圆角 */
+    
+    border-bottom-color: #FFFFFF; /* 底部边框与内容面板背景色相同，形成无缝衔接 */
+    margin-bottom: -1px; 
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    color: #808080;
+    background-color: #C0C0C0;
+    border-color: #808080;
+}
+
+/* --- 3.2 二级标签页 (Sub Tabs - Classic Bottom Border) --- */
+QTabWidget#SubTabWidget::pane { 
+    border: none; 
+    background-color: transparent; 
+}
+QTabWidget#SubTabWidget::tab-bar { 
+    alignment: left; 
+    border-bottom: 1px solid #808080; 
+}
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; 
+    color: #000000; 
+    border: none;
+    border-bottom: 3px solid transparent; 
+    padding: 8px 20px; 
+    font-size: 17px; 
+    font-weight: normal;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    color: #316AC5; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #FFFFFF; 
+    background-color: #316AC5; 
+    border-bottom: 3px solid #316AC5; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { 
+    color: #808080; 
+}
+
+/* ============================================================================
+ *  4. 核心交互控件 (Core Interactive Widgets)
+ * ============================================================================ */
+
+/* --- 4.1 按钮 (QPushButton - XP Standard) --- */
+QPushButton {
+    /* XP 按钮的标准背景渐变 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0); 
+    color: #000000;
+    /* XP 按钮的标准 3D 边框 */
+    border: 1px solid #808080; 
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF; 
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080; 
+    padding: 8px 18px; 
+    border-radius: 3px; /* [修改] XP 按钮的微小圆角 */
+    font-size: 17px; 
+    min-height: 28px;
+}
+QPushButton:hover {
+    /* 悬停时蓝色渐变和边框 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9); 
+    color: #FFFFFF;
+    border-color: #316AC5; 
+    border-top: 1px solid #8AB2EA; border-left: 1px solid #8AB2EA; /* 悬停时边框也变亮蓝 */
+    border-right: 1px solid #316AC5; border-bottom: 1px solid #316AC5;
+}
+QPushButton:pressed {
+    /* 按下时深蓝色渐变和边框，模拟凹陷 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5); 
+    color: #FFFFFF;
+    border-color: #0C2B6B; 
+    border-top: 1px solid #0C2B6B; border-left: 1px solid #0C2B6B; /* 凹陷的上左暗边 */
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF; /* 凹陷的右下亮边 */
+    /* 模仿按下时的位移效果 */
+    padding-top: 9px; 
+    padding-left: 19px;
+}
+QPushButton:disabled {
+    color: #808080;
+    background-color: #E0E0E0;
+    border: 1px solid #C0C0C0;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #C0C0C0; border-bottom: 1px solid #C0C0C0;
+}
+
+/* --- 强调按钮和删除按钮 (XP Accent & Delete) --- */
+QPushButton#AccentButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #316AC5, stop: 1 #224888); 
+    color: #FFFFFF;
+    border: 1px solid #0C2B6B;
+    border-top: 1px solid #548CD9; border-left: 1px solid #548CD9; 
+    border-right: 1px solid #0C2B6B; border-bottom: 1px solid #0C2B6B; 
+    padding: 10px 20px;
+    border-radius: 3px; 
+}
+QPushButton#AccentButton:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    border-color: #316AC5;
+    border-top: 1px solid #8AB2EA; border-left: 1px solid #8AB2EA;
+    border-right: 1px solid #316AC5; border-bottom: 1px solid #316AC5;
+}
+QPushButton#AccentButton:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0C2B6B, stop: 1 #000000);
+    border-color: #000000;
+    border-top: 1px solid #0C2B6B; border-left: 1px solid #0C2B6B;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    padding-top: 11px;
+    padding-left: 21px;
+}
+
+QPushButton#ActionButton_Delete {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #D44234, stop: 1 #A02020); 
+    color: #FFFFFF;
+    border: 1px solid #800000;
+    border-top: 1px solid #D44234; border-left: 1px solid #D44234;
+    border-right: 1px solid #800000; border-bottom: 1px solid #800000;
+    padding: 10px 20px;
+    border-radius: 3px; 
+}
+QPushButton#ActionButton_Delete:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #E05040, stop: 1 #D44234);
+    border-color: #A02020;
+    border-top: 1px solid #E57373; border-left: 1px solid #E57373;
+    border-right: 1px solid #A02020; border-bottom: 1px solid #A02020;
+}
+QPushButton#ActionButton_Delete:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #800000, stop: 1 #600000);
+    border-color: #000000;
+    border-top: 1px solid #800000; border-left: 1px solid #800000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    padding-top: 11px;
+    padding-left: 21px;
+}
+
+/* --- 链接式按钮 (XP Link) --- */
+QPushButton#LinkButton {
+    background-color: transparent; 
+    color: #316AC5; 
+    border: none;
+    text-decoration: underline; 
+    padding: 5px; 
+    border-radius: 0px; 
+    font-size: 16px; 
+    min-height: 0px; 
+    font-weight: normal;
+}
+QPushButton#LinkButton:hover { 
+    color: #0C2B6B; 
+}
+QPushButton#LinkButton:pressed { 
+    color: #000000; 
+}
+
+/* --- 4.2 输入框 (QLineEdit, QPlainTextEdit, QTextBrowser - XP Recessed Look) --- */
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; border-left: 1px solid #000000; 
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF; 
+    border-radius: 3px; 
+    padding: 6px; 
+    color: #000000;
+    selection-background-color: #316AC5;
+    selection-color: #FFFFFF; 
+}
+QLineEdit:hover, QPlainTextEdit:hover, QTextBrowser:hover {
+    border-color: #316AC5; 
+    border-top-color: #316AC5; border-left-color: #316AC5;
+    border-right-color: #548CD9; border-bottom-color: #548CD9;
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { 
+    border-color: #316AC5; 
+    border-top-color: #316AC5; border-left-color: #316AC5;
+    border-right-color: #548CD9; border-bottom-color: #548CD9;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #E0E0E0;
+    color: #808080;
+    border-color: #C0C0C0;
+    border-top-color: #C0C0C0; border-left-color: #C0C0C0;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+QTextBrowser a { color: #316AC5; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; color: #0C2B6B; }
+
+/* --- 4.3 下拉框 (QComboBox - XP Standard) --- */
+QComboBox { 
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    border-radius: 3px; 
+    padding: 6px; 
+    color: #000000; 
+    min-height: 26px; 
+}
+QComboBox:hover {
+    border-color: #316AC5;
+    border-top-color: #316AC5; border-left-color: #316AC5;
+    border-right-color: #548CD9; border-bottom-color: #548CD9;
+}
+QComboBox:focus { 
+    border-color: #316AC5; 
+    border-top-color: #316AC5; border-left-color: #316AC5;
+    border-right-color: #548CD9; border-bottom-color: #548CD9;
+}
+QComboBox::drop-down { 
+    border-left: 1px solid #808080; 
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0); 
+    width: 22px; 
+    border-radius: 3px; 
+}
+QComboBox::drop-down:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    border-color: #316AC5;
+}
+QComboBox::down-arrow {
+    image: url(assets/icons/arrow_down.png); 
+    width: 12px; 
+    height: 12px;
+}
+QComboBox QAbstractItemView { 
+    border: 1px solid #808080; 
+    background-color: #FFFFFF; 
+    selection-background-color: #316AC5; 
+    selection-color: #FFFFFF; 
+    outline: 0px; 
+    border-radius: 0px;
+}
+QComboBox QAbstractItemView::item { 
+    padding: 6px; 
+    min-height: 22px; 
+}
+
+/* --- 4.4 列表与表格 (QListWidget, QTableWidget, QTreeWidget - XP Standard) --- */
+QListWidget, QTableWidget, QTreeWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    border-radius: 3px; 
+    outline: 0px; 
+    alternate-background-color: #F0F0F0; 
+    gridline-color: #C0C0C0;
+}
+QListWidget::item { padding: 6px; border: none; } 
+QTableWidget::item { padding: 0px; border: none; }
+QTreeWidget::item { padding: 6px; border: none; } 
+
+QListWidget::item:hover, 
+QTableWidget::item:hover, 
+QTreeWidget::item:hover {
+    background-color: #E0E0E0;
+    color: #000000;
+}
+
+QListWidget::item:selected, 
+QTableWidget::item:selected, 
+QTreeWidget::item:selected { 
+    background-color: #316AC5; 
+    color: #FFFFFF;
+}
+
+QHeaderView::section { 
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0); 
+    padding: 8px; 
+    border: 1px solid #808080;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    font-weight: bold; 
+    color: #000000;
+    border-radius: 0px; 
+}
+
+QHeaderView::section:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    color: #FFFFFF;
+}
+
+QHeaderView::section:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0C2B6B, stop: 1 #000000);
+    color: #FFFFFF;
+    border-top: 1px solid #808080; border-left: 1px solid #808080;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    padding-top: 9px;
+    padding-left: 9px;
+}
+
+QTableCornerButton::section { 
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0);
+    border: 1px solid #808080; 
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    border-radius: 0px; 
+}
+
+/* --- 4.5 滑块 (QSlider) & 进度条 (QProgressBar - XP Green) --- */
+QSlider::groove:horizontal { 
+    border: 1px solid #808080; 
+    background: #E0E0E0; 
+    height: 6px; 
+    margin: 2px 0;
+    border-radius: 3px; 
+}
+QSlider::groove:horizontal:hover {
+    background: #C0C0C0;
+}
+QSlider::groove:horizontal:pressed {
+    background: #808080;
+}
+
+QSlider::handle:horizontal { 
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0); 
+    border: 1px solid #808080; 
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    width: 18px; 
+    height: 18px; 
+    margin: -7px 0; 
+    border-radius: 9px; 
+}
+QSlider::handle:horizontal:hover { 
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    border-color: #316AC5;
+}
+QSlider::handle:horizontal:pressed { 
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    border-color: #0C2B6B;
+}
+
+QProgressBar { 
+    border: 1px solid #808080; 
+    background-color: #FFFFFF; 
+    border-radius: 3px; 
+    text-align: center; 
+    color: #000000; 
+    height: 22px; 
+    font-weight: bold;
+}
+QProgressBar::chunk { 
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #008000, stop: 1 #00CC00); 
+    margin: 0px;
+    border-radius: 3px; 
+}
+
+/* --- 4.6 滚动条 (QScrollBar - XP Standard) --- */
+QScrollBar {
+    border: 1px solid #808080;
+    background: #E0E0E0; 
+    border-radius: 0px; 
+}
+QScrollBar:vertical { width: 18px; } 
+QScrollBar:horizontal { height: 18px; } 
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0); 
+    border: 1px solid #808080;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    border-radius: 3px; 
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    border-color: #316AC5;
+}
+QScrollBar::handle:vertical:pressed, QScrollBar::handle:horizontal:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    border-color: #0C2B6B;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: 1px solid #808080; 
+    background: #E0E0E0; 
+    border-radius: 0px;
+    subcontrol-origin: margin;
+}
+
+QScrollBar::add-line:vertical { height: 18px; subcontrol-position: bottom; } 
+QScrollBar::sub-line:vertical { height: 18px; subcontrol-position: top; } 
+QScrollBar::add-line:horizontal { width: 18px; subcontrol-position: right; } 
+QScrollBar::sub-line:horizontal { width: 18px; subcontrol-position: left; } 
+
+/* XP 风格的滚动条箭头需要自定义图标 */
+QScrollBar::down-arrow:vertical { image: url(assets/icons/arrow_down.png); }
+
+/* --- 4.7 菜单 (QMenu - XP Standard) --- */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #808080;
+    border-radius: 0px; 
+    padding: 3px; 
+}
+QMenu::item {
+    background-color: transparent;
+    color: #000000;
+    padding: 6px 20px 6px 5px; 
+    border-radius: 0px; 
+}
+QMenu::item:hover {
+    background-color: #316AC5;
+    color: #FFFFFF;
+}
+QMenu::item:selected {
+    background-color: #316AC5;
+    color: #FFFFFF;
+}
+QMenu::item:disabled { color: #808080; }
+QMenu::separator { 
+    height: 1px; 
+    background: #808080;
+    margin: 4px 0px; 
+}
+QMenu::icon { padding-left: 0px; width: 16px; height: 16px; }
+
+/* --- 4.8 提示框 (QToolTip - XP Standard) & 消息框 (QMessageBox) --- */
+QToolTip {
+    background-color: #FFFFC0; 
+    color: #000000;
+    border: 1px solid #808080;
+    padding: 4px 8px; 
+    border-radius: 0px; 
+    font-size: 15px; 
+    font-weight: normal;
+}
+
+QMessageBox, QDialog {
+    border: 1px solid #808080;
+    background-color: #ECF0F4;
+    border-radius: 4px; 
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 17px; 
+}
+
+/* ============================================================================
+ *  5. 自定义控件样式 (Custom Widget Styles)
+ * ============================================================================ */
+
+/* --- ToggleSwitch 样式 (XP Checkbox/Toggle hybrid) --- */
+ToggleSwitch {
+    qproperty-trackColorOff: #C0C0C0; 
+    qproperty-trackColorOn: #316AC5; 
+    qproperty-knobColor: #FFFFFF; 
+    qproperty-borderColor: #808080; 
+    qproperty-borderWidth: 0; 
+    qproperty-knobMargin: 3; 
+    qproperty-knobShape: 'rectangle'; 
+    qproperty-trackBorderRadius: 5; 
+    qproperty-knobBorderRadius: 3; 
+    
+    min-width: 50px; max-width: 50px; 
+    min-height: 18px; max-height: 18px;
+    
+    spacing: 0; padding: 0;
+    font-weight: normal; color: transparent;
+}
+ToggleSwitch[hover="true"] {
+    qproperty-hoverBorderColor: #316AC5; 
+    qproperty-hoverKnobColor: #ffffff; 
+    qproperty-hoverKnobMarginOffset: 2; 
+    qproperty-hoverTrackColorOff: #C0C0C0; /* 关闭状态悬停时，轨道颜色保持灰色不变 */
+    qproperty-hoverTrackColorOn: #548CD9;  /* 开启状态悬停时，轨道颜色变为XP浅蓝色 */
+}
+ToggleSwitch[hover="true"][checked="true"] {
+    qproperty-hoverKnobColor: #ffffff; 
+}
+
+
+/* --- QRadioButton 和 QCheckBox (XP Standard) --- */
+QRadioButton, QCheckBox {
+    spacing: 8px; 
+    padding: 5px 0; 
+    font-size: 17px; 
+    font-weight: normal;
+    color: #000000;
+}
+QRadioButton:hover, QCheckBox:hover { color: #316AC5; } 
+QRadioButton:checked, QCheckBox:checked { color: #000000; font-weight: bold; } 
+
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 16px; height: 16px; 
+    border: 1px solid #808080;
+    background-color: #FFFFFF;
+    border-top: 1px solid #000000; border-left: 1px solid #000000; 
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+}
+QRadioButton::indicator { border-radius: 8px; } 
+QCheckBox::indicator { border-radius: 0px; }
+
+QRadioButton::indicator:hover, QCheckBox::indicator:hover { 
+    background-color: #E0E0E0; 
+}
+QRadioButton::indicator:checked {
+    background-color: #FFFFFF;
+    image: url(assets/icons/dot.png); 
+    border-top: 1px solid #808080; border-left: 1px solid #808080; 
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+}
+QCheckBox::indicator:checked {
+    background-color: #FFFFFF;
+    image: url(assets/icons/checkbox.png); 
+    border-top: 1px solid #808080; border-left: 1px solid #808080;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+}
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
+    background-color: #E0E0E0;
+    border-color: #C0C0C0;
+}
+QRadioButton:disabled, QCheckBox:disabled { color: #808080; }
+
+/* ============================================================================
+ *  6. 模块特定样式 (Module-specific Styles)
+ * ============================================================================ */
+
+/* --- 波形图 (WaveformWidget - XP Style) --- */
+WaveformWidget {
+    qproperty-waveformColor: #000000; 
+    qproperty-cursorColor: #FF0000; 
+    qproperty-selectionColor: rgba(49, 106, 197, 100); 
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    border-radius: 3px; 
+}
+WaveformWidget:disabled { 
+    qproperty-waveformColor: #808080; 
+    background-color: #E0E0E0; 
+}
+
+/* --- 音频分析页面 (XP Style) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    background-color: #FFFFFF;
+    qproperty-waveformColor: #000000;
+    border: 1px solid #808080;
+    border-top: 1px solid #000000; border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    border-bottom: none; 
+    border-radius: 3px 3px 0 0; 
+}
+SpectrogramWidget {
+    qproperty-spectrogramMinColor: #FFFFFF; qproperty-spectrogramMaxColor: #000000; 
+    qproperty-intensityColor: #008000; qproperty-f0Color: #316AC5; 
+    qproperty-f0DerivedColor: rgba(49, 106, 197, 120); qproperty-f1Color: #000000; 
+    qproperty-formantColor: #808080; qproperty-cursorColor: #FF0000; 
+    
+    background-color: #FFFFFF;
+    border: 1px solid #808080;
+    border-top: 1px solid #000000; border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; border-bottom: 1px solid #FFFFFF;
+    border-radius: 0 0 3px 3px; 
+}
+
+/* --- 欢迎页面 (XP Style) --- */
+#WelcomeNavList {
+    background-color: #E0E0E0; 
+    border-right: 1px solid #808080; 
+    outline: 0px;
+    border-radius: 3px; 
+}
+#WelcomeNavList::item {
+    background-color: #E0E0E0;
+    color: #000000;
+    padding: 8px 12px; 
+    border: none;
+    border-bottom: 1px solid #C0C0C0; 
+    border-radius: 0px;
+}
+#WelcomeNavList::item:hover { background-color: #316AC5; color: #FFFFFF; }
+#WelcomeNavList::item:selected { 
+    background-color: #FFFFFF; 
+    border-left: 3px solid #316AC5; 
+    padding-left: 9px; 
+    color: #000000; 
+}
+#WelcomeContentStack > QWidget { background-color: #FFFFFF; }
+#WelcomeContentStack QTextBrowser { background-color: transparent; border: none; }
+#VersionLabel { color: #808080; font-size: 14px; }
+QFrame[frameShape="4"] { background-color: #C0C0C0; border: 1px solid #808080; border-radius: 2px; } 
+
+
+/* ============================================================================
+ *  7. 插件栏与菜单样式 (Plugin Bar & Menu Styles - XP Standard)
+ * ============================================================================ */
+
+/* --- 主插件菜单按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0);
+    color: #000000;
+    border: 1px solid #808080;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    border-radius: 6px; 
+    min-height: 26px; 
+    padding: 0px 15px; 
+    min-width: 70px; 
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    color: #FFFFFF;
+    border-color: #316AC5;
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    color: #FFFFFF;
+    border-color: #0C2B6B;
+    padding-top: 3px; padding-left: 16px; 
+}
+
+/* --- 固定的插件快捷按钮 (XP Standard) --- */
+QPushButton#PinnedPluginButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0);
+    border: 1px solid #808080;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    border-radius: 6px; 
+    padding: 0px; 
+    min-width: 26px; min-height: 26px; 
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    border-color: #316AC5;
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    border-color: #0C2B6B;
+    padding-top: 2px; padding-left: 2px;
+}
+
+/* --- 插件菜单 QToolButton 样式 (XP Standard) --- */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent; 
+    border: 1px solid transparent; 
+    border-radius: 0px; 
+    padding: 4px; 
+    color: #000000;
+}
+QToolButton#PluginMenuItemToolButton:hover { 
+    background-color: #316AC5; 
+    color: #FFFFFF; 
+    border: 1px solid #316AC5; 
+}
+QToolButton#PluginMenuItemToolButton:pressed { 
+    background-color: #0C2B6B; 
+    color: #FFFFFF; 
+}
+
+/* ============================================================================
+ *  8. 交互动作增强 (Interaction Enhancement - XP Standard)
+ * ============================================================================ */
+
+/* --- 表格与列表悬停效果 --- */
+QListWidget::item:hover:!selected,
+QTableWidget::item:hover:!selected,
+QTreeWidget::item:hover:!selected {
+    background-color: #E0E0E0; 
+    color: #000000;
+}
+
+/* --- 表头悬停效果 --- */
+QHeaderView::section:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    color: #FFFFFF;
+}
+
+/* --- 表格左上角全选柄交互效果 --- */
+QTableCornerButton::section:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    border-color: #316AC5;
+}
+QTableCornerButton::section:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    border-color: #0C2B6B;
+}
+
+/* --- 滑块与滚动条交互效果 --- */
+QSlider::groove:horizontal:hover { background: #548CD9; }
+QSlider::handle:horizontal:hover { background: #8AB2EA; }
+QSlider::handle:horizontal:pressed { background: #548CD9; }
+
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:horizontal:hover { background: #548CD9; }
+QScrollBar::handle:vertical:pressed,
+QScrollBar::handle:horizontal:pressed { background: #316AC5; }
+
+/* --- 菜单项按下效果 --- */
+QMenu::item:pressed { background-color: #0C2B6B; color: #FFFFFF; }
+
+/* --- 普通QLabel悬停效果 --- */
+QLabel:hover { color: #316AC5; }
+
+/* --- 下拉框悬停效果 --- */
+QComboBox:hover { border-color: #316AC5; }
+QComboBox::drop-down:hover { background-color: #548CD9; }
+
+/*
+================================================================================
+【修正】表格内按钮样式 (Button Style Fix for Tables)
+================================================================================ 
+*/
+QTableWidget QPushButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0);
+    color: #000000;
+    border: 1px solid #808080;
+    border-top: 1px solid #FFFFFF; border-left: 1px solid #FFFFFF;
+    border-right: 1px solid #808080; border-bottom: 1px solid #808080;
+    padding: 2px 4px; 
+    min-height: 0; 
+    border-radius: 3px; 
+    font-size: 15px; 
+}
+QTableWidget QPushButton:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    color: #FFFFFF;
+    border-color: #316AC5;
+}
+QTableWidget QPushButton:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    color: #FFFFFF;
+    border-color: #0C2B6B;
+    padding-top: 3px; padding-left: 5px;
+}
+
+/*
+================================================================================
+【修正】表格内下拉框样式 (ComboBox Style Fix for Tables)
+================================================================================ 
+*/
+QTableWidget QComboBox {
+    padding: 2px 4px; 
+    min-height: 0; 
+    border-radius: 3px; 
+    font-size: 15px; 
+}
+QTableWidget QComboBox::drop-down {
+    width: 18px; 
+    border-left: 1px solid #808080;
+    border-top-right-radius: 3px; 
+    border-bottom-right-radius: 3px; 
+}
+QTableWidget QComboBox::down-arrow {
+    width: 12px; 
+    height: 12px;
+}
+/*
+/*
+================================================================================
+【最终版】RangeSlider 样式 (Windows XP 风格，支持渐变)
+================================================================================ 
+*/
+RangeSlider {
+    /* --- 轨道颜色 --- */
+    qproperty-trackColor: #E0E0E0;
+    qproperty-rangeColor: #548CD9;
+    qproperty-hoverTrackColor: #C0C0C0;
+    qproperty-hoverRangeColor: #8AB2EA;
+
+    /* --- 滑块渐变与边框 --- */
+    /* [核心] 使用新的 qproperty-handleBrush 属性来设置渐变 */
+    qproperty-handleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F0F0F0, stop: 1 #E0E0E0);
+    qproperty-hoverHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #8AB2EA, stop: 1 #548CD9);
+    qproperty-pressedHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #548CD9, stop: 1 #316AC5);
+    
+    /* 边框颜色 */
+    qproperty-handleBorderColor: #808080;
+    qproperty-pressedHandleBorderColor: #0C2B6B;
+
+    /* --- 尺寸与形状 --- */
+    qproperty-barHeight: 6;
+    qproperty-handleBorderWidth: 1;
+    qproperty-handleRadius: 9;
+    
+    /* 基础尺寸 */
+    qproperty-handleWidth: 18;
+    qproperty-handleHeight: 18;
+    
+    /* 动画效果 */
+    qproperty-hoverHandleWidth: 22;
+    qproperty-hoverHandleHeight: 22;
+    qproperty-pressedHandleWidth: 16;
+    qproperty-pressedHandleHeight: 16;
+}

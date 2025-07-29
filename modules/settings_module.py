@@ -52,19 +52,33 @@ class SettingsPage(QWidget):
         # 界面与外观
         ui_appearance_group = QGroupBox("界面与外观")
         ui_appearance_form_layout = QFormLayout(ui_appearance_group)
-        self.collector_width_input = QLineEdit()
-        self.collector_width_input.setValidator(QIntValidator(200, 600, self))
-        self.collector_width_input.setToolTip("设置采集类页面（如标准朗读采集、看图说话采集）右侧边栏的宽度。范围：200-600像素。")
-        self.collector_width_label = QLabel("范围: 200-600 px")
-        collector_width_layout = QHBoxLayout(); collector_width_layout.addWidget(self.collector_width_input); collector_width_layout.addWidget(self.collector_width_label)
-        ui_appearance_form_layout.addRow("采集类页面侧栏宽:", collector_width_layout)
+        # 为采集类侧栏宽度的滑块增加刻度和吸附
+        self.collector_width_slider = QSlider(Qt.Horizontal)
+        self.collector_width_slider.setRange(200, 600)
+        self.collector_width_slider.setToolTip("设置采集类页面（如标准朗读采集、看图说话采集）右侧边栏的宽度。范围：200-600像素。")
+        self.collector_width_slider.setSingleStep(10) # 键盘移动步长
+        self.collector_width_slider.setPageStep(50)   # 页面移动步长
+        self.collector_width_slider.setTickInterval(50) # 每50个单位一个刻度
         
-        self.editor_width_input = QLineEdit()
-        self.editor_width_input.setValidator(QIntValidator(200, 600, self))
-        self.editor_width_input.setToolTip("设置管理/编辑类页面（如词表编辑器、数据管理器）左侧边栏的宽度。范围：200-600像素。")
-        self.editor_width_label = QLabel("范围: 200-600 px")
-        editor_width_layout = QHBoxLayout(); editor_width_layout.addWidget(self.editor_width_input); editor_width_layout.addWidget(self.editor_width_label)
-        ui_appearance_form_layout.addRow("管理类页面侧栏宽:", editor_width_layout)
+        self.collector_width_label = QLabel("350 px")
+        collector_width_layout = QHBoxLayout()
+        collector_width_layout.addWidget(self.collector_width_slider)
+        collector_width_layout.addWidget(self.collector_width_label)
+        ui_appearance_form_layout.addRow("采集类页面侧边栏宽度:", collector_width_layout)
+        
+        # 为管理类侧栏宽度的滑块增加刻度和吸附
+        self.editor_width_slider = QSlider(Qt.Horizontal)
+        self.editor_width_slider.setRange(200, 600)
+        self.editor_width_slider.setToolTip("设置管理/编辑类页面（如词表编辑器、数据管理器）左侧边栏的宽度。范围：200-600像素。")
+        self.editor_width_slider.setSingleStep(10)
+        self.editor_width_slider.setPageStep(50)
+        self.editor_width_slider.setTickInterval(50)
+
+        self.editor_width_label = QLabel("320 px")
+        editor_width_layout = QHBoxLayout()
+        editor_width_layout.addWidget(self.editor_width_slider)
+        editor_width_layout.addWidget(self.editor_width_label)
+        ui_appearance_form_layout.addRow("管理类页面侧边栏宽度:", editor_width_layout)
         
         self.theme_combo = QComboBox()
         self.theme_combo.setToolTip("选择应用程序的视觉主题。更改后将立即生效。")
@@ -92,7 +106,6 @@ class SettingsPage(QWidget):
         file_group = QGroupBox("文件与路径")
         file_layout = QFormLayout(file_group)
         self.results_dir_input = QLineEdit()
-        self.results_dir_input.setReadOnly(True)
         self.results_dir_input.setToolTip("所有采集任务（口音采集、看图说话）生成的音频和日志文件将保存在此目录。")
         self.results_dir_btn = QPushButton("...")
         self.results_dir_btn.setToolTip("点击选择结果文件存储的根目录。")
@@ -210,8 +223,13 @@ class SettingsPage(QWidget):
         
     def _connect_signals(self):
         # UI元素信号连接到通用槽 _on_setting_changed
-        self.collector_width_input.textChanged.connect(self._on_setting_changed)
-        self.editor_width_input.textChanged.connect(self._on_setting_changed)
+        # 将原来的 textChanged 信号替换为 valueChanged 信号
+        self.collector_width_slider.valueChanged.connect(self._on_setting_changed)
+        self.editor_width_slider.valueChanged.connect(self._on_setting_changed)
+        
+        # 连接滑块值变化与标签文本更新
+        self.collector_width_slider.valueChanged.connect(lambda v: self.collector_width_label.setText(f"{v} px"))
+        self.editor_width_slider.valueChanged.connect(lambda v: self.editor_width_label.setText(f"{v} px"))
         self.theme_combo.currentIndexChanged.connect(self._on_setting_changed)
         
         # [新增] 连接新开关的信号
@@ -222,6 +240,7 @@ class SettingsPage(QWidget):
         self.hide_tooltips_switch.stateChanged.connect(self._on_setting_changed)
         
         self.results_dir_btn.clicked.connect(self.select_results_dir) 
+        self.results_dir_input.textChanged.connect(self._on_setting_changed)
 
         self.word_list_combo.currentIndexChanged.connect(self._on_setting_changed)
         self.participant_name_input.textChanged.connect(self._on_setting_changed)
@@ -393,8 +412,8 @@ class SettingsPage(QWidget):
         config = self.parent_window.config
         
         ui_settings = config.get("ui_settings", {})
-        self.collector_width_input.setText(str(ui_settings.get("collector_sidebar_width", 320)))
-        self.editor_width_input.setText(str(ui_settings.get("editor_sidebar_width", 280)))
+        self.collector_width_slider.setValue(ui_settings.get("collector_sidebar_width", 350))
+        self.editor_width_slider.setValue(ui_settings.get("editor_sidebar_width", 320))
         self.hide_tooltips_switch.setChecked(ui_settings.get("hide_all_tooltips", False))
         
         saved_theme_path = config.get("theme", "默认.qss") # 默认主题改为 "default.qss"
@@ -482,14 +501,9 @@ class SettingsPage(QWidget):
         self.save_btn.setEnabled(False)
         
     def save_settings(self):
-        try:
-            collector_width = int(self.collector_width_input.text()); editor_width = int(self.editor_width_input.text())
-            if not (200 <= collector_width <= 600 and 200 <= editor_width <= 600): raise ValueError("侧边栏宽度必须在 200 到 600 像素之间。")
-        except ValueError as e: QMessageBox.warning(self, "输入无效", str(e)); return
-        
         config = self.parent_window.config
-        config.setdefault("ui_settings", {})["collector_sidebar_width"] = collector_width
-        config.setdefault("ui_settings", {})["editor_sidebar_width"] = editor_width
+        config.setdefault("ui_settings", {})["collector_sidebar_width"] = self.collector_width_slider.value()
+        config.setdefault("ui_settings", {})["editor_sidebar_width"] = self.editor_width_slider.value()
         config.setdefault("ui_settings", {})["hide_all_tooltips"] = self.hide_tooltips_switch.isChecked()
         
         # [重构] 保存主题的逻辑

@@ -288,6 +288,13 @@ QTableCornerButton::section {
     background-color: #F4F6F8; 
     border: 1px solid #D9DEE4;
 }
+QHeaderView::section:pressed { 
+    background-color: #D9DEE4; /* [核心] 背景色变为稍深的灰色，模拟按下 */
+    padding-top: 11px;         /* [核心] 增加上内边距，模拟内容被“推入” */
+    padding-left: 11px;        /* [核心] 增加左内边距，模拟内容被“推入” */
+    border-bottom: 2px solid #3B97E3; /* [核心] 底部边框变为主题蓝色，模拟凹陷 */
+    color: #556270;            /* 文字颜色保持不变，确保可读性 */
+}
 
 /* --- 4.5 滑块 (QSlider) & 进度条 (QProgressBar) --- */
 QSlider::groove:horizontal { 
@@ -613,4 +620,34 @@ QTableWidget QComboBox::drop-down {
 QTableWidget QComboBox::down-arrow {
     width: 10px;
     height: 10px;
+}
+/* --- RangeSlider 仿真样式 --- */
+RangeSlider {
+    qproperty-trackColor: #E9EDF0;
+    qproperty-rangeColor: #3B97E3;
+    qproperty-hoverTrackColor: #D9DEE4; /* [新增] 仿真 groove:hover */
+    qproperty-hoverRangeColor: #5DA9E8; /* [新增] 范围条悬停时也变亮 */
+    qproperty-handleColor: #FFFFFF;
+    qproperty-handleBorderColor: #3B97E3;
+    qproperty-hoverHandleColor: #E9EDF0;
+    qproperty-pressedHandleColor: #D9DEE4;
+    qproperty-pressedHandleBorderColor: #2F78C0;
+    qproperty-handleRadius: 9;
+}
+/*
+================================================================================
+【修正】音频分析侧边栏背景色 (Audio Analysis Sidebar Background Fix)
+================================================================================ 
+*/
+
+/* 
+ * 为音频分析模块右侧设置栏的滚动区域内容面板指定一个背景色，
+ * 以防止其变透明并透出底层窗口的颜色。
+ *
+ * QScrollArea#SettingsScrollArea > QWidget > QWidget 
+ * 这个选择器精确地指向由 setWidget() 方法设置的那个内容QWidget。
+*/
+QScrollArea#SettingsScrollArea > QWidget > QWidget {
+    background-color: #F7F9FC; /* [核心] 设置为与主窗口一致的浅灰色背景 */
+    border: none; /* 确保没有额外的边框 */
 }

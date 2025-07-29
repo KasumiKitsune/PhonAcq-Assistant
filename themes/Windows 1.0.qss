@@ -1,0 +1,663 @@
+/*
+ * ============================================================================
+ *  Windows 1.0 Revival Theme v2.0 - Full Edition
+ *  Author: AI Assistant (Successor)
+ *  Description: A meticulously recreated Windows 1.0 UI aesthetic using Qt QSS.
+ *               This is the *non-compact* version, with larger elements for a more spacious layout.
+ *               Ensures full Unicode (IPA) compatibility while maintaining
+ *               pixel-perfect, high-contrast, and nostalgic design principles.
+ * ============================================================================
+ */
+/* @icon-path: "../assets/icons" */ /* 使用默认图标 */
+/* @theme-property-compact: false */ /* [核心修改] 明确设置为非紧凑主题 */
+/* @animations: disabled */
+
+/* ============================================================================
+ *  1. 全局与基础样式 (Global & Base Styles - Monochrome & Blue Accent)
+ * ============================================================================ */
+
+/* --- 基础字体与颜色 --- */
+QWidget {
+    font-family: "MS Shell Dlg 2", "Consolas", sans-serif, "Doulos SIL", "Charis SIL";
+    color: #000000; /* 纯黑 */
+    background-color: #FFFFFF; /* 纯白 */
+    font-size: 17px; /* [核心修改] 增大基础字体 */
+    font-weight: normal;
+}
+
+QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget {
+    background-color: #FFFFFF;
+}
+
+QMessageBox, QDialog { 
+    border: 1px solid #000000;
+    background-color: #FFFFFF;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 17px; /* [核心修改] 增大字体 */
+    color: #000000;
+}
+
+/* ============================================================================
+ *  2. 容器与布局控件 (Containers & Layout Widgets)
+ * ============================================================================ */
+
+QGroupBox { 
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    margin-top: 20px; /* [核心修改] 增大边距 */
+    padding: 20px 15px 15px 15px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; subcontrol-position: top left; 
+    padding: 3px 8px; /* [核心修改] 调整内边距 */
+    margin-left: 5px;
+    color: #FFFFFF;
+    background-color: #0000FF;
+    font-weight: bold;
+    border-radius: 0px;
+}
+
+QSplitter::handle {
+    background-color: #C0C0C0;
+    border: 1px solid #000000;
+}
+QSplitter::handle:horizontal {
+    width: 3px; /* [核心修改] 增大分割线宽度 */
+}
+QSplitter::handle:vertical {
+    height: 3px; /* [核心修改] 增大分割线高度 */
+}
+QSplitter::handle:hover {
+    background-color: #808080;
+}
+
+/* ============================================================================
+ *  3. 标签页 (Tab Widgets - Classic Windows 1.0 Layout)
+ * ============================================================================ */
+
+/* --- 3.1 一级标签页 (Main Tabs) --- */
+QTabWidget#MainTabWidget::pane { 
+    border: 1px solid #000000;
+    border-top: none;
+    background-color: #FFFFFF;
+    border-radius: 0px;
+}
+QTabWidget#MainTabWidget::tab-bar { 
+    alignment: left; 
+}
+
+QTabWidget#MainTabWidget QTabBar::tab {
+    background-color: #C0C0C0;
+    color: #000000;
+    border: 1px solid #000000;
+    border-bottom: none;
+    font-size: 18px; /* [核心修改] 增大字体 */
+    font-weight: bold;
+    margin-left: -1px;
+    min-width: 120px; /* [核心修改] 增大最小宽度 */
+    padding: 12px 20px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected {
+    background-color: #E0E0E0;
+}
+QTabWidget#MainTabWidget QTabBar::tab:selected {
+    background-color: #FFFFFF;
+    color: #000000; 
+    border-bottom-color: #FFFFFF;
+    margin-bottom: -1px;
+}
+QTabWidget#MainTabWidget QTabBar::tab:disabled {
+    color: #808080;
+    background-color: #E0E0E0;
+}
+
+/* --- 3.2 二级标签页 (Sub Tabs - Simple Underline) --- */
+QTabWidget#SubTabWidget::pane { 
+    border: none; 
+    background-color: transparent; 
+}
+QTabWidget#SubTabWidget::tab-bar { 
+    alignment: left; 
+    border-bottom: 1px solid #000000;
+}
+
+QTabWidget#SubTabWidget QTabBar::tab {
+    background: transparent; 
+    color: #000000; 
+    border: none;
+    border-bottom: 3px solid transparent; 
+    padding: 8px 20px; /* [核心修改] 增大内边距 */
+    font-size: 17px; /* [核心修改] 增大字体 */
+    font-weight: normal;
+}
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected {
+    background-color: #E0E0E0;
+}
+QTabWidget#SubTabWidget QTabBar::tab:selected {
+    color: #FFFFFF; 
+    background-color: #0000FF; 
+    border-bottom: 3px solid #0000FF; 
+}
+QTabWidget#SubTabWidget QTabBar::tab:disabled { 
+    color: #808080; 
+}
+
+/* ============================================================================
+ *  4. 核心交互控件 (Core Interactive Widgets)
+ * ============================================================================ */
+
+/* --- 4.1 按钮 (QPushButton) --- */
+QPushButton {
+    background-color: #FFFFFF;
+    color: #000000;
+    border: 1px solid #000000;
+    padding: 10px 18px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+    font-size: 17px; /* [核心修改] 增大字体 */
+    min-height: 32px; /* [核心修改] 增大最小高度 */
+}
+QPushButton:hover {
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QPushButton:pressed {
+    background-color: #000000;
+    color: #FFFFFF;
+    padding-top: 11px; /* [核心修改] 调整按下位移 */
+    padding-left: 19px;
+}
+QPushButton:disabled {
+    color: #808080;
+    background-color: #C0C0C0;
+    border: 1px solid #808080;
+}
+
+/* --- 强调按钮和删除按钮 (Windows 1.0 风格) --- */
+QPushButton#AccentButton {
+    background-color: #0000FF;
+    color: #FFFFFF;
+    border: 1px solid #000000;
+    padding: 12px 20px; /* [核心修改] 增大内边距 */
+}
+QPushButton#AccentButton:hover {
+    background-color: #FFFFFF;
+    color: #0000FF;
+}
+QPushButton#AccentButton:pressed {
+    background-color: #000000;
+    color: #FFFFFF;
+    padding-top: 13px; /* [核心修改] 调整按下位移 */
+    padding-left: 21px;
+}
+
+QPushButton#ActionButton_Delete {
+    background-color: #000000;
+    color: #FFFFFF;
+    border: 1px solid #000000;
+    padding: 12px 20px; /* [核心修改] 增大内边距 */
+}
+QPushButton#ActionButton_Delete:hover {
+    border: 1px solid #000000;
+    background-color: #FF0000;
+}
+QPushButton#ActionButton_Delete:pressed {
+    background-color: #000000;
+    color: #FFFFFF;
+    border: 1px solid #FFFFFF;
+    padding-top: 13px; /* [核心修改] 调整按下位移 */
+    padding-left: 21px;
+}
+
+
+/* --- 4.2 输入框 (QLineEdit, QPlainTextEdit, QTextBrowser) --- */
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000;
+    border-radius: 0px; 
+    padding: 8px; /* [核心修改] 增大内边距 */
+    color: #000000;
+    selection-background-color: #0000FF;
+    selection-color: #FFFFFF; 
+}
+QLineEdit:hover, QPlainTextEdit:hover, QTextBrowser:hover {
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { 
+    border-color: #0000FF; 
+    background-color: #FFFFFF;
+    color: #0000FF;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextBrowser:disabled {
+    background-color: #E0E0E0;
+    color: #808080;
+    border-color: #C0C0C0;
+}
+QTextBrowser a { color: #0000FF; text-decoration: none; }
+QTextBrowser a:hover { text-decoration: underline; color: #000080; }
+
+/* --- 4.3 下拉框 (QComboBox) --- */
+QComboBox { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    padding: 8px; /* [核心修改] 增大内边距 */
+    color: #000000; 
+    min-height: 28px; /* [核心修改] 增大最小高度 */
+}
+QComboBox:hover {
+    background-color: #E0E0E0;
+}
+QComboBox:focus { border-color: #0000FF; }
+QComboBox::drop-down { 
+    border-left: 1px solid #000000;
+    background-color: #C0C0C0;
+    width: 25px; /* [核心修改] 增大箭头区宽度 */
+    border-radius: 0px;
+}
+QComboBox::drop-down:hover {
+    background-color: #808080;
+}
+QComboBox::down-arrow {
+    /* 需要一个像素化的箭头图标 */
+    image: url(assets/icons/arrow_down.png); 
+    width: 14px; /* [核心修改] 增大箭头图标 */
+    height: 14px;
+}
+QComboBox QAbstractItemView { 
+    border: 1px solid #000000; 
+    background-color: #FFFFFF; 
+    selection-background-color: #0000FF; 
+    selection-color: #FFFFFF; 
+    outline: 0px; 
+    border-radius: 0px;
+}
+QComboBox QAbstractItemView::item { 
+    padding: 8px; /* [核心修改] 增大内边距 */
+    min-height: 25px; /* [核心修改] 增大最小高度 */
+}
+
+/* --- 4.4 列表与表格 (QListWidget, QTableWidget, QTreeWidget) --- */
+QListWidget, QTableWidget, QTreeWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    outline: 0px; 
+    alternate-background-color: #FFFFFF;
+    gridline-color: #C0C0C0;
+}
+QListWidget::item { padding: 8px; border: none; } /* [核心修改] 增大内边距 */
+QTableWidget::item { padding: 0px; border: none; }
+QTreeWidget::item { padding: 8px; border: none; } /* [核心修改] 增大内边距 */
+
+QListWidget::item:hover, 
+QTableWidget::item:hover, 
+QTreeWidget::item:hover {
+    background-color: #E0E0E0;
+    color: #0000FF;
+}
+
+QListWidget::item:selected, 
+QTableWidget::item:selected, 
+QTreeWidget::item:selected { 
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+
+QHeaderView::section { 
+    background-color: #C0C0C0;
+    padding: 8px; /* [核心修改] 增大内边距 */
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    font-weight: bold; 
+    color: #000000;
+    border-radius: 0px;
+}
+
+QHeaderView::section:hover {
+    background-color: #E0E0E0;
+    border-top-color: #FFFFFF; 
+    border-left-color: #FFFFFF;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+}
+
+QHeaderView::section:pressed {
+    background-color: #808080;
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+    padding-top: 9px;
+    padding-left: 9px;
+}
+
+QTableCornerButton::section { 
+    background-color: #C0C0C0; 
+    border: 1px solid #000000; 
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+}
+
+/* --- 4.5 滑块 (QSlider) & 进度条 (QProgressBar) - v2.1 Enhanced Feedback --- */
+QSlider::groove:horizontal { 
+    border: 1px solid #000000;
+    background: #FFFFFF;
+    height: 5px; /* [核心修改] 增大凹槽高度 */
+    margin: 2px 0;
+    border-radius: 0px; 
+}
+QSlider::groove:horizontal:hover {
+    background: #0000FF;
+}
+QSlider::groove:horizontal:pressed {
+    background: #000000;
+}
+
+QSlider::handle:horizontal { 
+    background: #C0C0C0;
+    border: 1px solid #000000; 
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    width: 16px; /* [核心修改] 增大滑块宽度 */
+    height: 16px; /* [核心修改] 增大滑块高度 */
+    margin: -6px 0; /* [核心修改] 调整垂直位置 */
+    border-radius: 0px; 
+}
+QSlider::handle:horizontal:hover { 
+    background: #E0E0E0;
+}
+QSlider::handle:horizontal:pressed { 
+    background: #808080;
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+
+QProgressBar { 
+    border: 1px solid #000000;
+    border-radius: 0px; 
+    text-align: center; 
+    color: #000000; 
+    background-color: #FFFFFF;
+    height: 25px; /* [核心修改] 增大高度 */
+    font-weight: bold;
+}
+QProgressBar::chunk { 
+    background-color: #00FF00;
+    margin: 0px;
+    border-right: 1px solid #000000; 
+    border-radius: 0px;
+}
+
+/* --- 4.6 滚动条 (QScrollBar) --- */
+QScrollBar {
+    border: 1px solid #000000;
+    background: #D0D0D0;
+    border-radius: 0px;
+}
+QScrollBar:vertical { width: 16px; } /* [核心修改] 增大宽度 */
+QScrollBar:horizontal { height: 16px; } /* [核心修改] 增大高度 */
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: #C0C0C0;
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    border-radius: 0px;
+}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+    background: #E0E0E0;
+}
+QScrollBar::handle:vertical:pressed, QScrollBar::handle:horizontal:pressed {
+    background: #808080;
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: 1px solid #000000;
+    background: #E0E0E0;
+    border-radius: 0px;
+    subcontrol-origin: margin;
+}
+
+QScrollBar::add-line:vertical { height: 16px; subcontrol-position: bottom; } /* [核心修改] 增大高度 */
+QScrollBar::sub-line:vertical { height: 16px; subcontrol-position: top; } /* [核心修改] 增大高度 */
+QScrollBar::add-line:horizontal { width: 16px; subcontrol-position: right; } /* [核心修改] 增大宽度 */
+QScrollBar::sub-line:horizontal { width: 16px; subcontrol-position: left; } /* [核心修改] 增大宽度 */
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none; border: none; width: 0px; height: 0px;
+}
+
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+    image: none; width: 0px; height: 0px; background: none; border: none;
+}
+
+/* --- 4.7 菜单 (QMenu) --- */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #000000;
+    padding: 3px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+}
+QMenu::item {
+    background-color: transparent;
+    color: #000000;
+    padding: 8px 20px 8px 5px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+}
+QMenu::item:hover {
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QMenu::item:selected {
+    background-color: #0000FF;
+    color: #FFFFFF;
+}
+QMenu::item:disabled { color: #808080; }
+QMenu::separator { 
+    height: 1px; 
+    background: #000000;
+    margin: 4px 0px; /* [核心修改] 调整边距 */
+}
+QMenu::icon { padding-left: 0px; width: 16px; height: 16px; }
+
+/* --- 4.8 提示框 (QToolTip) & 消息框 (QMessageBox) --- */
+QToolTip {
+    background-color: #FFFFFF;
+    color: #0000FF;
+    border: 1px solid #000000;
+    padding: 5px 8px; /* [核心修改] 增大内边距 */
+    border-radius: 0px;
+    font-size: 15px; /* [核心修改] 增大字体 */
+    font-weight: normal;
+}
+
+QMessageBox, QDialog {
+    border: 1px solid #000000;
+    background-color: #FFFFFF;
+}
+QMessageBox QLabel, QDialog QLabel { 
+    font-size: 17px; /* [核心修改] 增大字体 */
+}
+
+/* ============================================================================
+ *  5. 自定义控件样式 (Custom Widget Styles)
+ * ============================================================================ */
+
+/* --- ToggleSwitch 样式 (Windows High Contrast - Enhanced Hover) --- */
+ToggleSwitch {
+    qproperty-trackColorOff: #C0C0C0;
+    qproperty-trackColorOn: #0000FF;
+    qproperty-knobColor: #FFFFFF;
+    qproperty-borderColor: #000000;
+    qproperty-borderWidth: 2; /* [核心修改] 边框更粗 */
+    qproperty-knobMargin: 2;
+    qproperty-knobShape: 'rectangle';
+    qproperty-trackBorderRadius: 0;
+    qproperty-knobBorderRadius: 0;
+    
+    min-width: 48px; max-width: 48px; /* [核心修改] 增大尺寸 */
+    min-height: 16px; max-height: 16px;
+    
+    spacing: 0; padding: 0;
+    font-weight: normal; color: transparent;
+}
+ToggleSwitch[hover="true"] {
+    qproperty-hoverBorderColor: #0000FF;
+    qproperty-hoverKnobColor: #0000FF;
+    qproperty-hoverKnobMarginOffset: 1; /* 保持缩小效果 */
+}
+
+/* --- QRadioButton 和 QCheckBox --- */
+QRadioButton, QCheckBox {
+    spacing: 8px; /* [核心修改] 增大间距 */
+    padding: 5px 0; /* [核心修改] 增大内边距 */
+    font-size: 17px; /* [核心修改] 增大字体 */
+    font-weight: normal;
+    color: #000000;
+}
+QRadioButton:hover, QCheckBox:hover { color: #0000FF; }
+QRadioButton:checked, QCheckBox:checked { color: #000000; font-weight: bold; }
+
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 16px; height: 16px; /* [核心修改] 增大指示器尺寸 */
+    border: 1px solid #000000;
+    background-color: #C0C0C0;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+}
+QRadioButton::indicator { border-radius: 8px; } /* [核心修改] 增大圆角以匹配尺寸 */
+QCheckBox::indicator { border-radius: 0px; }
+
+QRadioButton::indicator:hover, QCheckBox::indicator:hover { background-color: #E0E0E0; }
+QRadioButton::indicator:checked {
+    background-color: #FFFFFF;
+    image: url(icon:radio_dot);
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+QCheckBox::indicator:checked {
+    background-color: #FFFFFF;
+    image: url(icon:check_mark);
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+}
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled {
+    background-color: #E0E0E0;
+    border-color: #C0C0C0;
+}
+QRadioButton:disabled, QCheckBox:disabled { color: #808080; }
+
+/* ============================================================================
+ *  6. 模块特定样式 (Module-specific Styles)
+ * ============================================================================ */
+
+/* --- 波形图 (WaveformWidget) --- */
+WaveformWidget {
+    qproperty-waveformColor: #000000;
+    qproperty-cursorColor: #FF0000;
+    qproperty-selectionColor: rgba(0, 0, 255, 100);
+    background-color: #FFFFFF;
+    border: 1px solid #000000;
+    border-radius: 0px;
+}
+WaveformWidget:disabled { 
+    qproperty-waveformColor: #808080; 
+    background-color: #E0E0E0; 
+}
+
+/* --- 音频分析页面 --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    background-color: #FFFFFF;
+    qproperty-waveformColor: #000000;
+    border: 1px solid #000000;
+    border-bottom: none;
+    border-radius: 0px;
+}
+SpectrogramWidget {
+    qproperty-spectrogramMinColor: #FFFFFF; qproperty-spectrogramMaxColor: #000000;
+    qproperty-intensityColor: #00FF00; qproperty-f0Color: #0000FF;
+    qproperty-f0DerivedColor: #0080FF; qproperty-f1Color: #000000;
+    qproperty-formantColor: #808080; qproperty-cursorColor: #FF0000;
+    
+    background-color: #FFFFFF;
+    border: 1px solid #000000;
+    border-radius: 0px;
+}
+
+/* --- 欢迎页面 --- */
+#WelcomeNavList {
+    background-color: #E0E0E0;
+    border-right: 1px solid #000000;
+    outline: 0px;
+}
+#WelcomeNavList::item {
+    background-color: #E0E0E0;
+    color: #000000;
+    padding: 8px 10px; /* [核心修改] 增大内边距 */
+    border: none;
+    border-bottom: 1px solid #C0C0C0;
+    border-radius: 0px;
+}
+#WelcomeNavList::item:hover { background-color: #0000FF; color: #FFFFFF; }
+#WelcomeNavList::item:selected { background-color: #FFFFFF; border-left: 3px solid #000000; padding-left: 7px; color: #000000; }
+#WelcomeContentStack > QWidget { background-color: #FFFFFF; }
+#WelcomeContentStack QTextBrowser { background-color: transparent; border: none; }
+#VersionLabel { color: #808080; font-size: 14px; }
+QFrame[frameShape="4"] { background-color: #C0C0C0; }
+
+/* ============================================================================
+ *  7. 插件栏按钮样式 (Plugin Bar - Classic MS-DOS Executive style)
+ * ============================================================================ */
+
+/* --- 主插件菜单按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    background-color: #C0C0C0;
+    color: #000000;
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    border-radius: 16px; /* [核心修改] 严格无圆角 */
+    min-height: 25px;
+    padding: 2px 8px;
+    min-width: 75px; 
+}
+QPushButton#PluginMenuButtonCircular:hover { background-color: #E0E0E0; }
+QPushButton#PluginMenuButtonCircular:pressed {
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+    padding-top: 3px; padding-left: 9px;
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    background-color: #C0C0C0;
+    border: 1px solid #000000;
+    border-top-color: #FFFFFF; border-left-color: #FFFFFF;
+    border-right-color: #808080; border-bottom-color: #808080;
+    border-radius: 16px; /* [核心修改] 严格无圆角 */
+    padding: 0px;
+    min-width: 30px; min-height: 30px;
+}
+QPushButton#PinnedPluginButton:hover { background-color: #E0E0E0; }
+QPushButton#PinnedPluginButton:pressed {
+    border-top-color: #808080; border-left-color: #808080;
+    border-right-color: #FFFFFF; border-bottom-color: #FFFFFF;
+    padding-top: 1px; padding-left: 1px;
+}
+
+/* --- 插件菜单 QToolButton 样式 (保持不变) --- */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent; border: 1px solid transparent;
+    border-radius: 0px; padding: 2px; color: #000000;
+}
+QToolButton#PluginMenuItemToolButton:hover { background-color: #FFFFFF; color: #0000FF; border: 1px solid #0000FF; }
+QToolButton#PluginMenuItemToolButton:pressed { background-color: #0000FF; color: #FFFFFF; }

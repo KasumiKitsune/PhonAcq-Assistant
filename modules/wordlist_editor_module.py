@@ -318,6 +318,23 @@ class WordlistEditorPage(QWidget):
         
         left_layout.addWidget(QLabel("单词表文件:"))
         self.file_list_widget = QListWidget()
+        original_mousePressEvent = self.file_list_widget.mousePressEvent
+        def custom_mousePressEvent(event):
+            # 检查点击位置是否有项目
+            item = self.file_list_widget.itemAt(event.pos())
+            if item is None:
+                # 1. 如果点击了空白处，并且当前有选中项
+                if self.file_list_widget.currentItem() is not None:
+                    # 2. 使用 setCurrentItem(None) 来取消选择。
+                    #    这会可靠地触发 currentItemChanged 信号，
+                    #    并让 on_file_selected(current=None, previous=...) 被调用。
+                    self.file_list_widget.setCurrentItem(None)
+            else:
+                # 如果点击了有效项目，则调用原始的事件处理器
+                original_mousePressEvent(event)
+        
+        # 将自定义的事件处理器应用到控件上
+        self.file_list_widget.mousePressEvent = custom_mousePressEvent
         self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu) # 启用自定义上下文菜单
         self.file_list_widget.setToolTip("所有可编辑的单词表文件。\n右键单击可进行更多操作。")
         left_layout.addWidget(self.file_list_widget)
@@ -327,6 +344,7 @@ class WordlistEditorPage(QWidget):
         
         file_btn_layout = QHBoxLayout() # 文件操作按钮布局
         self.save_btn = QPushButton("保存")
+        self.save_btn.setObjectName("AccentButton")
         self.save_as_btn = QPushButton("另存为...")
         file_btn_layout.addWidget(self.save_btn)
         file_btn_layout.addWidget(self.save_as_btn)
@@ -361,6 +379,7 @@ class WordlistEditorPage(QWidget):
         self.auto_detect_lang_btn = QPushButton("自动检测语言")
         self.add_row_btn = QPushButton("添加行")
         self.remove_row_btn = QPushButton("移除选中行")
+        self.remove_row_btn.setObjectName("ActionButton_Delete")
         
         table_btn_layout.addWidget(self.undo_btn)
         table_btn_layout.addWidget(self.redo_btn)
@@ -396,7 +415,7 @@ class WordlistEditorPage(QWidget):
     def update_icons(self):
         """更新所有按钮和操作的图标。"""
         self.new_btn.setIcon(self.icon_manager.get_icon("new_file"))
-        self.save_btn.setIcon(self.icon_manager.get_icon("save"))
+        self.save_btn.setIcon(self.icon_manager.get_icon("save_2"))
         self.save_as_btn.setIcon(self.icon_manager.get_icon("save_as"))
         self.add_row_btn.setIcon(self.icon_manager.get_icon("add_row"))
         self.remove_row_btn.setIcon(self.icon_manager.get_icon("remove_row"))
@@ -409,24 +428,37 @@ class WordlistEditorPage(QWidget):
         self.redo_action.setIcon(self.icon_manager.get_icon("redo"))
 
     def apply_layout_settings(self):
-        """应用从全局配置中读取的UI布局设置，如侧边栏宽度和列宽。"""
+        """应用从全局配置中读取的UI布局设置，并强制状态列宽度为40。"""
         config = self.parent_window.config
-        ui_settings = config.get("ui_settings", {})
+        ui_settings = config.setdefault("ui_settings", {})
         
         # 应用侧边栏宽度
         width = ui_settings.get("editor_sidebar_width", 280)
         self.left_panel.setFixedWidth(width)
         
-        # 应用表格列宽。默认值包含 组别, 拉伸1, 拉伸2, 语言, 状态
-        # 列表中有5个元素，对应5列
+        # --- [核心修改] ---
+        
+        # 1. 获取列宽配置，如果不存在则使用默认值
         col_widths = ui_settings.get("wordlist_editor_col_widths", [80, -1, -1, 150, 50])
-        if len(col_widths) != 5: # 确保长度匹配列数
-            col_widths = [80, -1, -1, 150, 50] # 如果配置有误，重置为新的默认值
-
-        # 应用固定或可交互列的宽度
-        self.table_widget.setColumnWidth(0, col_widths[0]) # 组别
-        self.table_widget.setColumnWidth(3, col_widths[3]) # 语言
-        self.table_widget.setColumnWidth(4, col_widths[4]) # 状态 (固定宽度)
+        
+        # 2. 强制将最后一列（索引4）的宽度设置为40
+        col_widths[4] = 40
+        
+        # 3. 应用所有列的宽度
+        self.table_widget.setColumnWidth(0, col_widths[0])
+        self.table_widget.setColumnWidth(3, col_widths[3])
+        self.table_widget.setColumnWidth(4, col_widths[4])
+        
+        # 4. 将修正后的配置立即写回 settings.json 文件
+        # 只有在值发生变化时才写入，避免不必要的磁盘操作
+        if ui_settings.get("wordlist_editor_col_widths") != col_widths:
+            ui_settings["wordlist_editor_col_widths"] = col_widths
+            try:
+                settings_file_path = os.path.join(get_base_path_for_module(), "config", "settings.json")
+                with open(settings_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=4)
+            except Exception as e:
+                print(f"自动保存强制列宽设置失败: {e}", file=sys.stderr)
 
     def on_column_resized(self, logical_index, old_size, new_size):
         """

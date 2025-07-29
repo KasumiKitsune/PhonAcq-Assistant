@@ -424,6 +424,13 @@ QHeaderView::section:hover {
     color: #1C2A40;                 /* 文字变为更深的“墨色” */
     border-bottom-color: #A79B82;   /* 底部边框变为“沙/木色” */
 }
+QHeaderView::section:pressed {
+    background-color: #B0C4DE; /* 比悬停更深的背景色，模拟按下 */
+    color: #1C2A40;            /* 文字颜色保持不变 */
+    border-bottom-color: #1C2A40; /* 底部边框颜色变为更深的墨色，模拟凹陷 */
+    padding-top: 11px;         /* 向上/左偏移1px，模拟被按下 */
+    padding-left: 11px;
+}
 
 /* 进度条 */
 QProgressBar {
@@ -610,7 +617,7 @@ QTextEdit#NotesTextEdit {
 /* 单选按钮整体 */
 QRadioButton {
     spacing: 12px;           /* 指示器和文本之间的距离 */
-    padding: 8px 0;          /* 上下内边距 */
+    padding: 5px 0;          /* 上下内边距 */
     font-size: 18px;         /* 字号 */
     font-weight: normal;     /* 未选中时为正常粗细 */
     color: #8AB2D6;           /* 未选中时文字颜色：柔和波浪蓝 */
@@ -628,9 +635,9 @@ QRadioButton:checked {
 /* --- 指示器 (Indicator) --- */
 /* 单选按钮的指示器 (即那个“点”) */
 QRadioButton::indicator {
-    width: 22px;               /* 宽度 */
-    height: 22px;              /* 高度 */
-    border-radius: 0px;        /* [核心修改] 方形，无圆角 */
+    width: 18px;               /* 宽度 */
+    height: 18px;              /* 高度 */
+    border-radius: 9px;        /* [核心修改] 方形，无圆角 */
     border: 1px solid #C5D9E8; /* 默认边框：浅天蓝 */
     background-color: #FFFFFF; /* 默认背景：纯白 */
 }
@@ -643,6 +650,7 @@ QRadioButton::indicator:checked {
     image: none;               /* [新增] 确保不显示任何意外的默认图像 */
     border: 1px solid #1C2A40; /* 选中边框：墨色 */
     background-color: #3B6894; /* 选中背景：深浪蓝 */
+    image: url(themes/神奈川冲浪里/icons/checkbox.png)
 }
 /* 禁用的指示器 */
 QRadioButton::indicator:disabled {
@@ -898,8 +906,8 @@ ToggleSwitch {
     qproperty-knobShape: 'rectangle'; /* 滑块形状：矩形 */
     
     /* 控件的固定尺寸 */
-    min-width: 60px; max-width: 60px;
-    min-height: 28px; max-height: 28px;
+    min-width: 50px; max-width: 50px;
+    min-height: 16px; max-height: 16px;
     
     /* 布局和文本相关 */
     spacing: 0; padding: 0;           /* 无间距和内边距 */
@@ -925,4 +933,86 @@ ToggleSwitch[hover="true"] {
      * 正数表示增加边距，从而使滑块在视觉上缩小。
      */
     qproperty-hoverKnobMarginOffset: 2; /* 悬停时，滑块边距增加2px，使其看起来更小 */
+}
+/* --- QCheckBox 文本样式 --- */
+QCheckBox {
+    spacing: 8px; /* 指示器和文本之间的距离 */
+    padding: 5px 0; /* 内边距 */
+    font-size: 17px; /* [核心修改] 与 QRadioButton 字体保持一致 */
+    color: #1C2A40; /* 默认文字颜色：深普鲁士蓝 */
+}
+
+QCheckBox:hover {
+    color: #3B6894; /* 悬停时文字颜色：深波浪蓝 */
+}
+
+QCheckBox:checked {
+    font-weight: bold; /* 选中时文字加粗 */
+}
+
+/* --- QCheckBox 指示器 (方块) --- */
+QCheckBox::indicator {
+    width: 16px; /* [核心修改] 指示器尺寸 */
+    height: 16px;
+    border-radius: 0px; /* 方形 */
+    border: 1px solid #C5D9E8; /* 默认边框：浅天蓝色 */
+    background-color: #FFFFFF; /* 默认背景：纯白 */
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #8AB2D6; /* 悬停边框：柔和波浪蓝 */
+}
+
+QCheckBox::indicator:checked {
+    /* 选中时的背景和图标 */
+    background-color: #3B6894; /* 选中时背景：深波浪蓝 */
+    border: 1px solid #1C2A40; /* 选中时边框：深普鲁士蓝 (墨色) */
+    
+    /* [核心] 勾选图标：使用您的 'check.svg' 或 'check.png' 图标 */
+    /* 确保 'check.svg' 存在于主题的 'icons' 目录或主程序的 'assets/icons' 目录 */
+    image: url(themes/神奈川冲浪里/icons/checkbox.png); /* 这里使用 icon: 语法，由 IconManager 解析 */
+}
+
+QCheckBox::indicator:disabled {
+    border: 1px solid #E8EEF4; /* 禁用时边框：更浅的天蓝色 */
+    background-color: #F5F8FA; /* 禁用时背景：非常浅的蓝灰色 */
+}
+
+QCheckBox:disabled {
+    color: #A8B8C8; /* 禁用时文字颜色：灰蓝色 */
+}
+RangeSlider {
+    /* --- 轨道颜色 --- */
+    qproperty-trackColor: #C5D9E8;
+    qproperty-rangeColor: #3B6894;
+    qproperty-hoverTrackColor: #8AB2D6;
+    qproperty-hoverRangeColor: #4A7BA8;
+
+    /* --- 滑块颜色 --- */
+    qproperty-handleColor: #FFFFFF;
+    qproperty-handleBorderColor: #3B6894;
+    qproperty-hoverHandleColor: #A79B82;
+    qproperty-pressedHandleColor: #3B6894;
+    qproperty-pressedHandleBorderColor: #1C2A40; 
+    
+    /* --- 尺寸与形状 (核心修改) --- */
+    qproperty-barHeight: 4;
+    qproperty-handleBorderWidth: 1;
+    qproperty-handleRadius: 0;
+    qproperty-hoverBarHeight: 8;           /* 悬停时轨道稍微变粗 */
+    
+    /* [核心] 精确设置滑块的基础宽度和高度 */
+    qproperty-handleWidth: 10;
+    qproperty-handleHeight: 20;
+    
+    /* 
+     * 动画效果：
+     * 悬停时，宽度和高度都增加4px。
+     * 按下时，宽度和高度都减小2px。
+     * 这将保持其细长的矩形比例。
+    */
+    qproperty-hoverHandleWidth: 14;
+    qproperty-hoverHandleHeight: 24;
+    qproperty-pressedHandleWidth: 8;
+    qproperty-pressedHandleHeight: 18;
 }
