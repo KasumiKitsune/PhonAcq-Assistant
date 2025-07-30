@@ -929,3 +929,98 @@ RangeSlider {
     qproperty-pressedHandleWidth: 16;
     qproperty-pressedHandleHeight: 16;
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - XP Standard)
+================================================================================ 
+*/
+
+/* --- 1. 列表控件容器样式 --- */
+/*
+ * 首先，为 AnimatedListWidget 本身设置与原生 QListWidget 一致的
+ * 背景色和浮雕效果边框，确保其在布局中看起来完全一致。
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; 
+    border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; 
+    border-bottom: 1px solid #FFFFFF;
+    border-radius: 3px; 
+    outline: 0px; 
+}
+
+/* --- 2. 列表项 (Item) 视觉样式 --- */
+/*
+ * 接下来，使用 qproperty- 语法将 XP 主题的颜色和尺寸
+ * 映射到 AnimatedListWidget 的自定义属性上。
+*/
+AnimatedListWidget {
+    /* 默认状态：背景透明，文本为黑色，无圆角 */
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #000000;
+    qproperty-itemRadius: 0;
+
+    /* 悬停状态：背景变为浅灰色 */
+    qproperty-itemHoverBrush: #E0E0E0;
+
+    /* 按下状态：背景变为比悬停更深一点的灰色，提供点击反馈 */
+    qproperty-itemPressedBrush: #D0D0D0;
+    
+    /* 选中状态：背景变为蓝色，文本变为白色 */
+    qproperty-itemSelectedBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+                                                 stop: 0 #4A81E0, stop: 1 #2759AE);
+    qproperty-itemSelectedTextColor: #FFFFFF;
+
+    /* 边距：设置一个与原生 QListWidget::item 相似的内边距 */
+    qproperty-itemPadding: 1;
+    qproperty-itemTextPadding: 5;
+}
+/*
+================================================================================
+【新增】文件管理器树形视图样式 (File Manager Tree View Style - Windows XP)
+================================================================================ 
+*/
+
+/* --- 1. 树形控件整体 --- */
+QTreeWidget {
+    background-color: #FFFFFF; 
+    border: 1px solid #808080; 
+    border-top: 1px solid #000000; 
+    border-left: 1px solid #000000;
+    border-right: 1px solid #FFFFFF; 
+    border-bottom: 1px solid #FFFFFF;
+    border-radius: 3px; 
+    outline: 0px; 
+}
+
+/* --- 2. 树形列表项 (Item) --- */
+QTreeWidget::item {
+    padding: 2px 1px;
+    border-radius: 0px;
+    color: #000000;
+}
+
+/* 鼠标悬停在未选中的项目上时 */
+QTreeWidget::item:hover {
+    background-color: #E0E0E0;
+}
+
+/* [核心修改] 项目被选中，且树形控件拥有焦点 (激活状态) */
+QTreeWidget::item:selected:active {
+    /* 使用从上到下的线性渐变，模仿 XP Luna Blue 的高光效果 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+                                      stop: 0 #8AB2EA, stop: 1 #316AC5);
+    border: none;
+    color: #FFFFFF; /* 文字变为白色以确保对比度 */
+}
+
+/* [核心修改] 项目被选中，但树形控件失去焦点时 (非激活状态) */
+QTreeWidget::item:selected:!active {
+    /* 非激活时使用灰色渐变，而不是单调的灰色 */
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, 
+                                      stop: 0 #F0F0F0, stop: 1 #D0D0D0);
+    color: #000000; /* 文字恢复为黑色 */
+    border: none;
+}

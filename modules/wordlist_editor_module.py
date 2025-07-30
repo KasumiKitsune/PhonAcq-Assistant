@@ -11,7 +11,7 @@ from datetime import datetime
 import json
 import shutil
 import subprocess
-
+from modules.custom_widgets_module import AnimatedListWidget
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
     QListWidgetItem, QFileDialog, QMessageBox, QTableWidget,
@@ -317,32 +317,20 @@ class WordlistEditorPage(QWidget):
         left_layout = QVBoxLayout(self.left_panel)
         
         left_layout.addWidget(QLabel("单词表文件:"))
-        self.file_list_widget = QListWidget()
-        original_mousePressEvent = self.file_list_widget.mousePressEvent
-        def custom_mousePressEvent(event):
-            # 检查点击位置是否有项目
-            item = self.file_list_widget.itemAt(event.pos())
-            if item is None:
-                # 1. 如果点击了空白处，并且当前有选中项
-                if self.file_list_widget.currentItem() is not None:
-                    # 2. 使用 setCurrentItem(None) 来取消选择。
-                    #    这会可靠地触发 currentItemChanged 信号，
-                    #    并让 on_file_selected(current=None, previous=...) 被调用。
-                    self.file_list_widget.setCurrentItem(None)
-            else:
-                # 如果点击了有效项目，则调用原始的事件处理器
-                original_mousePressEvent(event)
         
-        # 将自定义的事件处理器应用到控件上
-        self.file_list_widget.mousePressEvent = custom_mousePressEvent
-        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu) # 启用自定义上下文菜单
+        # [核心修正] 
+        # 1. 直接实例化新的 AnimatedListWidget
+        # 2. 彻底移除所有关于 custom_mousePressEvent 的定义和赋值代码
+        self.file_list_widget = AnimatedListWidget()
+        
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_list_widget.setToolTip("所有可编辑的单词表文件。\n右键单击可进行更多操作。")
         left_layout.addWidget(self.file_list_widget)
 
         self.new_btn = QPushButton("新建单词表")
         left_layout.addWidget(self.new_btn)
         
-        file_btn_layout = QHBoxLayout() # 文件操作按钮布局
+        file_btn_layout = QHBoxLayout()
         self.save_btn = QPushButton("保存")
         self.save_btn.setObjectName("AccentButton")
         self.save_as_btn = QPushButton("另存为...")
@@ -350,30 +338,29 @@ class WordlistEditorPage(QWidget):
         file_btn_layout.addWidget(self.save_as_btn)
         left_layout.addLayout(file_btn_layout)
 
-        # --- 右侧面板：词表编辑表格和操作按钮 ---
+        # --- 右侧面板 (保持不变) ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         
         self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(5) # 5列: 组别, 单词/短语, 备注(IPA), 语言(可选), 状态
+        self.table_widget.setColumnCount(5)
         self.table_widget.setHorizontalHeaderLabels(["组别", "单词/短语", "备注 (IPA)", "语言 (可选)", ""])
         self.table_widget.setToolTip("在此表格中编辑单词/词语。\n'状态'列显示相关音频资源的可用性。")
         
-        # 调整列的拉伸模式和宽度
         header = self.table_widget.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Interactive) # 组别列可手动调整
-        header.setSectionResizeMode(1, QHeaderView.Stretch)     # 单词/短语列拉伸
-        header.setSectionResizeMode(2, QHeaderView.Stretch)     # 备注/IPA列拉伸
-        header.setSectionResizeMode(3, QHeaderView.Interactive) # 语言列可手动调整
-        header.setSectionResizeMode(4, QHeaderView.Fixed)       # 状态列固定宽度
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Interactive)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
         
-        self.table_widget.setColumnWidth(4, 50) # 状态列的固定宽度
+        self.table_widget.setColumnWidth(4, 50)
         
-        self.table_widget.verticalHeader().setVisible(True) # 显示行号
-        self.table_widget.setAlternatingRowColors(True) # 启用交替行颜色，提高可读性
+        self.table_widget.verticalHeader().setVisible(True)
+        self.table_widget.setAlternatingRowColors(True)
         right_layout.addWidget(self.table_widget)
 
-        table_btn_layout = QHBoxLayout() # 表格操作按钮布局
+        table_btn_layout = QHBoxLayout()
         self.undo_btn = QPushButton("撤销")
         self.redo_btn = QPushButton("重做")
         self.auto_detect_lang_btn = QPushButton("自动检测语言")
@@ -383,17 +370,16 @@ class WordlistEditorPage(QWidget):
         
         table_btn_layout.addWidget(self.undo_btn)
         table_btn_layout.addWidget(self.redo_btn)
-        table_btn_layout.addStretch() # 弹簧，将中间按钮推开
+        table_btn_layout.addStretch()
         table_btn_layout.addWidget(self.auto_detect_lang_btn)
-        table_btn_layout.addStretch() # 弹簧，将右侧按钮推开
+        table_btn_layout.addStretch()
         table_btn_layout.addWidget(self.add_row_btn)
         table_btn_layout.addWidget(self.remove_row_btn)
         
         right_layout.addLayout(table_btn_layout)
 
-        # 将左右面板添加到主布局
         main_layout.addWidget(self.left_panel)
-        main_layout.addWidget(right_panel, 1) # 右侧面板占据更多空间
+        main_layout.addWidget(right_panel, 1)
 
     def load_file_from_path(self, filepath):
         """
@@ -496,24 +482,28 @@ class WordlistEditorPage(QWidget):
         刷新左侧的词表文件列表。
         保留当前选中项，并在文件列表中重新排序。
         """
-        # 确保在刷新前应用最新的布局设置和图标，防止UI错位
         if hasattr(self, 'parent_window'):
             self.apply_layout_settings()
             self.update_icons()
 
+        # [核心修正] 确保在清空列表前，记录下当前选中的文件名
         current_selection = self.file_list_widget.currentItem().text() if self.file_list_widget.currentItem() else ""
-        self.file_list_widget.clear() # 清空当前列表
+        
+        # 这里调用 clear() 方法，它已经被 AnimatedListWidget 覆盖，会安全地处理动画
+        self.file_list_widget.clear()
         
         if os.path.exists(self.WORD_LIST_DIR):
-            # 过滤出所有 .json 文件并按名称排序
             files = sorted([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
-            self.file_list_widget.addItems(files)
+            
+            # 调用新的动画填充方法
+            self.file_list_widget.addItemsWithAnimation(files)
             
             # 尝试重新选中之前的文件
-            for i in range(len(files)):
-                if files[i] == current_selection:
-                    self.file_list_widget.setCurrentRow(i)
-                    break
+            if current_selection:
+                for i in range(self.file_list_widget.count()):
+                    if self.file_list_widget.item(i).text() == current_selection:
+                        self.file_list_widget.setCurrentRow(i)
+                        break
 
     def setup_connections_and_shortcuts(self):
         """设置所有UI控件的信号槽连接和键盘快捷键。"""

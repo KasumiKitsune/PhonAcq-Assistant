@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QColor, QPen, QBrush, QPalette
-
+from modules.custom_widgets_module import AnimatedListWidget # [新增]
 # [新增] 导入 QMediaPlayer 和 QMediaContent
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
@@ -100,9 +100,9 @@ class ReorderDialog(QDialog):
         layout.addWidget(QLabel("请拖动文件以调整顺序，并输入新文件名:"))
 
         # 文件列表
-        self.file_list = QListWidget()
+        self.file_list = AnimatedListWidget()
         self.file_list.setDragDropMode(QAbstractItemView.InternalMove) # 启用拖放排序
-        self.file_list.addItems([os.path.basename(p) for p in filepaths])
+        self.file_list.addItemsWithAnimation([os.path.basename(p) for p in filepaths])
         self.original_paths = filepaths # 保存原始路径以供重排
         
         # 移动按钮
@@ -583,7 +583,7 @@ class AudioManagerPage(QWidget):
         left_layout.addWidget(self.source_combo)
         
         left_layout.addWidget(QLabel("项目列表:"))
-        self.session_list_widget = QListWidget()
+        self.session_list_widget = AnimatedListWidget()
         self.session_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.session_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.session_list_widget.setToolTip("双击可直接在文件浏览器中打开。\n右键可进行批量操作。")
@@ -593,7 +593,7 @@ class AudioManagerPage(QWidget):
         staging_group = QGroupBox("音频暂存区")
         staging_group.setToolTip("一个临时的区域，用于收集来自不同文件夹的音频以进行连接。")
         staging_layout = QVBoxLayout(staging_group)
-        self.staging_list_widget = QListWidget()
+        self.staging_list_widget = AnimatedListWidget()
         self.staging_list_widget.setToolTip("当前已暂存的音频文件。\n可在此处预览顺序。")
         
         staging_btn_layout = QHBoxLayout()
@@ -1339,13 +1339,8 @@ class AudioManagerPage(QWidget):
 
     # [新增] 更新暂存区列表UI
     def _update_staging_list_widget(self):
-        self.staging_list_widget.clear()
-        # 这里我们不直接用staged_files.values()，因为字典是无序的。
-        # 我们按照添加的顺序（或一个固定的顺序）来显示。
-        # 更好的做法是让 staged_files 是一个 list of tuples。
-        # 但为了简单，我们暂时用字典并排序key。
-        for path in sorted(self.staged_files.keys()):
-            self.staging_list_widget.addItem(self.staged_files[path])
+        items_text = [self.staged_files[path] for path in sorted(self.staged_files.keys())]
+        self.staging_list_widget.addItemsWithAnimation(items_text)
 
     # [新增] 清空暂存区
     def _clear_staging_area(self):
@@ -1725,7 +1720,7 @@ class AudioManagerPage(QWidget):
             # 并且需要确保只列出目录
             sessions = sorted([d for d in os.listdir(base_path) if source_info["filter"](d, base_path)], 
                               key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
-            self.session_list_widget.addItems(sessions)
+            self.session_list_widget.addItemsWithAnimation(sessions)
             if current_text:
                 items = self.session_list_widget.findItems(current_text, Qt.MatchFixedString)
                 if items: self.session_list_widget.setCurrentItem(items[0])

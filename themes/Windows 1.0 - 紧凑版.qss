@@ -778,3 +778,33 @@ QToolButton#PluginMenuItemToolButton:pressed {
     background-color: #0000FF; /* 深蓝色 */
     color: #FFFFFF;
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - Windows 1.0)
+================================================================================ 
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-radius: 0px; 
+    outline: 0px; 
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #000000;
+    qproperty-itemRadius: 0;
+    
+    /* 悬停状态：背景变为灰色，文字变为蓝色 */
+    qproperty-itemHoverBrush: #E0E0E0;
+    
+    /* 按下状态：与悬停一致 */
+    qproperty-itemPressedBrush: #E0E0E0;
+    
+    /* 选中状态：背景变为蓝色，文字变为白色 */
+    qproperty-itemSelectedBrush: #0000FF;
+    qproperty-itemSelectedTextColor: #FFFFFF;
+
+    qproperty-itemPadding: 2;
+    qproperty-itemTextPadding: 6;
+}

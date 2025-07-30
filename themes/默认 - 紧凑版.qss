@@ -672,3 +672,74 @@ QScrollArea#SettingsScrollArea > QWidget > QWidget {
     background-color: #F7F9FC; /* [核心] 设置为与主窗口一致的浅灰色背景 */
     border: none; /* 确保没有额外的边框 */
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - Modern Light)
+================================================================================ 
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #D9DEE4; 
+    border-radius: 6px; 
+    outline: 0px; 
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #2c3e50;
+    qproperty-itemRadius: 4;
+    
+    /* 悬停状态：使用柔和的浅灰色 */
+    qproperty-itemHoverBrush: rgba(59, 151, 227, 0.2);
+    
+    /* 按下状态：使用比悬停更深的灰色 */
+    qproperty-itemHoverBrush: rgba(59, 151, 227, 0.4);
+    
+    /* 选中状态：背景为主题蓝色，文字为白色 */
+    qproperty-itemSelectedBrush: #3B97E3;
+    qproperty-itemSelectedTextColor: #FFFFFF;
+
+    /* 边距与原生QListWidget保持一致 */
+    qproperty-itemPadding: 4;
+    qproperty-itemTextPadding: 8;
+    qproperty-minimumItemHeight: 32;
+}
+/*
+================================================================================
+【新增】文件管理器树形视图样式 (File Manager Tree View Style - Modern Light)
+================================================================================ 
+*/
+
+/* --- 1. 树形控件整体 --- */
+QTreeWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #D9DEE4;
+    border-radius: 6px; /* 匹配主题圆角 */
+    outline: 0px;
+}
+
+/* --- 2. 树形列表项 (Item) --- */
+QTreeWidget::item {
+    padding: 1px 1px;
+    border-radius: 4px; /* 项目的圆角 */
+    color: #2c3e50;
+}
+
+/* 鼠标悬停在未选中的项目上时 */
+QTreeWidget::item:hover {
+    background-color: #F0F2F4; /* 柔和的灰色悬停背景 */
+}
+
+/* 项目被选中，且树形控件拥有焦点 (激活状态) */
+QTreeWidget::item:selected:active {
+    background-color: rgba(59, 151, 227, 0.2); /* 半透明的主题蓝色 */
+    border: 1px solid #3B97E3;                  /* 实色的主题蓝色边框 */
+    color: #2c3e50;
+}
+
+/* 项目被选中，但树形控件失去焦点时 (非激活状态) */
+QTreeWidget::item:selected:!active {
+    background-color: #E9EDF0; /* 使用更柔和的浅灰色 */
+    color: #2c3e50;
+    border: 1px solid transparent;
+}

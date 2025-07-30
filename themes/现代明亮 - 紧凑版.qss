@@ -636,3 +636,75 @@ RangeSlider {
     qproperty-handleBorderWidth: 2;        /* 对应 QSlider::handle border-width */
     qproperty-handleRadius: 10;            /* 圆形滑块 (半径约为尺寸的一半) */
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - Modern Elegance)
+================================================================================ 
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #EAE0D6; 
+    border-radius: 8px; 
+    outline: 0px;
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #4A4034;
+    
+    /* 悬停状态：使用浅米色 */
+    qproperty-itemHoverBrush: rgba(143, 76, 51, 0.2);
+    
+    /* 按下状态：使用更深的米色 */
+    qproperty-itemPressedBrush: rgba(143, 76, 51, 0.4);
+    
+    /* 选中状态：背景为主题强调色，文字为白色 */
+    qproperty-itemSelectedBrush: #8F4C33;
+    qproperty-itemSelectedTextColor: #FFFFFF;
+
+    /* [核心] 药丸形选中项：将圆角半径设置为一个足够大的值 */
+    qproperty-itemRadius: 8;
+
+    /* 较大的边距以适应药丸形状 */
+    qproperty-itemPadding: 2;
+    qproperty-itemTextPadding: 6;
+}
+/*
+================================================================================
+【新增】文件管理器树形视图样式 (File Manager Tree View Style - Modern Elegance)
+================================================================================ 
+*/
+
+/* --- 1. 树形控件整体 --- */
+QTreeWidget {
+    background-color: #FFFFFF;         /* 背景：纯白 */
+    border: 1px solid #EAE0D6;         /* 边框：浅米色 */
+    border-radius: 8px;                /* 圆角，匹配主题 */
+    outline: 0px;                      /* 移除焦点虚线框 */
+}
+
+/* --- 2. 树形列表项 (Item) --- */
+QTreeWidget::item {
+    padding: 0px 0px;                 /* [修改] 更舒适的内边距 */
+    border-radius: 6px;                /* [修改] 为所有状态设置统一的圆角 */
+    color: #4A4034;                   /* 默认文字颜色：深褐色 */
+}
+
+/* 鼠标悬停在未选中的项目上时 */
+QTreeWidget::item:hover {
+    background-color: #F9F5F0; /* 背景：非常浅的米色 */
+}
+
+/* 项目被选中，且树形控件拥有焦点 (激活状态) */
+QTreeWidget::item:selected:active {
+    background-color: rgba(143, 76, 51, 0.2); /* 背景：半透明的主题棕色 */
+    border: 1px solid #8F4C33;                  /* 边框：实色的主题棕色 */
+    color: #4A4034;                             /* 文字颜色保持深褐色 */
+}
+
+/* 项目被选中，但树形控件失去焦点时 (非激活状态) */
+QTreeWidget::item:selected:!active {
+    background-color: #F5EDE2; /* 背景：使用更柔和的奶油色 */
+    color: #4A4034;            /* 文字：恢复为默认的深褐色 */
+    border: 1px solid transparent; /* 非激活时无边框 */
+}

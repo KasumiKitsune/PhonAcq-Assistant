@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QFileDialog, QMessageBox, QComboBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QSplitter, QApplication, QStyle, QMenu, QAbstractItemView,
                              QLineEdit)
+from modules.custom_widgets_module import AnimatedListWidget
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QColor, QBrush
 
@@ -111,7 +112,7 @@ class LogViewerPage(QWidget):
         
         self.session_list_label = QLabel("包含日志的会话:")
         left_layout.addWidget(self.session_list_label)
-        self.session_list = QListWidget()
+        self.session_list = AnimatedListWidget()
         self.session_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.session_list.setToolTip("此处列出所有包含日志文件的会话文件夹。")
         left_layout.addWidget(self.session_list, 1)
@@ -288,7 +289,7 @@ class LogViewerPage(QWidget):
             try:
                 sessions_with_logs = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d)) and os.path.exists(os.path.join(base_path, d, "log.txt"))]
                 sessions_with_logs.sort(key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
-                self.session_list.addItems(sessions_with_logs)
+                self.session_list.addItemsWithAnimation(sessions_with_logs)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"无法扫描日志文件夹: {e}")
         else:
@@ -297,7 +298,7 @@ class LogViewerPage(QWidget):
             try:
                 progress_files = [f for f in os.listdir(progress_dir) if f.endswith('.json')]
                 progress_files.sort(key=lambda f: os.path.getmtime(os.path.join(progress_dir, f)), reverse=True)
-                self.session_list.addItems(progress_files)
+                self.session_list.addItemsWithAnimation(progress_files)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"无法扫描速记卡进度文件夹: {e}")
 

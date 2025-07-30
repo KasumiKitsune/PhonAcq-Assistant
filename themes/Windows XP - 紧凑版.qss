@@ -775,3 +775,39 @@ QTabBar QToolButton:disabled {
     border-color: #C0C0C0;
     opacity: 1.0; 
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - Windows XP Compact)
+================================================================================ 
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #000000; 
+    border-top-color: #808080; 
+    border-left-color: #808080;
+    border-right-color: #FFFFFF; 
+    border-bottom-color: #FFFFFF;
+    border-radius: 0px; 
+    outline: 0px; 
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #000000;
+    qproperty-itemRadius: 0;
+    
+    /* 悬停状态：与原生QListWidget一致 */
+    qproperty-itemHoverBrush: #E0E0E0;
+    
+    /* 按下状态：与悬停一致 */
+    qproperty-itemPressedBrush: #E0E0E0;
+    
+    /* 选中状态：背景为蓝色，文字为白色 */
+    qproperty-itemSelectedBrush: #0000FF;
+    qproperty-itemSelectedTextColor: #FFFFFF;
+
+    /* 紧凑的边距 */
+    qproperty-itemPadding: 2;
+    qproperty-itemTextPadding: 5;
+    qproperty-minimumItemHeight: 28;
+}

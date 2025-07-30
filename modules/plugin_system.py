@@ -239,6 +239,7 @@ class PluginManagementDialog(QDialog):
         left_layout = QVBoxLayout(left_widget)
         left_layout.addWidget(QLabel("已发现的插件:"))
         self.plugin_list = QListWidget()
+        self.plugin_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.plugin_list.setSpacing(2)
         self.plugin_list.setToolTip("所有在 'plugins' 文件夹中找到的插件。\n- 右键单击可进行操作，查看帮助等。")
         self.plugin_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -261,12 +262,17 @@ class PluginManagementDialog(QDialog):
 
         bottom_layout = QHBoxLayout()
         self.add_btn = QPushButton("添加插件(.zip)...")
+        # [核心修改] 为按钮设置 objectName
+        self.add_btn.setObjectName("AccentButton") 
         self.add_btn.setToolTip("从一个 .zip 压缩包安装新插件。\n压缩包的根目录应只包含一个插件文件夹。")
+        
         self.remove_btn = QPushButton("移除选中插件")
+        # [核心修改] 为按钮设置 objectName
+        self.remove_btn.setObjectName("ActionButton_Delete") 
         self.remove_btn.setToolTip("永久删除磁盘上选中的插件文件夹。")
         
-        # [核心修改] 创建一个通用的、可变功能的按钮
-        self.action_btn = QPushButton()
+        # [核心修改] 移除旧的 action_btn，因为它将被 add_btn 的新逻辑替代
+        # self.action_btn = QPushButton() 
         
         self.open_folder_btn = QPushButton("打开插件文件夹")
         self.open_folder_btn.setToolTip("在系统的文件浏览器中打开 'plugins' 文件夹。")
@@ -275,7 +281,7 @@ class PluginManagementDialog(QDialog):
 
         bottom_layout.addWidget(self.add_btn)
         bottom_layout.addWidget(self.remove_btn)
-        bottom_layout.addWidget(self.action_btn) # 添加通用按钮到布局
+        # bottom_layout.addWidget(self.action_btn) # [核心修改] 移除
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.open_folder_btn)
         bottom_layout.addWidget(self.close_btn)
@@ -284,7 +290,6 @@ class PluginManagementDialog(QDialog):
     def _connect_signals(self):
         self.plugin_list.currentItemChanged.connect(self.update_details_view)
         self.plugin_list.customContextMenuRequested.connect(self.show_plugin_context_menu)
-        self.add_btn.clicked.connect(self.add_plugin)
         self.remove_btn.clicked.connect(self.remove_plugin)
         
         # [核心修改] action_btn 的信号连接现在是动态的，在 update_button_states 中处理
@@ -294,45 +299,30 @@ class PluginManagementDialog(QDialog):
         self.close_btn.clicked.connect(self.accept)
 
     def update_button_states(self):
-        is_item_selected = self.plugin_list.currentItem() is not None
+        is_item_selected = len(self.plugin_list.selectedItems()) > 0
         self.remove_btn.setEnabled(is_item_selected)
         
-        # [核心修改] 动态设置 action_btn 的文本、图标、功能和状态
+        # [核心修改] 动态设置 add_btn 的文本、图标、功能和状态
         
-        # 1. 断开旧的信号连接，防止重复绑定
-        try: self.action_btn.clicked.disconnect()
+        # 1. 断开 add_btn 旧的信号连接
+        try: self.add_btn.clicked.disconnect()
         except TypeError: pass
 
         # 2. 检查插件市场是否已安装并启用
         nexus_plugin_id = "com.phonacq.plugin_nexus"
         if nexus_plugin_id in self.plugin_manager.active_plugins:
             # 如果市场已启用，按钮变为“在线获取插件”
-            self.action_btn.setText("在线获取插件...")
-            self.action_btn.setIcon(self.icon_manager.get_icon("cloud_download")) # 假设有此图标
-            self.action_btn.setToolTip("打开插件市场，发现并安装更多插件。")
-            self.action_btn.clicked.connect(
+            self.add_btn.setText("添加插件(在线)...")
+            self.add_btn.setIcon(self.icon_manager.get_icon("cloud_download"))
+            self.add_btn.setToolTip("打开插件市场，发现并安装更多插件。")
+            self.add_btn.clicked.connect(
                 lambda: self.plugin_manager.execute_plugin(nexus_plugin_id, parent_dialog=self)
             )
-            self.action_btn.setEnabled(True) # 市场按钮总是可用的
         else:
-            # 如果市场未启用，按钮恢复为“查看帮助”
-            self.action_btn.setText("查看帮助")
-            self.action_btn.setIcon(self.icon_manager.get_icon("help"))
-            self.action_btn.setToolTip("查看选中插件的使用手册。")
-            self.action_btn.clicked.connect(self.show_manual_for_current_plugin)
-
-            # 判断“查看帮助”按钮是否可用
-            has_manual = False
-            if is_item_selected:
-                plugin_id = self.plugin_list.currentItem().data(Qt.UserRole)
-                meta = self.plugin_manager.available_plugins.get(plugin_id, {})
-                manual_file = meta.get('manual_file')
-                if manual_file:
-                    manual_path = os.path.join(meta.get('path', ''), manual_file)
-                    if os.path.exists(manual_path):
-                        has_manual = True
-            
-            self.action_btn.setEnabled(has_manual and MARKDOWN_AVAILABLE)
+            # 如果市场未启用，按钮恢复为“添加插件(.zip)...”
+            self.add_btn.setText("添加插件(.zip)...")
+            self.add_btn.setToolTip("从一个 .zip 压缩包安装新插件。\n压缩包的根目录应只包含一个插件文件夹。")
+            self.add_btn.clicked.connect(self.add_plugin)
 
     def populate_plugin_list(self):
         current_id = self.plugin_list.currentItem().data(Qt.UserRole) if self.plugin_list.currentItem() else None
@@ -362,26 +352,65 @@ class PluginManagementDialog(QDialog):
         self.plugin_details.setHtml(details_html); self.update_button_states()
 
     def show_plugin_context_menu(self, position):
-        item = self.plugin_list.itemAt(position);
-        if not item: return
-        plugin_id = item.data(Qt.UserRole)
-        is_enabled = plugin_id in self.plugin_manager.active_plugins
-        is_pinned = self.is_plugin_pinned(plugin_id)
-        menu = QMenu(self)
-        if is_enabled:
-            menu.addAction(self.icon_manager.get_icon("end_session_dark"), "禁用插件").triggered.connect(lambda: self.toggle_plugin_state(plugin_id, False))
-            menu.addSeparator()
-            if is_pinned: menu.addAction(self.icon_manager.get_icon("unpin"), "取消固定").triggered.connect(lambda: self.toggle_pin_state(plugin_id, False))
-            else: menu.addAction(self.icon_manager.get_icon("pin"), "固定到工具栏").triggered.connect(lambda: self.toggle_pin_state(plugin_id, True))
-        else:
-            menu.addAction(self.icon_manager.get_icon("play_audio"), "启用插件").triggered.connect(lambda: self.toggle_plugin_state(plugin_id, True))
+        selected_items = self.plugin_list.selectedItems()
+        if not selected_items: return
+
+        # [核心修改] 获取所有选中项的ID
+        selected_ids = [item.data(Qt.UserRole) for item in selected_items]
         
-        meta = self.plugin_manager.available_plugins.get(plugin_id, {}); manual_file = meta.get('manual_file')
-        if manual_file and os.path.exists(os.path.join(meta.get('path', ''), manual_file)):
-            menu.addSeparator()
-            action_help = menu.addAction(self.icon_manager.get_icon("help"), "查看帮助手册"); action_help.setEnabled(MARKDOWN_AVAILABLE)
-            action_help.triggered.connect(self.show_manual_for_current_plugin)
-        menu.addSeparator(); menu.addAction(self.icon_manager.get_icon("delete"), "移除插件...").triggered.connect(self.remove_plugin)
+        # 判断选中项的共同状态
+        all_enabled = all(pid in self.plugin_manager.active_plugins for pid in selected_ids)
+        all_disabled = all(pid not in self.plugin_manager.active_plugins for pid in selected_ids)
+        
+        menu = QMenu(self)
+        
+        # --- 批量启用/禁用 ---
+        if all_disabled:
+            # 如果所有选中的都是禁用的，则显示“启用”
+            menu.addAction(self.icon_manager.get_icon("play_audio"), f"启用选中的 {len(selected_ids)} 个插件").triggered.connect(
+                lambda: self.toggle_selection_state(selected_ids, True))
+        elif all_enabled:
+            # 如果所有选中的都是启用的，则显示“禁用”
+            menu.addAction(self.icon_manager.get_icon("end_session_dark"), f"禁用选中的 {len(selected_ids)} 个插件").triggered.connect(
+                lambda: self.toggle_selection_state(selected_ids, False))
+        else:
+            # 如果选中项状态混合，则禁用批量操作
+            mixed_action = menu.addAction("启用/禁用 (状态混合)")
+            mixed_action.setEnabled(False)
+
+        # --- [核心修改] 调整菜单布局 ---
+        # 只有在单选时，才显示固定和查看帮助选项
+        if len(selected_ids) == 1:
+            plugin_id = selected_ids[0]
+            is_enabled = plugin_id in self.plugin_manager.active_plugins
+            is_pinned = self.is_plugin_pinned(plugin_id)
+
+            # [核心修改] 禁用、固定、帮助之间不再有分隔线
+            
+            # 固定/取消固定
+            if is_enabled:
+                if is_pinned: 
+                    menu.addAction(self.icon_manager.get_icon("unpin"), "取消固定").triggered.connect(
+                        lambda: self.toggle_pin_state(plugin_id, False))
+                else: 
+                    menu.addAction(self.icon_manager.get_icon("pin"), "固定到工具栏").triggered.connect(
+                        lambda: self.toggle_pin_state(plugin_id, True))
+            
+            # 查看帮助手册
+            meta = self.plugin_manager.available_plugins.get(plugin_id, {})
+            manual_file = meta.get('manual_file')
+            if manual_file and os.path.exists(os.path.join(meta.get('path', ''), manual_file)):
+                action_help = menu.addAction(self.icon_manager.get_icon("help"), "查看帮助手册")
+                action_help.setEnabled(MARKDOWN_AVAILABLE)
+                # [核心修改] 这里的 show_manual_for_current_plugin 需要微调
+                action_help.triggered.connect(lambda: self.show_manual_for_item(self.plugin_list.currentItem()))
+
+        # --- 批量移除 ---
+        # 移除操作始终放在最后，并用分隔线隔开
+        menu.addSeparator()
+        menu.addAction(self.icon_manager.get_icon("delete"), f"移除选中的 {len(selected_ids)} 个插件...").triggered.connect(
+            self.remove_plugin) # remove_plugin 方法将被修改以处理多选
+        
         menu.exec_(self.plugin_list.mapToGlobal(position))
 
     def show_manual_for_current_plugin(self):
@@ -437,17 +466,86 @@ class PluginManagementDialog(QDialog):
             QMessageBox.information(self, "成功", f"插件 '{plugin_folder_name}' 已成功添加。"); self.plugin_manager.scan_plugins(); self.populate_plugin_list()
         except Exception as e: QMessageBox.critical(self, "添加失败", f"添加插件时发生错误:\n{e}")
 
+    def toggle_selection_state(self, plugin_ids, enable):
+        for pid in plugin_ids:
+            # 调用已有的单项切换方法，但暂时不保存配置和刷新UI
+            if enable:
+                self.plugin_manager.enable_plugin(pid)
+            else:
+                if self.is_plugin_pinned(pid):
+                    self.toggle_pin_state(pid, False) # 禁用时自动取消固定
+                self.plugin_manager.disable_plugin(pid)
+        
+        # 所有操作完成后，进行一次性的配置保存和UI刷新
+        self.save_config()
+        self.populate_plugin_list()
+        self.plugin_manager.main_window.update_pinned_plugins_ui()
+
     def remove_plugin(self):
-        current_item = self.plugin_list.currentItem();
-        if not current_item: return
-        plugin_id = current_item.data(Qt.UserRole); meta = self.plugin_manager.available_plugins.get(plugin_id)
-        if not meta: return
-        reply = QMessageBox.warning(self, "确认移除", f"您确定要永久删除插件 '{meta['name']}' 吗？\n\n这将从磁盘上删除以下文件夹及其所有内容:\n{meta['path']}", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        selected_items = self.plugin_list.selectedItems()
+        if not selected_items: return
+        
+        # 收集要删除的插件信息
+        plugins_to_remove = []
+        for item in selected_items:
+            plugin_id = item.data(Qt.UserRole)
+            meta = self.plugin_manager.available_plugins.get(plugin_id)
+            if meta:
+                plugins_to_remove.append(meta)
+
+        if not plugins_to_remove: return
+
+        # 构建确认信息
+        count = len(plugins_to_remove)
+        names_preview = "\n".join([f"- {meta['name']}" for meta in plugins_to_remove[:5]])
+        if count > 5:
+            names_preview += "\n- ..."
+
+        reply = QMessageBox.warning(self, "确认移除", 
+                                     f"您确定要永久删除选中的 {count} 个插件吗？\n\n{names_preview}\n\n"
+                                     "此操作将从磁盘上删除它们的文件夹及其所有内容。",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
         if reply == QMessageBox.Yes:
-            try:
-                if plugin_id in self.plugin_manager.active_plugins: self.toggle_plugin_state(plugin_id, False) # 使用toggle来处理禁用和取消固定
-                shutil.rmtree(meta['path']); QMessageBox.information(self, "成功", f"插件 '{meta['name']}' 已被移除。"); self.plugin_manager.scan_plugins(); self.populate_plugin_list()
-            except Exception as e: QMessageBox.critical(self, "移除失败", f"移除插件时发生错误:\n{e}")
+            error_happened = False
+            for meta in plugins_to_remove:
+                plugin_id = meta['id']
+                try:
+                    # 在删除前先禁用
+                    if plugin_id in self.plugin_manager.active_plugins:
+                        self.plugin_manager.disable_plugin(plugin_id)
+                    # 删除文件夹
+                    shutil.rmtree(meta['path'])
+                except Exception as e:
+                    QMessageBox.critical(self, "移除失败", f"移除插件 '{meta['name']}' 时发生错误:\n{e}")
+                    error_happened = True
+                    break # 发生错误时停止后续操作
+
+            if not error_happened:
+                QMessageBox.information(self, "成功", f"{count} 个插件已被移除。")
+            
+            # 统一处理配置保存和UI刷新
+            self.save_config()
+            self.plugin_manager.scan_plugins()
+            self.populate_plugin_list()
+            self.plugin_manager.main_window.update_pinned_plugins_ui()
+
+    # [重构] 修改 show_manual_for_current_plugin 使其更通用
+    def show_manual_for_item(self, item):
+        if not MARKDOWN_AVAILABLE: 
+            QMessageBox.warning(self, "功能缺失", "无法显示帮助手册，'markdown' 库未安装。")
+            return
+        if not item: return
+
+        plugin_id = item.data(Qt.UserRole)
+        meta = self.plugin_manager.available_plugins.get(plugin_id)
+        if not meta or not meta.get('manual_file'): return
+        
+        manual_path = os.path.join(meta['path'], meta['manual_file'])
+        if os.path.exists(manual_path):
+            ManualViewerDialog(manual_path, meta['name'], self).exec_()
+        else:
+            QMessageBox.warning(self, "文件未找到", f"插件 '{meta['name']}' 的手册文件 '{meta['manual_file']}' 未找到。")
                 
     def open_plugins_folder(self):
         path = self.plugin_manager.plugins_dir;

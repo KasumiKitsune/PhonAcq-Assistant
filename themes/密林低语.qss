@@ -530,3 +530,36 @@ QLabel:hover {
 QComboBox:hover {
     border-color: #637854; /* 边框颜色变为中苔藓绿 */
 }
+/*
+================================================================================
+【新增】自定义动画列表样式 (AnimatedListWidget Style - Whispering Woods)
+================================================================================ 
+*/
+AnimatedListWidget { 
+    background-color: #FFFFFF; 
+    border: 1px solid #DCD0C0; 
+    border-radius: 8px; 
+    outline: 0px;
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #4A4034;
+    
+    /* 悬停状态：使用柔和的米色 */
+    qproperty-itemHoverBrush: #EDE9E1;
+    
+    /* 按下状态：使用比悬停更深的米色 */
+    qproperty-itemPressedBrush: #EAE0D6;
+    
+    /* 选中状态：背景为主题绿色，文字为羊皮纸白 */
+    qproperty-itemSelectedBrush: #788C67;
+    qproperty-itemSelectedTextColor: #FDFBF5;
+    
+    /* [核心] 药丸形选中项：将圆角半径设置为一个足够大的值 */
+    qproperty-itemRadius: 18;
+
+    /* 较大的边距以适应药丸形状 */
+    qproperty-itemPadding: 4;
+    qproperty-itemTextPadding: 12;
+}

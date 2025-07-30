@@ -1,8 +1,12 @@
 # --- START OF FILE modules/custom_widgets_module.py ---
 
-from PyQt5.QtWidgets import QCheckBox, QWidget, QHBoxLayout, QSlider, QVBoxLayout, QLabel, QLineEdit, QGridLayout, QFrame, QDialog, QApplication
-from PyQt5.QtCore import Qt, pyqtProperty, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal, QPoint, QEvent
-from PyQt5.QtGui import QColor, QPainter, QPen, QBrush
+from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, 
+                             QHBoxLayout, QLabel, QLineEdit, QListWidget, QStyle, 
+                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem)
+from PyQt5.QtCore import (pyqtProperty, pyqtSignal, QEvent, QEasingCurve, 
+                          QParallelAnimationGroup, QPoint, QPropertyAnimation, 
+                          QRect, QRectF, QSequentialAnimationGroup, QSize, Qt, QObject, QTimer)
+from PyQt5.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 
 # ==============================================================================
 # 1. 自定义 ToggleSwitch 控件
@@ -874,3 +878,438 @@ class ColorButton(QLabel):
                 target_pos = self.mapToGlobal(self.rect().bottomLeft())
                 self._popup_instance.show_animated(target_pos)
         super().mouseReleaseEvent(event)
+# ==============================================================================
+# 6. 自定义动画列表控件 (AnimatedListWidget) - v1.5 [文档完善版]
+# ==============================================================================
+
+# ==============================================================================
+#   内部辅助类：_ItemAnimationHolder
+# ==============================================================================
+class _ItemAnimationHolder(QObject):
+    """
+    一个继承自 QObject 的内部动画代理类。
+
+    [核心使命]
+    解决 QListWidgetItem 无法直接作为 QPropertyAnimation 目标的问题。
+    它的每个实例与一个 QListWidgetItem 关联，持有该项目的所有动画属性
+    （如透明度、位移、背景色），并作为动画引擎的操作目标。
+
+    [工作原理]
+    1. QPropertyAnimation 作用于此类的实例 (一个 QObject)。
+    2. 动画引擎改变此类实例的 pyqtProperty (如 opacity)。
+    3. setter 方法被调用，它会：
+       a. 更新自身的内部值 (如 self._opacity)。
+       b. 将新值存入关联的 QListWidgetItem 的 UserRole 数据中。
+    4. valueChanged 信号会触发 update_view() 槽，请求列表重绘对应的项目。
+    """
+    def __init__(self, item, parent=None):
+        super().__init__(parent)
+        self.item = item
+        
+        # 初始化动画属性的内部存储
+        self._opacity = 0.0
+        self._y_offset = 0
+        self._bg_brush = QBrush(Qt.transparent)
+        
+        # 立即将初始值同步到 QListWidgetItem
+        self.sync_to_item()
+
+    def sync_to_item(self):
+        """将内部属性值写入关联的 QListWidgetItem 的数据角色中。"""
+        self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, self._opacity)
+        self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, self._y_offset)
+        self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
+
+    # --- 动画目标属性 ---
+    # 这些 pyqtProperty 是 QPropertyAnimation 能够识别和操作的接口。
+    
+    @pyqtProperty(float)
+    def opacity(self): 
+        return self._opacity
+    @opacity.setter
+    def opacity(self, value): 
+        self._opacity = value
+        self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, value)
+
+    @pyqtProperty(int)
+    def y_offset(self): 
+        return self._y_offset
+    @y_offset.setter
+    def y_offset(self, value): 
+        self._y_offset = value
+        self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, value)
+
+    @pyqtProperty(QColor)
+    def bg_color(self): 
+        return self._bg_brush.color()
+    @bg_color.setter
+    def bg_color(self, color): 
+        self._bg_brush = QBrush(color)
+        self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
+        
+    def update_view(self):
+        """一个槽函数，当任何动画属性改变时被调用，用于请求UI重绘。"""
+        list_widget = self.item.listWidget()
+        if list_widget:
+            index = list_widget.indexFromItem(self.item)
+            if index.isValid():
+                list_widget.update(index)
+
+# ==============================================================================
+#   内部辅助类：AnimatedItemDelegate
+# ==============================================================================
+class AnimatedItemDelegate(QStyledItemDelegate):
+    """
+    一个自定义的项目委托，负责所有列表项的绘制 (paint) 和尺寸计算 (sizeHint)。
+
+    [核心使命]
+    将 QListWidgetItem 中存储的动画数据（透明度、位移、背景色）
+    可视化地应用到每个项目的绘制过程中。同时，它还负责计算文本溢出
+    时的省略号显示和项目的动态高度。
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.list_widget = parent
+
+    def paint(self, painter, option, index):
+        """
+        绘制单个列表项。此方法会在每次需要重绘项目时被调用。
+        """
+        painter.save()
+
+        # 1. 从 QListWidgetItem 的数据角色中获取当前动画状态值
+        opacity = index.data(AnimatedListWidget.ANIM_OPACITY_ROLE) or 0.0
+        y_offset = index.data(AnimatedListWidget.ANIM_Y_OFFSET_ROLE) or 0
+        bg_brush = index.data(AnimatedListWidget.ANIM_BG_BRUSH_ROLE) or self.list_widget.itemBrush
+
+        # 2. 应用动画变换
+        painter.setOpacity(opacity)
+        painter.translate(0, y_offset)
+        
+        # 3. 绘制背景
+        rect = option.rect
+        padding = self.list_widget.itemPadding
+        bg_rect = rect.adjusted(padding, padding, -padding, -padding)
+        
+        # 根据项目是否被选中，决定使用哪个背景画刷
+        final_brush = self.list_widget.itemSelectedBrush if option.state & QStyle.State_Selected else bg_brush
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(final_brush)
+        painter.drawRoundedRect(bg_rect, self.list_widget.itemRadius, self.list_widget.itemRadius)
+        
+        # 4. 绘制文本
+        text_color = self.list_widget.itemSelectedTextColor if option.state & QStyle.State_Selected else self.list_widget.itemTextColor
+        painter.setPen(text_color)
+        
+        text = index.data(Qt.DisplayRole)
+        text_rect = bg_rect.adjusted(self.list_widget.itemTextPadding, self.list_widget.itemTextPadding, -self.list_widget.itemTextPadding, -self.list_widget.itemTextPadding)
+        
+        font = self.list_widget.font()
+        fm = QFontMetrics(font)
+        
+        # 如果文本宽度超过可用空间，生成带省略号的文本
+        elided_text = fm.elidedText(text, Qt.ElideRight, text_rect.width())
+        
+        # 绘制单行文本，并使其垂直居中
+        flags = Qt.AlignLeft | Qt.AlignVCenter | Qt.TextSingleLine
+        painter.drawText(text_rect, flags, elided_text)
+
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        """
+        计算并返回单个项目应有的大小。
+        这里我们只关心高度，宽度会自动拉伸。
+        """
+        # 计算总的垂直内边距
+        padding_v = self.list_widget.itemPadding * 2
+        text_padding_v = self.list_widget.itemTextPadding * 2
+        
+        font = self.list_widget.font()
+        fm = QFontMetrics(font)
+        
+        # 高度由字体高度和所有垂直内边距决定
+        height = fm.height() + padding_v + text_padding_v
+        
+        # 确保高度不小于QSS中定义的最小高度
+        min_h = self.list_widget.minimumItemHeight
+        if height < min_h:
+            height = min_h
+            
+        return QSize(20, int(height)) # 宽度值不重要
+
+# ==============================================================================
+#   主控件类：AnimatedListWidget
+# ==============================================================================
+class AnimatedListWidget(QListWidget):
+    """
+    一个功能齐全的列表控件，支持项目进入动画、状态过渡动画和完全的QSS主题化。
+    它旨在作为 QListWidget 的一个直接、功能增强的替代品。
+    """
+    # 定义用于在 QListWidgetItem 中存储动画数据的自定义数据角色
+    ANIM_OPACITY_ROLE = Qt.UserRole + 1
+    ANIM_Y_OFFSET_ROLE = Qt.UserRole + 2
+    ANIM_BG_BRUSH_ROLE = Qt.UserRole + 3
+    ANIM_HOLDER_ROLE = Qt.UserRole + 4 # 存储指向 _ItemAnimationHolder 实例的引用
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # --- 核心设置 ---
+        self.setItemDelegate(AnimatedItemDelegate(self))
+        self.setMouseTracking(True)
+        self.setUniformItemSizes(False) # 允许项目有不同高度
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel) # 平滑滚动
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # 禁用横向滚动条
+        self.setWordWrap(False) # 禁用原生换行，交由 delegate 处理省略号
+
+        # --- 内部状态变量 ---
+        self._hovered_item_id = None
+        self._pressed_item_id = None
+        self._current_animations = {} # {item_id: QPropertyAnimation}
+
+        # --- 默认QSS属性 ---
+        # 这些值可以在主题QSS文件中通过 qproperty- 语法覆盖
+        self._itemBrush = QBrush(Qt.transparent)
+        self._itemHoverBrush = QBrush(QColor("#F0F2F4"))
+        self._itemPressedBrush = QBrush(QColor("#F0F2F4"))
+        self._itemSelectedBrush = QBrush(QColor("#3B97E3"))
+        self._itemTextColor = QColor("#2c3e50")
+        self._itemSelectedTextColor = QColor("#FFFFFF")
+        self._itemRadius = 4
+        self._itemPadding = 4
+        self._itemTextPadding = 8
+        self._minimumItemHeight = 36
+        
+        # --- 核心信号连接 ---
+        self.itemSelectionChanged.connect(self._on_selection_changed)
+
+    # --- QSS 可定义属性 ---
+    # 这些 pyqtProperty 使得控件的所有视觉参数都可以通过主题QSS文件进行配置
+    
+    @pyqtProperty(int)
+    def itemPadding(self): return self._itemPadding
+    @itemPadding.setter
+    def itemPadding(self, padding): self._itemPadding = padding; self.update()
+    
+    @pyqtProperty(int)
+    def itemTextPadding(self): return self._itemTextPadding
+    @itemTextPadding.setter
+    def itemTextPadding(self, padding): self._itemTextPadding = padding; self.update()
+    
+    @pyqtProperty(QBrush)
+    def itemBrush(self): return self._itemBrush
+    @itemBrush.setter
+    def itemBrush(self, brush): self._itemBrush = brush; self.update()
+    
+    @pyqtProperty(QBrush)
+    def itemHoverBrush(self): return self._itemHoverBrush
+    @itemHoverBrush.setter
+    def itemHoverBrush(self, brush): self._itemHoverBrush = brush; self.update()
+    
+    @pyqtProperty(QBrush)
+    def itemPressedBrush(self): return self._itemPressedBrush
+    @itemPressedBrush.setter
+    def itemPressedBrush(self, brush): self._itemPressedBrush = brush; self.update()
+    
+    @pyqtProperty(QBrush)
+    def itemSelectedBrush(self): return self._itemSelectedBrush
+    @itemSelectedBrush.setter
+    def itemSelectedBrush(self, brush): self._itemSelectedBrush = brush; self.update()
+    
+    @pyqtProperty(QColor)
+    def itemTextColor(self): return self._itemTextColor
+    @itemTextColor.setter
+    def itemTextColor(self, color): self._itemTextColor = color; self.update()
+    
+    @pyqtProperty(QColor)
+    def itemSelectedTextColor(self): return self._itemSelectedTextColor
+    @itemSelectedTextColor.setter
+    def itemSelectedTextColor(self, color): self._itemSelectedTextColor = color; self.update()
+    
+    @pyqtProperty(int)
+    def itemRadius(self): return self._itemRadius
+    @itemRadius.setter
+    def itemRadius(self, radius): self._itemRadius = radius; self.update()
+    
+    @pyqtProperty(int)
+    def minimumItemHeight(self): return self._minimumItemHeight
+    @minimumItemHeight.setter
+    def minimumItemHeight(self, height): self._minimumItemHeight = height; self.update()
+    
+    # --- 动画与事件处理 ---
+    
+    def _animate_item_bg(self, item, end_brush):
+        """启动单个项目背景色的过渡动画。"""
+        if not item: return
+        holder = item.data(self.ANIM_HOLDER_ROLE)
+        if not holder: return
+        
+        item_id = id(item)
+        
+        # 停止任何正在对该项目进行的旧动画，防止冲突
+        try:
+            existing_anim = self._current_animations.get(item_id)
+            if existing_anim:
+                if existing_anim.endValue() == end_brush.color(): return
+                existing_anim.stop()
+        except RuntimeError: pass
+
+        # 创建并配置新的动画
+        anim = QPropertyAnimation(holder, b"bg_color", holder)
+        anim.setDuration(150)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.setStartValue(holder.bg_color)
+        anim.setEndValue(end_brush.color())
+        anim.valueChanged.connect(holder.update_view)
+        
+        self._current_animations[item_id] = anim
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+
+    def mouseMoveEvent(self, event):
+        """处理鼠标移动事件，用于更新悬停状态。"""
+        super().mouseMoveEvent(event)
+        
+        old_hovered_id = self._hovered_item_id
+        current_item = self.itemAt(event.pos())
+        self._hovered_item_id = id(current_item) if current_item else None
+        
+        # 仅当悬停的项目发生变化时才更新状态
+        if self._hovered_item_id != old_hovered_id:
+            if old_hovered_id: self._update_item_visual_state(self._item_from_id(old_hovered_id))
+            if self._hovered_item_id: self._update_item_visual_state(current_item)
+
+    def leaveEvent(self, event):
+        """当鼠标离开控件时，取消所有悬停状态。"""
+        super().leaveEvent(event)
+        
+        old_hovered_id = self._hovered_item_id
+        self._hovered_item_id = None
+        if old_hovered_id:
+            self._update_item_visual_state(self._item_from_id(old_hovered_id))
+
+    def mousePressEvent(self, event):
+        """处理鼠标按下事件，用于更新按下状态和取消选择。"""
+        item = self.itemAt(event.pos())
+        
+        # 如果点击空白处，取消选择
+        if item is None:
+            self.setCurrentItem(None)
+            super().mousePressEvent(event)
+            return
+
+        # 如果点击了有效的项目
+        if event.button() == Qt.LeftButton:
+            self._pressed_item_id = id(item)
+            self._update_item_visual_state(item)
+        
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """处理鼠标释放事件，恢复按下状态。"""
+        super().mouseReleaseEvent(event)
+        
+        pressed_id = self._pressed_item_id
+        self._pressed_item_id = None
+        if pressed_id:
+            # 延迟调用以确保选择状态已更新
+            QTimer.singleShot(0, lambda: self._update_item_visual_state(self._item_from_id(pressed_id)))
+    
+    def _on_selection_changed(self):
+        """当选择变化时，这是一个权威事件。强制所有项目更新到其正确状态。"""
+        # 使用 QTimer.singleShot 延迟执行，确保在所有鼠标事件处理完毕后才更新视觉状态，
+        # 避免状态竞争。
+        QTimer.singleShot(0, lambda: [self._update_item_visual_state(self.item(i)) for i in range(self.count())])
+
+    def _get_target_brush_for_item(self, item):
+        """根据项目的当前状态（选中、按下、悬停），决定其目标背景颜色。"""
+        item_id = id(item)
+        if item.isSelected(): return self.itemSelectedBrush
+        if item_id == self._pressed_item_id: return self.itemPressedBrush
+        if item_id == self._hovered_item_id: return self.itemHoverBrush
+        return self.itemBrush
+
+    def _update_item_visual_state(self, item):
+        """
+        状态驱动的核心：检查一个项目的目标状态，并启动动画使其过渡。
+        """
+        if not item: return
+        target_brush = self._get_target_brush_for_item(item)
+        self._animate_item_bg(item, target_brush)
+    
+    # --- 核心功能：项目进入动画与清空 ---
+    
+    def addItemsWithAnimation(self, items_text):
+        """
+        用交错的、从下往上淡入的动画来添加一批项目。
+        """
+        self.clear()
+        
+        # ==================== 可调参数 ====================
+        ANIM_DURATION = 200  # 每个项目动画的持续时间 (毫秒)
+        STAGGER_DELAY = 40   # 每个项目动画开始之间的延迟 (毫秒)
+        # ===============================================
+
+        for i, text in enumerate(items_text):
+            item = QListWidgetItem(text)
+            item.setToolTip(text) # 设置Tooltip以显示完整名称
+            
+            holder = _ItemAnimationHolder(item, self)
+            item.setData(self.ANIM_HOLDER_ROLE, holder)
+            super().addItem(item)
+
+            def start_single_animation(holder_ref=holder):
+                if not holder_ref or not holder_ref.parent(): return
+                
+                parallel_anim = QParallelAnimationGroup(holder_ref)
+                
+                opacity_anim = QPropertyAnimation(holder_ref, b"opacity", holder_ref)
+                opacity_anim.setDuration(ANIM_DURATION)
+                opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+                opacity_anim.setStartValue(0.0)
+                opacity_anim.setEndValue(1.0)
+
+                offset_anim = QPropertyAnimation(holder_ref, b"y_offset", holder_ref)
+                offset_anim.setDuration(ANIM_DURATION)
+                offset_anim.setEasingCurve(QEasingCurve.OutCubic)
+                offset_anim.setStartValue(20) # 从下方20像素处开始
+                offset_anim.setEndValue(0)
+
+                opacity_anim.valueChanged.connect(holder_ref.update_view)
+                offset_anim.valueChanged.connect(holder_ref.update_view)
+
+                parallel_anim.addAnimation(opacity_anim)
+                parallel_anim.addAnimation(offset_anim)
+                parallel_anim.start(QPropertyAnimation.DeleteWhenStopped)
+
+            QTimer.singleShot(i * STAGGER_DELAY, start_single_animation)
+
+    def clear(self):
+        """覆盖原生的 clear 方法，以安全地停止动画和清理资源。"""
+        for anim_id in list(self._current_animations.keys()):
+            anim = self._current_animations.pop(anim_id, None)
+            try:
+                if anim: anim.stop()
+            except RuntimeError: pass
+            
+        for i in range(self.count()):
+            item = self.item(i)
+            holder = item.data(self.ANIM_HOLDER_ROLE)
+            if holder: holder.deleteLater()
+            
+        self._hovered_item_id = None
+        self._pressed_item_id = None
+        super().clear()
+        
+    def _item_from_id(self, item_id):
+        """辅助函数：通过内存ID查找 QListWidgetItem。"""
+        for i in range(self.count()):
+            item = self.item(i)
+            if item and id(item) == item_id:
+                return item
+        return None
+        
+    def resizeEvent(self, event):
+        """当控件大小变化时，重新计算布局以确保省略号正确显示。"""
+        super().resizeEvent(event)
+        self.scheduleDelayedItemsLayout()

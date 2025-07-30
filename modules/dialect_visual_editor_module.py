@@ -11,10 +11,12 @@ from datetime import datetime
 import json
 import shutil # [新增] 用于文件复制
 import subprocess # [新增] 用于打开文件浏览器
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QShortcut, QUndoStack, 
-                             QUndoCommand, QApplication, QMenu, QDialog)
+                             QUndoCommand, QApplication, QMenu, QDialog, QListWidget)
+# [新增] 导入我们新的自定义控件
+from modules.custom_widgets_module import AnimatedListWidget
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence, QColor, QBrush, QIcon
 
@@ -183,23 +185,9 @@ class DialectVisualEditorPage(QWidget):
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self); self.left_panel = QWidget(); left_layout = QVBoxLayout(self.left_panel)
-        self.file_list_widget = QListWidget()
-        original_mousePressEvent = self.file_list_widget.mousePressEvent
-        def custom_mousePressEvent(event):
-            item = self.file_list_widget.itemAt(event.pos())
-            if item is None:
-                # 1. 如果点击了空白处，并且当前有选中项
-                if self.file_list_widget.currentItem() is not None:
-                    # 2. 使用 setCurrentItem(None) 来取消选择。
-                    #    这会可靠地触发 currentItemChanged 信号，
-                    #    并让 on_file_selected(current=None, previous=...) 被调用。
-                    self.file_list_widget.setCurrentItem(None)
-            else:
-                # 如果点击了有效项目，则调用原始的事件处理器
-                original_mousePressEvent(event)
-        
-        self.file_list_widget.mousePressEvent = custom_mousePressEvent
-        self.file_list_widget.setToolTip("所有可编辑的图文词表文件。")
+        self.file_list_widget = AnimatedListWidget()
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list_widget.setToolTip("所有可编辑的图文词表文件。\n右键单击可进行更多操作。")
         self.new_btn = QPushButton("新建图文词表"); self.save_btn = QPushButton("保存")
         self.save_btn.setObjectName("AccentButton")
         self.save_as_btn = QPushButton("另存为...")
@@ -247,14 +235,27 @@ class DialectVisualEditorPage(QWidget):
         config = self.parent_window.config; ui_settings = config.get("ui_settings", {}); width = ui_settings.get("editor_sidebar_width", 280); self.left_panel.setFixedWidth(width)
     def refresh_file_list(self):
         if hasattr(self, 'parent_window'): self.apply_layout_settings()
+        
+        # [核心修正] 确保在清空列表前，记录下当前选中的文件名
         current_selection = self.file_list_widget.currentItem().text() if self.file_list_widget.currentItem() else ""
+        
         self.file_list_widget.clear()
+        
         if WORD_LIST_DIR_FOR_DIALECT_VISUAL and os.path.exists(WORD_LIST_DIR_FOR_DIALECT_VISUAL):
-            # [修改] 只查找 .json 文件
             files = sorted([f for f in os.listdir(WORD_LIST_DIR_FOR_DIALECT_VISUAL) if f.endswith('.json')])
-            self.file_list_widget.addItems(files)
-            for i in range(len(files)):
-                if files[i] == current_selection: self.file_list_widget.setCurrentRow(i); break
+            
+            # [修改前]
+            # self.file_list_widget.addItems(files)
+            
+            # [修改后]
+            self.file_list_widget.addItemsWithAnimation(files)
+            
+            # 重新选中之前的文件的逻辑保持不变
+            if current_selection:
+                for i in range(self.file_list_widget.count()):
+                    if self.file_list_widget.item(i).text() == current_selection:
+                        self.file_list_widget.setCurrentRow(i)
+                        break
     def on_file_double_clicked(self, item):
         self._show_in_explorer(item)
 
