@@ -897,7 +897,7 @@ QTableWidget QComboBox::down-arrow {
 【最终版】RangeSlider 样式 (Windows XP 风格，支持渐变)
 ================================================================================ 
 */
-RangeSlider {
+RangeSlider, AnimatedSlider {
     /* --- 轨道颜色 --- */
     qproperty-trackColor: #E0E0E0;
     qproperty-rangeColor: #548CD9;

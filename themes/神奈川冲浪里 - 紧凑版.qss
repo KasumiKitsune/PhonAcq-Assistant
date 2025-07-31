@@ -430,7 +430,7 @@ QLabel:hover {
     color: #3B6894;
 }
 /* --- RangeSlider 仿真样式 --- */
-RangeSlider {
+RangeSlider, AnimatedSlider {
     /* --- 轨道颜色 --- */
     qproperty-trackColor: #C5D9E8;
     qproperty-rangeColor: #3B6894;

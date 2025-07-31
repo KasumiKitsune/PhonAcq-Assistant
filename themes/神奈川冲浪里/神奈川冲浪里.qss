@@ -981,7 +981,7 @@ QCheckBox::indicator:disabled {
 QCheckBox:disabled {
     color: #A8B8C8; /* 禁用时文字颜色：灰蓝色 */
 }
-RangeSlider {
+RangeSlider, AnimatedSlider {
     /* --- 轨道颜色 --- */
     qproperty-trackColor: #C5D9E8;
     qproperty-rangeColor: #3B6894;

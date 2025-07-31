@@ -17,6 +17,7 @@ QWidget {
     /* [修改] 基础字体从 16px 增大到 17px */
     font-family: "Microsoft YaHei", "Segoe UI", "Source Han Sans SC", sans-serif;
     color: #2c3e50; 
+    background-color: transparent; 
     font-size: 17px;
     font-weight: normal;
 }
@@ -24,6 +25,7 @@ QWidget {
 QMainWindow, QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget {
     background-color: #F7F9FC; 
 }
+
 
 /* ============================================================================== */
 /* == 2. 容器与布局控件 (Containers & Layout Widgets) == */
@@ -622,7 +624,7 @@ QTableWidget QComboBox::down-arrow {
     height: 10px;
 }
 /* --- RangeSlider 仿真样式 --- */
-RangeSlider {
+RangeSlider, AnimatedSlider {
     qproperty-trackColor: #E9EDF0;
     qproperty-rangeColor: #3B97E3;
     qproperty-hoverTrackColor: #D9DEE4; /* [新增] 仿真 groove:hover */

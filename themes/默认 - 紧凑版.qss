@@ -18,6 +18,7 @@ QWidget {
     color: #2c3e50; /* 深蓝灰色，比纯黑更柔和 */
     font-size: 16px;
     font-weight: normal;
+    background-color: transparent; 
     /* 'background-color: transparent;' 通常是默认值，在此处省略以保持简洁 */
 }
 
@@ -643,7 +644,7 @@ QSlider::handle:horizontal:hover {
     background: #E9EDF0; /* 背景色变为浅灰色，提供一个轻微的反馈 */
 }
 /* --- RangeSlider 仿真样式 --- */
-RangeSlider {
+RangeSlider, AnimatedSlider {
     qproperty-trackColor: #E9EDF0;
     qproperty-rangeColor: #3B97E3;
     qproperty-hoverTrackColor: #D9DEE4; /* [新增] 仿真 groove:hover */

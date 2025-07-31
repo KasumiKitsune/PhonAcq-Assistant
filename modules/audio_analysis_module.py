@@ -11,12 +11,12 @@ import re
 import sys
 from datetime import timedelta
 import math # 新增导入，用于数学计算，如对数和向上取整
-from modules.custom_widgets_module import RangeSlider
+from modules.custom_widgets_module import RangeSlider, AnimatedSlider
 # PyQt5 GUI 库的核心组件导入
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QMessageBox, QGroupBox, QFormLayout, QSizePolicy, QSlider,
                              QScrollBar, QProgressDialog, QFileDialog, QCheckBox, QLineEdit,
-                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
+                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea, QFrame) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
 from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont, QCursor, QKeySequence
@@ -38,6 +38,7 @@ except ImportError as e:
 # AudioTaskWorker 类：在独立的线程中执行耗时的音频处理任务，以保持UI响应。
 class AudioTaskWorker(QObject):
     # 定义信号，用于向主线程发送任务完成结果或错误信息
+    chunk_finished = pyqtSignal(dict)
     finished = pyqtSignal(dict) # 任务成功完成时发送，携带结果字典
     error = pyqtSignal(str)     # 任务执行过程中发生错误时发送，携带错误信息字符串
 
@@ -66,12 +67,13 @@ class AudioTaskWorker(QObject):
         try:
             if self.task_type == 'load':
                 self._run_load_task()
-            elif self.task_type == 'analyze':
-                self._run_analyze_task()
+            elif self.task_type == 'analyze_acoustics':
+                self._run_acoustics_task() # 调用新的声学分析方法
+            elif self.task_type == 'analyze_spectrogram':
+                self._run_spectrogram_task() # 调用新的语谱图分析方法
             elif self.task_type == 'analyze_formants_view':
                 self._run_formant_view_task()
         except Exception as e:
-            # 捕获任何异常并发出错误信号
             self.error.emit(str(e))
 
     def _run_load_task(self):
@@ -95,122 +97,153 @@ class AudioTaskWorker(QObject):
         # 任务完成后，发出 finished 信号，携带加载的音频数据和采样率
         self.finished.emit({ 'y_full': y, 'sr': sr, 'y_overview': y_overview })
 
-    def _run_analyze_task(self):
+    def _run_acoustics_task(self):
         """
-        执行完整的声学分析任务，包括语谱图、F0和强度。
+        [最终版 v2] 以可配置大小和重叠的块执行声学分析。
+        集成了二次分析（提高速度）、强制hop_length（保证对齐）和重叠分块策略。
         """
-        # 从 kwargs 中获取UI参数，提供默认值
+        # --- 步骤 1: 参数准备 ---
+        # 从UI线程传递过来的参数
+        pre_emphasis = self.kwargs.get('pre_emphasis', False)
+        user_f0_min = self.kwargs.get('f0_min', librosa.note_to_hz('C2'))
+        user_f0_max = self.kwargs.get('f0_max', librosa.note_to_hz('C7'))
+        forced_hop_length = self.kwargs.get('forced_hop_length')
+        chunk_size_ms = self.kwargs.get('chunk_size_ms', 200)
+        chunk_overlap_ms = self.kwargs.get('chunk_overlap_ms', 10)
+        
+        # 准备用于分析的音频数据
+        y_analyzed = librosa.effects.preemphasis(self.y) if pre_emphasis else self.y
+
+        # --- 步骤 2: 二次分析策略 - 快速全局粗分析以优化F0范围 ---
+        final_f0_min, final_f0_max = user_f0_min, user_f0_max
+        try:
+            # 在一个极低采样率的音频副本上进行超快速分析
+            y_coarse = librosa.resample(self.y, orig_sr=self.sr, target_sr=8000)
+            f0_coarse, _, _ = librosa.pyin(
+                y_coarse, fmin=30, fmax=1200, sr=8000,
+                frame_length=1024, hop_length=512
+            )
+            valid_f0_coarse = f0_coarse[np.isfinite(f0_coarse)]
+
+            if len(valid_f0_coarse) > 10:
+                # 使用百分位数稳健地估计范围，抵抗离群点
+                p5, p95 = np.percentile(valid_f0_coarse, [5, 95])
+                padding = (p95 - p5) * 0.15 # 增加15%的边距
+                
+                # 更新F0范围，但确保不超出用户在UI上设定的范围
+                final_f0_min = max(user_f0_min, p5 - padding)
+                final_f0_max = min(user_f0_max, p95 + padding)
+        except Exception:
+            # 如果粗分析的任何步骤出错，都安全地回退到用户设定的原始范围
+            pass
+
+        # --- 步骤 3: 确定最终的 hop_length 以确保对齐 ---
+        if forced_hop_length is not None:
+            # 如果UI强制指定了hop_length（因为语谱图已存在），则必须使用它
+            hop_length = forced_hop_length
+        else:
+            # 否则，根据UI上的渲染精細度计算
+            render_density = self.kwargs.get('render_density', 4)
+            narrow_band_window_s = 0.035
+            base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
+            render_overlap_ratio = 1 - (1 / (2**render_density))
+            hop_length = int(base_n_fft_for_hop * (1 - render_overlap_ratio)) or 1
+        
+        # --- 步骤 4: 定义重叠分块参数 ---
+        chunk_size_samples = int((chunk_size_ms / 1000) * self.sr)
+        overlap_samples = int((chunk_overlap_ms / 1000) * self.sr)
+        
+        # 步进大小是块大小减去重叠大小
+        step_size_samples = chunk_size_samples - overlap_samples
+        if step_size_samples <= 0: # 安全检查，防止无限循环
+            step_size_samples = hop_length # 如果配置错误，则回退到hop_length步进
+        
+        frame_length = 1 << (int(self.sr * 0.040) - 1).bit_length()
+        
+        # --- 步骤 5: 使用 while 循环实现重叠步进分析 ---
+        current_pos_samples = 0
+        while current_pos_samples < len(self.y):
+            if QThread.currentThread().isInterruptionRequested():
+                self.finished.emit({})
+                return
+
+            # 提取当前块（包含重叠部分）
+            start_sample = current_pos_samples
+            end_sample = start_sample + chunk_size_samples
+            y_chunk, y_chunk_analyzed = self.y[start_sample:end_sample], y_analyzed[start_sample:end_sample]
+
+            if len(y_chunk) == 0: break
+
+            # 使用优化后的F0范围和正确的hop_length进行精细分析
+            f0_raw, voiced_flags, _ = librosa.pyin(
+                y_chunk_analyzed, fmin=final_f0_min, fmax=final_f0_max, sr=self.sr,
+                frame_length=frame_length, hop_length=hop_length
+            )
+            
+            # F0后处理
+            if len(f0_raw) > 0:
+                f0_postprocessed = np.full_like(f0_raw, np.nan)
+                voiced_ints = voiced_flags.astype(int)
+                if len(voiced_ints) > 0:
+                    starts, ends = np.where(np.diff(voiced_ints) == 1)[0] + 1, np.where(np.diff(voiced_ints) == -1)[0] + 1
+                    if voiced_ints[0] == 1: starts = np.insert(starts, 0, 0)
+                    if voiced_ints[-1] == 1: ends = np.append(ends, len(voiced_ints))
+                    for start_idx, end_idx in zip(starts, ends):
+                        if end_idx - start_idx > 2:
+                            segment = f0_raw[start_idx:end_idx]; segment_series = pd.Series(segment)
+                            interpolated_segment = segment_series.interpolate(method='linear', limit_direction='both', limit=2).to_numpy()
+                            f0_postprocessed[start_idx:end_idx] = interpolated_segment
+            else:
+                f0_postprocessed = f0_raw
+            
+            intensity = librosa.feature.rms(y=y_chunk, frame_length=frame_length, hop_length=hop_length)[0]
+            
+            # 裁剪结果，只发送每个块中“新”的部分，以避免重绘
+            num_frames_in_step = math.ceil(step_size_samples / hop_length)
+            
+            # 计算全局时间戳
+            times_in_chunk = librosa.times_like(f0_raw, sr=self.sr, hop_length=hop_length)
+            global_times = times_in_chunk + (start_sample / self.sr)
+            
+            # 发送裁剪后的块结果
+            self.chunk_finished.emit({
+                'f0_raw': (global_times[:num_frames_in_step], f0_raw[:num_frames_in_step]),
+                'f0_derived': (global_times[:num_frames_in_step], f0_postprocessed[:num_frames_in_step]),
+                'intensity': intensity[:num_frames_in_step],
+            })
+            
+            # 步进到下一个块的起始位置
+            current_pos_samples += step_size_samples
+
+        # 所有块处理完毕，发送最终的完成信号
+        self.finished.emit({'hop_length': hop_length})
+
+    def _run_spectrogram_task(self):
+        """
+        执行语谱图分析任务。
+        """
+        # --- (这部分代码从原 _run_analyze_task 的后半部分提取) ---
         is_wide_band = self.kwargs.get('is_wide_band', False)
         render_density = self.kwargs.get('render_density', 4)
         pre_emphasis = self.kwargs.get('pre_emphasis', False)
-        f0_min = self.kwargs.get('f0_min', librosa.note_to_hz('C2')) # 默认F0最小值
-        f0_max = self.kwargs.get('f0_max', librosa.note_to_hz('C7')) # 默认F0最大值
-    
-        # 根据是否应用预加重来准备分析用的音频数据
+        
         y_analyzed = librosa.effects.preemphasis(self.y) if pre_emphasis else self.y
-    
-        # --- 渲染参数计算 ---
-        # 窄带语谱图的窗口长度（秒），用于计算 hop_length
+        
         narrow_band_window_s = 0.035
-        # 计算基准 FFT 长度，确保是2的幂次方，且接近窄带窗口长度对应的采样点数
         base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
-        # 根据渲染密度计算重叠比例
         render_overlap_ratio = 1 - (1 / (2**render_density))
-        # 计算 hop_length (帧之间的步长)，确保至少为1
         render_hop_length = int(base_n_fft_for_hop * (1 - render_overlap_ratio)) or 1
-        
-        # F0 分析的帧长度，也确保是2的幂次方
-        f0_frame_length = 1 << (int(self.sr * 0.040) - 1).bit_length()
-        
-        # --- 步骤 1: 运行 pyin 算法获取原始F0数据 ---
-        f0_raw, voiced_flags, voiced_probs = librosa.pyin(
-            y_analyzed,
-            fmin=f0_min,
-            fmax=f0_max,
-            frame_length=f0_frame_length,
-            hop_length=render_hop_length
-        )
-        # 计算与F0数据对应的时间戳
-        times = librosa.times_like(f0_raw, sr=self.sr, hop_length=render_hop_length)
 
-        # =================== [核心修正：高级F0后处理] ===================
-        # 此部分旨在提高F0曲线的平滑度和准确性，去除离群点并智能插值。
-        
-        # --- 步骤 2: 中值滤波以去除离群点 (Spikes) ---
-        # 对原始F0应用一个大小为3的中值滤波器，可以有效去除突然的、不真实的跳变点。
-        # 优先使用 scipy.signal.medfilt，如果不可用则回退到简单的numpy实现。
-        try:
-            from scipy.signal import medfilt
-            f0_filtered = medfilt(f0_raw, kernel_size=3)
-        except ImportError:
-            # 一个简单的numpy中值滤波回退方案：对每个点取其前后和自身的中间值
-            f0_filtered = np.array([
-                np.median(f0_raw[max(0, i-1):i+2]) if i > 0 and i < len(f0_raw) - 1 else f0_raw[i]
-                for i in range(len(f0_raw))
-            ])
-            
-        # --- 步骤 3: 仅在“确定”的发声段内进行插值 ---
-        # 我们只信任那些连续出现多个浊音帧的片段，并只在这些片段内部填补小的空白。
-        
-        # 初始化最终的F0曲线，全部填充为 NaN (Not a Number)，表示未定义
-        f0_postprocessed = np.full_like(f0_raw, np.nan)
-        
-        # 将浊音标志 (True/False) 转换为整数 (0或1)，以便查找连续片段
-        voiced_ints = voiced_flags.astype(int)
-        
-        # 查找浊音段的开始和结束位置
-        # np.diff(voiced_ints) == 1 表示从0到1的跳变（浊音开始）
-        # np.diff(voiced_ints) == -1 表示从1到0的跳变（浊音结束）
-        starts = np.where(np.diff(voiced_ints) == 1)[0] + 1
-        ends = np.where(np.diff(voiced_ints) == -1)[0] + 1
-        
-        # 处理边缘情况：如果音频开始就是浊音，或结束时仍是浊音
-        if voiced_ints[0] == 1:
-            starts = np.insert(starts, 0, 0) # 在开头插入0
-        if voiced_ints[-1] == 1:
-            ends = np.append(ends, len(voiced_ints)) # 在末尾追加长度
-
-        # 遍历所有找到的浊音段
-        for start_idx, end_idx in zip(starts, ends):
-            # 只有当这个浊音段足够长时（例如，至少3帧），我们才认为它是可靠的
-            if end_idx - start_idx > 2:
-                # 提取这个片段的F0数据
-                segment = f0_filtered[start_idx:end_idx]
-                
-                # 使用Pandas在 *这个片段内部* 进行线性插值，填补小的空白
-                # limit=2 表示最多插值两个连续的 NaN 值
-                # limit_direction='both' 表示双向插值
-                segment_series = pd.Series(segment)
-                interpolated_segment = segment_series.interpolate(
-                    method='linear', limit_direction='both', limit=2
-                ).to_numpy()
-                
-                # 将处理好的片段放回最终的F0曲线中
-                f0_postprocessed[start_idx:end_idx] = interpolated_segment
-        
-        # =================== [F0后处理结束] ===================
-
-        # --- 语谱图和强度分析 ---
-        # 根据宽带模式选择语谱图的窗口长度
         spectrogram_window_s = 0.005 if is_wide_band else narrow_band_window_s
-        # 计算语谱图的 FFT 长度
         n_fft_spectrogram = 1 << (int(self.sr * spectrogram_window_s) - 1).bit_length()
         
-        # 计算音频强度 (RMS - 均方根能量)
-        intensity = librosa.feature.rms(y=self.y, frame_length=n_fft_spectrogram, hop_length=render_hop_length)[0]
-        
-        # 计算短时傅里叶变换 (STFT)
         D = librosa.stft(y_analyzed, hop_length=render_hop_length, n_fft=n_fft_spectrogram)
-        # 将幅度谱转换为分贝 (dB) 尺度，ref=np.max 表示以最大值为0dB参考
         S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-    
-        # 任务完成后，发出 finished 信号，携带所有分析结果
+
+        # [核心修改] 任务完成后，只发送语谱图结果
         self.finished.emit({
-            'f0_raw': (times, f0_raw),           # 原始F0数据 (时间, 值)
-            'f0_derived': (times, f0_postprocessed), # 经过高级后处理的F0曲线 (时间, 值)
-            'intensity': intensity,              # 强度数据
-            'S_db': S_db,                        # 语谱图分贝矩阵
-            'hop_length': render_hop_length      # 跳跃长度，用于后续时间-帧转换
+            'S_db': S_db,
+            'hop_length': render_hop_length
         })
 
     def _run_formant_view_task(self):
@@ -702,6 +735,28 @@ class SpectrogramWidget(QWidget):
             self._selection_end_sample = None
         self.update() # 触发重绘以更新选区显示
 
+    def update_formants_data(self, formants_data, clear_previous=True):
+        """
+        [新增] 专门用于更新共振峰数据层，而不影响F0或强度等其他分析层。
+
+        Args:
+            formants_data (list): 新的共振峰数据点。
+            clear_previous (bool): 如果为True，则替换所有现有的共振峰数据。
+                                   如果为False，则将新数据追加到现有数据后面。
+        """
+        if formants_data is not None:
+            if clear_previous:
+                self._formants_data = formants_data
+            else:
+                self._formants_data.extend(formants_data)
+        elif clear_previous:
+            # 如果传入的数据为None，但要求清除，则清空列表
+            self._formants_data = []
+
+        # 触发重绘以在UI上显示更改
+        self.update()
+
+
     def _get_plot_rect(self):
         """
         辅助函数，获取绘图安全区。
@@ -1107,19 +1162,18 @@ class SpectrogramWidget(QWidget):
     
     def create_context_menu(self):
         """
-        创建一个包含所有内置动作和潜在插件动作的右键菜单。
-        此方法通过检查预定义的钩子属性来动态添加插件功能。
-        Returns:
-            QMenu: 构建好的右键菜单。
+        [已修复] 创建一个包含所有内置动作和潜在插件动作的右键菜单。
         """
         menu = QMenu(self)
         has_selection = self._selection_start_sample is not None and self._selection_end_sample is not None
-        has_analysis = self._f0_data is not None or self._intensity_data is not None or self._formants_data
-
-        info_to_copy = self._cursor_info_text # 获取当前光标处的信息
         
-        click_pos = self.mapFromGlobal(QCursor.pos()) # 获取相对于当前widget的鼠标点击位置
-        sample_pos_at_click = self._pixel_to_sample(click_pos.x()) # 将像素X坐标转换为采样点
+        # [关键修复] 将整个表达式的结果强制转换为布尔值
+        has_analysis = bool(self._f0_data is not None or self._intensity_data is not None or self._formants_data)
+
+        info_to_copy = self._cursor_info_text
+        
+        click_pos = self.mapFromGlobal(QCursor.pos())
+        sample_pos_at_click = self._pixel_to_sample(click_pos.x())
 
         # ==========================================================
         # 第一部分：添加所有原生菜单项
@@ -1127,119 +1181,92 @@ class SpectrogramWidget(QWidget):
 
         # 1. "分析" 子菜单
         analysis_menu = QMenu("分析", self)
-        analysis_menu.setIcon(self.icon_manager.get_icon("analyze")) # 设置图标
+        analysis_menu.setIcon(self.icon_manager.get_icon("analyze"))
         
-        # 频谱切片动作
         slice_action = QAction(self.icon_manager.get_icon("spectrum"), "获取此处频谱切片...", self)
-        # 连接信号，请求显示频谱切片
         slice_action.triggered.connect(lambda: self.spectrumSliceRequested.emit(sample_pos_at_click))
         analysis_menu.addAction(slice_action)
         
-        menu.addMenu(analysis_menu) # 将分析子菜单添加到主菜单
-        menu.addSeparator() # 添加分隔线
+        menu.addMenu(analysis_menu)
+        menu.addSeparator()
 
         # 2. 选区相关操作
         if has_selection:
             zoom_icon = self.icon_manager.get_icon("zoom_selection") 
-            if zoom_icon.isNull(): zoom_icon = self.icon_manager.get_icon("zoom") # 如果特定图标不存在，使用通用缩放图标
+            if zoom_icon.isNull(): zoom_icon = self.icon_manager.get_icon("zoom")
             zoom_to_selection_action = QAction(zoom_icon, "伸展选区到视图", self)
-            # 连接信号，请求缩放到选区
             zoom_to_selection_action.triggered.connect(lambda: self.zoomToSelectionRequested.emit(self._selection_start_sample, self._selection_end_sample))
             menu.addAction(zoom_to_selection_action)
 
         # 3. 复制信息
         copy_action = QAction(self.icon_manager.get_icon("copy"), "复制光标处信息", self)
-        copy_action.setEnabled(bool(info_to_copy.strip())) # 只有当有信息时才启用复制动作
-        # 连接信号，将信息复制到剪贴板
+        copy_action.setEnabled(bool(info_to_copy.strip()))
         copy_action.triggered.connect(lambda checked, text=info_to_copy: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
         
-        # 4. "导出" 子菜单 (原生导出功能)
+        # 4. "导出" 子菜单
         export_menu = QMenu("导出", self)
         export_menu.setIcon(self.icon_manager.get_icon("export"))
         
-        # 导出图片动作
         export_image_action = QAction(self.icon_manager.get_icon("image"), "将当前视图保存为图片...", self)
         export_image_action.triggered.connect(self.exportViewAsImageRequested.emit)
         export_menu.addAction(export_image_action)
 
-        # 导出CSV动作
         csv_icon = self.icon_manager.get_icon("csv")
         if csv_icon.isNull(): csv_icon = self.icon_manager.get_icon("document")
         export_csv_action = QAction(csv_icon, "将选区内分析数据导出为CSV...", self)
-        export_csv_action.setEnabled(has_selection and has_analysis) # 只有有选区和分析数据时才启用
+        export_csv_action.setEnabled(has_selection and has_analysis) # 现在 has_analysis 保证是布尔值
         export_csv_action.setToolTip("需要存在选区和已运行的分析数据。")
         export_csv_action.triggered.connect(self.exportAnalysisToCsvRequested.emit)
         export_menu.addAction(export_csv_action)
         
-        # 导出WAV动作
         wav_icon = self.icon_manager.get_icon("audio")
         if wav_icon.isNull(): wav_icon = self.icon_manager.get_icon("save")
         export_wav_action = QAction(wav_icon, "将选区音频导出为WAV...", self)
-        export_wav_action.setEnabled(has_selection) # 只有有选区时才启用
+        export_wav_action.setEnabled(has_selection)
         export_wav_action.setToolTip("需要存在一个有效的选区。")
         export_wav_action.triggered.connect(self.exportSelectionAsWavRequested.emit)
         export_menu.addAction(export_wav_action)
 
-        menu.addMenu(export_menu) # 将导出子菜单添加到主菜单
+        menu.addMenu(export_menu)
         
         # ==========================================================
-        # 第二部分：在末尾添加由插件注入的菜单项
+        # 第二部分：插件注入的菜单项
         # ==========================================================
         
-        # 检查是否有任何插件被注入到此控件的属性中
         plotter_plugin = getattr(self, 'vowel_plotter_plugin_active', None)
         exporter_plugin = getattr(self, 'praat_exporter_plugin_active', None)
         intonation_plugin = getattr(self, 'intonation_visualizer_plugin_active', None)
         
-        # 如果至少有一个插件被注入，则添加一个主分隔符
         if plotter_plugin or exporter_plugin or intonation_plugin:
             menu.addSeparator()
  
-        # 钩子检查点: 语调可视化与建模插件
         if intonation_plugin:
             action = QAction(self.icon_manager.get_icon("chart2"), "发送到语调可视化器...", self)
-            
-            # 检查可用性：需要有选区和F0数据
             has_f0_data = self._f0_data is not None and len(self._f0_data[0]) > 0
             action.setEnabled(has_selection and has_f0_data)
             if not (has_selection and has_f0_data):
                 action.setToolTip("请先在选区内运行F0分析。")
-            
-            # 连接到插件的发送数据方法
             action.triggered.connect(self._send_data_to_intonation_visualizer)
             menu.addAction(action)
 
-        # 钩子检查点: Praat 导出器插件
         if exporter_plugin:
-            # 从插件实例动态创建菜单动作 (假设插件提供了这样的方法)
-            # 这里是 Praat 插件的示例用法，具体实现依赖于 Praat 插件的 API
             exporter_action = exporter_plugin.create_action_for_menu(self)
             menu.addAction(exporter_action)
         
-        # 钩子检查点: 元音空间图绘制器插件
         if plotter_plugin:
-            # 创建菜单动作
             plotter_action = QAction(self.icon_manager.get_icon("chart"), "发送数据到元音绘制器...", self)
-            
-            # 检查动作的可用性：需要有选区且选区内有共振峰数据
             has_formants_in_selection = False
             if has_selection and self._formants_data:
                 start_sample, end_sample = self._selection_start_sample, self._selection_end_sample
-                # 检查选区内是否有共振峰数据点
                 has_formants_in_selection = any(start_sample <= point[0] < end_sample for point in self._formants_data)
             
             plotter_action.setEnabled(has_formants_in_selection)
             if not has_formants_in_selection:
                 plotter_action.setToolTip("请先在选区内运行共振峰分析。")
-
-            # 连接信号到插件的发送数据方法
             plotter_action.triggered.connect(self._send_data_to_plotter)
-            
-            # 将动作添加到菜单的末尾
             menu.addAction(plotter_action)
         
-        # 返回最终构建好的菜单
         return menu
 
     def _send_data_to_plotter(self):
@@ -1379,62 +1406,132 @@ class SpectrogramWidget(QWidget):
 
     def set_analysis_data(self, f0_data=None, f0_derived_data=None, intensity_data=None, formants_data=None, clear_previous_formants=True):
         """
-        设置和更新叠加分析数据。
+        设置和更新叠加的分析数据层。此方法现在可以接受 None 值来单独清除特定的数据层。
+
         Args:
-            f0_data (tuple, optional): 原始F0数据 (times, f0_values)。
-            f0_derived_data (tuple, optional): 派生F0数据 (times, f0_values)。
-            intensity_data (np.ndarray, optional): 强度数据。
+            f0_data (tuple, optional): 原始F0数据 (times, f0_values)。如果为 None，则清空原始F0层。
+            f0_derived_data (tuple, optional): 派生F0数据 (times, f0_values)。如果为 None，则清空派生F0层。
+            intensity_data (np.ndarray, optional): 强度数据。如果为 None，则清空强度层。
             formants_data (list, optional): 共振峰数据。
             clear_previous_formants (bool): 是否在添加新共振峰数据前清除旧数据。
         """
+        # --- 处理 F0 数据和坐标轴 ---
         if f0_data is not None:
             self._f0_data = f0_data
             times, f0_values = f0_data
             valid_f0 = f0_values[np.isfinite(f0_values)] # 过滤掉NaN值来计算范围
-            
-            # =================== [核心修正开始] ===================
-            # 彻底替换旧的、有问题的F0坐标轴范围计算逻辑。
+
             if len(valid_f0) > 1:
+                # 稳健地计算F0坐标轴的显示范围
                 actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
                 
-                # 1. 计算F0数据的实际范围，并增加10%的上下边距以获得更好的视觉效果。
+                # 1. 计算数据范围并增加10%的上下边距
                 data_range = actual_max - actual_min
-                padding = max(10, data_range * 0.1) # 至少有10Hz的边距，防止范围过小
+                padding = max(10, data_range * 0.1) # 至少有10Hz的边距
                 
                 padded_min = actual_min - padding
                 padded_max = actual_max + padding
                 
-                # 2. 确保显示范围至少有100Hz宽，以避免在处理单音时过度缩放。
+                # 2. 确保显示范围至少有100Hz宽，避免过度缩放
                 current_range = padded_max - padded_min
                 if current_range < 100:
                     center = (padded_max + padded_min) / 2
                     padded_min = center - 50
                     padded_max = center + 50
                 
-                # 3. 将最终计算出的范围赋给显示属性。
+                # 3. 赋值并启用F0轴
                 self._f0_display_min = max(0, padded_min) # 确保不低于0Hz
                 self._f0_display_max = padded_max
-                self._f0_axis_enabled = True # 启用F0轴
+                self._f0_axis_enabled = True
             else: 
-                # 如果F0数据太少或无效，则使用一个合理的默认范围且不显示轴。
+                # 如果F0数据太少或无效，则使用默认范围且不显示轴
                 self._f0_display_min, self._f0_display_max = 75, 400
                 self._f0_axis_enabled = False
-            # =================== [核心修正结束] ===================
+        else:
+            # 如果 f0_data 明确传入为 None，则清空数据并禁用轴
+            self._f0_data = None
+            self._f0_axis_enabled = False
         
-        if f0_derived_data is not None: self._f0_derived_data = f0_derived_data
-        if intensity_data is not None: self._intensity_data = intensity_data
+        # --- 处理派生 F0 数据 ---
+        if f0_derived_data is not None:
+            self._f0_derived_data = f0_derived_data
+        else:
+            self._f0_derived_data = None # 清空派生F0数据
+            
+        # --- 处理强度数据 ---
+        if intensity_data is not None:
+            self._intensity_data = intensity_data
+        else:
+            self._intensity_data = None # 清空强度数据
         
+        # --- 处理共振峰数据 ---
         if formants_data is not None:
             if clear_previous_formants:
-                self._formants_data = formants_data # 清除旧数据并设置新数据
+                self._formants_data = formants_data # 覆盖旧数据
             else:
                 self._formants_data.extend(formants_data) # 追加新数据
         else:
-            # 如果传入的 formants_data 为 None，并且要求清除，则清空
+            # 如果 formants_data 为 None，并且要求清除，则清空
             if clear_previous_formants:
                 self._formants_data = []
 
-        self.update() # 触发重绘
+        # 触发重绘以应用所有更改
+        self.update()
+
+    def append_analysis_data(self, f0_chunk=None, f0_derived_chunk=None, intensity_chunk=None):
+        """
+        将新分析出的数据块追加到现有数据中，并触发重绘。
+        这用于实现实时呈现效果。
+        """
+        # --- 追加 F0 数据 ---
+        if f0_chunk:
+            new_times, new_f0 = f0_chunk
+            if self._f0_data is None:
+                self._f0_data = (new_times, new_f0)
+            else:
+                old_times, old_f0 = self._f0_data
+                self._f0_data = (np.concatenate([old_times, new_times]), 
+                                 np.concatenate([old_f0, new_f0]))
+
+        # --- 追加派生 F0 数据 ---
+        if f0_derived_chunk:
+            new_times, new_f0_derived = f0_derived_chunk
+            if self._f0_derived_data is None:
+                self._f0_derived_data = (new_times, new_f0_derived)
+            else:
+                old_times, old_f0_derived = self._f0_derived_data
+                self._f0_derived_data = (np.concatenate([old_times, new_times]), 
+                                         np.concatenate([old_f0_derived, new_f0_derived]))
+
+        # --- 追加强度数据 ---
+        if intensity_chunk is not None:
+            if self._intensity_data is None:
+                self._intensity_data = intensity_chunk
+            else:
+                self._intensity_data = np.concatenate([self._intensity_data, intensity_chunk])
+        
+        # 实时更新F0轴的范围
+        if self._f0_data:
+            _, all_f0_values = self._f0_data
+            valid_f0 = all_f0_values[np.isfinite(all_f0_values)]
+            if len(valid_f0) > 1:
+                # 使用与 set_analysis_data 中相同的逻辑来更新轴范围
+                actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
+                data_range = actual_max - actual_min
+                padding = max(10, data_range * 0.1)
+                padded_min = actual_min - padding
+                padded_max = actual_max + padding
+                current_range = padded_max - padded_min
+                if current_range < 100:
+                    center = (padded_max + padded_min) / 2
+                    padded_min = center - 50
+                    padded_max = center + 50
+                self._f0_display_min = max(0, padded_min)
+                self._f0_display_max = padded_max
+                self._f0_axis_enabled = True
+
+        # 触发重绘以在UI上显示新追加的数据
+        self.update()
 
     def update_playback_position(self, position_ms):
         """
@@ -1831,51 +1928,61 @@ class AudioAnalysisPage(QWidget):
         """
         main_layout = QHBoxLayout(self) # 主水平布局
 
-        # 左侧面板：信息与动作
+        # --- 左侧面板：信息与动作 ---
         self.info_panel = QWidget()
-        self.info_panel.setFixedWidth(300) # 固定宽度
-        info_layout = QVBoxLayout(self.info_panel) # 垂直布局
+        self.info_panel.setFixedWidth(300)
+        info_layout = QVBoxLayout(self.info_panel)
         
-        self.open_file_btn = QPushButton(" 从文件加载音频") # 打开文件按钮
+        self.open_file_btn = QPushButton(" 从文件加载音频")
         self.open_file_btn.setToolTip("打开文件浏览器选择一个音频文件进行分析。")
         
-        self.info_group = QGroupBox("音频信息") # 音频信息分组框
-        info_layout_form = QFormLayout(self.info_group) # 表单布局
-        # 创建显示音频信息的标签
+        self.info_group = QGroupBox("音频信息")
+        info_layout_form = QFormLayout(self.info_group)
         self.filename_label, self.duration_label, self.samplerate_label, self.channels_label, self.bitdepth_label = [QLabel("N/A") for _ in range(5)]
-        self.filename_label.setWordWrap(True) # 允许文件名换行
+        self.filename_label.setWordWrap(True)
         info_layout_form.addRow("文件名:", self.filename_label)
         info_layout_form.addRow("时长:", self.duration_label)
         info_layout_form.addRow("采样率:", self.samplerate_label)
         info_layout_form.addRow("通道数:", self.channels_label)
         info_layout_form.addRow("位深度:", self.bitdepth_label)
         
-        self.playback_group = QGroupBox("播放控制") # 播放控制分组框
-        playback_layout = QVBoxLayout(self.playback_group) # 垂直布局
-        self.play_pause_btn = QPushButton("播放") # 播放/暂停按钮
-        self.playback_slider = QSlider(Qt.Horizontal) # 播放进度滑块
-        self.time_label = QLabel("00:00.00 / 00:00.00") # 时间标签
-        self.play_pause_btn.setEnabled(False) # 默认禁用播放按钮
-        self.playback_slider.setEnabled(False) # 默认禁用进度滑块
+        self.playback_group = QGroupBox("播放控制")
+        playback_layout = QVBoxLayout(self.playback_group)
+        self.play_pause_btn = QPushButton("播放")
+        self.playback_slider = AnimatedSlider(Qt.Horizontal)
+        self.playback_slider.setObjectName("PlaybackSliderAnalysis") # 设置一个独立的 objectName 以便QSS定制
+        self.time_label = QLabel("00:00.00 / 00:00.00")
+        self.play_pause_btn.setEnabled(False)
+        self.playback_slider.setEnabled(False)
         playback_layout.addWidget(self.play_pause_btn)
         playback_layout.addWidget(self.playback_slider)
         playback_layout.addWidget(self.time_label)
 
-        self.analysis_actions_group = QGroupBox("分析动作") # 分析动作分组框
-        actions_layout = QVBoxLayout(self.analysis_actions_group) # 垂直布局
-        self.analyze_button = QPushButton("运行完整分析") # 运行完整分析按钮
-        self.analyze_button.setToolTip("根据右侧面板的所有设置，对整个音频进行声学分析。")
-        self.analyze_formants_button = QPushButton(" 分析共振峰") # 分析共振峰按钮
-        self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。\n此分析会应用右侧“分析与渲染设置”中的“共振峰精细度”和“高级分析参数”中的“预加重”设置。")
-        actions_layout.addWidget(self.analyze_button)
+        self.analysis_actions_group = QGroupBox("分析动作")
+        actions_layout = QVBoxLayout(self.analysis_actions_group)
+        
+        self.analyze_spectrogram_button = QPushButton(" 分析语谱图")
+        self.analyze_spectrogram_button.setToolTip("运行语谱图背景分析。\n这将生成用于叠加F0曲线的背景。")
+        
+        self.analyze_acoustics_button = QPushButton(" 分析 F0 & 强度")
+        self.analyze_acoustics_button.setToolTip("请先运行“分析语谱图”以启用此功能。")
+        self.analyze_acoustics_button.setEnabled(False)
+        
+        self.analyze_formants_button = QPushButton(" 分析共振峰")
+        self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。")
+        
+        # [顺序调整 1] “分析语谱图”按钮现在被添加到最上面
+        actions_layout.addWidget(self.analyze_spectrogram_button)
+        actions_layout.addWidget(self.analyze_acoustics_button)
         actions_layout.addWidget(self.analyze_formants_button)
-        self.analysis_actions_group.setEnabled(False) # 默认禁用分析动作
+        
+        self.analysis_actions_group.setEnabled(False)
 
         info_layout.addWidget(self.open_file_btn)
         info_layout.addWidget(self.info_group)
         info_layout.addWidget(self.playback_group)
         info_layout.addWidget(self.analysis_actions_group)
-        info_layout.addStretch() # 添加伸缩空间，使控件靠上
+        info_layout.addStretch()
 
         # 中心可视化区域
         self.center_panel = QWidget()
@@ -2015,6 +2122,51 @@ class AudioAnalysisPage(QWidget):
         f0_value_layout.addStretch()
         f0_value_layout.addWidget(self.f0_max_label)
         adv_layout.addLayout(f0_value_layout)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        adv_layout.addWidget(separator)
+        
+        # [新增] 分块大小滑块
+        chunk_size_label = QLabel("分块大小 (实时分析):")
+        adv_layout.addWidget(chunk_size_label)
+        
+        self.chunk_size_slider = QSlider(Qt.Horizontal)
+        self.chunk_size_slider.setRange(50, 1000) # 范围: 50ms 到 1000ms
+        self.chunk_size_slider.setValue(200)      # 默认值: 200ms
+        self.chunk_size_slider.setToolTip(
+            "调整实时分析时每个数据块的大小（单位：毫秒）。\n"
+            "<li><b>较小的值</b> (如100ms): 响应更快，曲线“生长”得更迅速，但总分析时间可能稍长。</li>"
+            "<li><b>较大的值</b> (如500ms): 每次计算的块更长，曲线“跳跃”得更远，总分析时间可能稍短。</li>"
+        )
+        chunk_size_widget = QWidget()
+        chunk_size_layout = QHBoxLayout(chunk_size_widget)
+        chunk_size_layout.setContentsMargins(0,0,0,0)
+        chunk_size_layout.addWidget(self.chunk_size_slider)
+        self.chunk_size_value_label = QLabel(f"{self.chunk_size_slider.value()} ms")
+        chunk_size_layout.addWidget(self.chunk_size_value_label)
+        adv_layout.addWidget(chunk_size_widget)
+
+        # [新增] 分块重叠滑块
+        chunk_overlap_label = QLabel("分块重叠:")
+        adv_layout.addWidget(chunk_overlap_label)
+
+        self.chunk_overlap_slider = QSlider(Qt.Horizontal)
+        self.chunk_overlap_slider.setRange(0, 100) # 范围: 0ms 到 100ms (最大值会动态调整)
+        self.chunk_overlap_slider.setValue(10)     # 默认值: 10ms
+        self.chunk_overlap_slider.setToolTip(
+            "设置相邻分析块之间的重叠量（单位：毫秒）。\n"
+            "重叠可以平滑块与块之间的过渡，尤其有助于改善F0曲线在拼接处的连续性。\n"
+            "推荐值为5-20ms。重叠值不能大于块大小。"
+        )
+        chunk_overlap_widget = QWidget()
+        chunk_overlap_layout = QHBoxLayout(chunk_overlap_widget)
+        chunk_overlap_layout.setContentsMargins(0,0,0,0)
+        chunk_overlap_layout.addWidget(self.chunk_overlap_slider)
+        self.chunk_overlap_value_label = QLabel(f"{self.chunk_overlap_slider.value()} ms")
+        chunk_overlap_layout.addWidget(self.chunk_overlap_value_label)
+        adv_layout.addWidget(chunk_overlap_widget)
         
         self.spectrogram_settings_group = QGroupBox("分析与渲染设置")
         # [核心] 将布局改回 QFormLayout
@@ -2071,8 +2223,9 @@ class AudioAnalysisPage(QWidget):
         
         # 5. [修改] 将所有 GroupBox 添加到 settings_layout (内部容器的布局)
         settings_layout.addWidget(self.visualization_group)
-        settings_layout.addWidget(self.advanced_params_group)
         settings_layout.addWidget(self.spectrogram_settings_group)
+        settings_layout.addWidget(self.advanced_params_group)
+
         settings_layout.addStretch() 
 
         # 6. [修改] 将新的 scroll_area 添加到主布局中
@@ -2087,59 +2240,87 @@ class AudioAnalysisPage(QWidget):
         self._on_persistent_setting_changed('f0_min', lower)
         self._on_persistent_setting_changed('f0_max', upper)
 
+    # [新增] 用于处理每个分析好的数据块
+    def on_acoustics_chunk_finished(self, chunk_result):
+        """
+        当一个声学数据块分析完成时调用，并更新进度条。
+        """
+        self.spectrogram_widget.append_analysis_data(
+            f0_chunk=chunk_result.get('f0_raw'),
+            f0_derived_chunk=chunk_result.get('f0_derived'),
+            intensity_chunk=chunk_result.get('intensity')
+        )
+        # 更新进度条
+        if self.progress_dialog and self.progress_dialog.isVisible():
+            # 计算当前进度百分比
+            f0_times = chunk_result.get('f0_raw')[0] if chunk_result.get('f0_raw') else []
+            if len(f0_times) > 0 and self.known_duration > 0:
+                current_progress_ms = f0_times[-1] * 1000
+                progress_percent = (current_progress_ms / self.known_duration) * 100
+                self.progress_dialog.setValue(int(progress_percent))
+
+
+    # [新增] 用于在所有块都处理完毕后进行清理
+    def on_acoustics_analysis_done(self, final_result):
+        """
+        [已修复] 当所有声学分析块都处理完毕后调用。
+        """
+        if self.progress_dialog:
+            self.progress_dialog.close()
+        
+        # [关键修复逻辑]
+        # 只有当这是第一次分析（即还没有语谱图背景时），
+        # 我们才将这次分析的hop_length设置为“黄金标准”。
+        if self.spectrogram_widget.spectrogram_image is None:
+            if 'hop_length' in final_result:
+                self.spectrogram_widget.hop_length = final_result['hop_length']
+
     def _connect_signals(self):
         """
-        连接所有UI控件的信号到相应的槽函数。
+        [已修复] 连接所有UI控件的信号到相应的槽函数。
         """
-        self.open_file_btn.clicked.connect(self.open_file_dialog) # 打开文件
-        self.play_pause_btn.clicked.connect(self.toggle_playback) # 播放/暂停
-        self.player.positionChanged.connect(self.update_position) # 播放位置改变
-        self.player.durationChanged.connect(self.update_duration) # 媒体时长改变
-        self.player.stateChanged.connect(self.on_player_state_changed) # 播放器状态改变
+        # --- 文件与播放控制 ---
+        self.open_file_btn.clicked.connect(self.open_file_dialog)
+        self.play_pause_btn.clicked.connect(self.toggle_playback)
+        self.player.positionChanged.connect(self.update_position)
+        self.player.durationChanged.connect(self.update_duration)
+        self.player.stateChanged.connect(self.on_player_state_changed)
         self.player.mediaStatusChanged.connect(self.on_media_status_changed)
-        self.playback_slider.sliderMoved.connect(self.player.setPosition) # 进度滑块移动
-        self.waveform_widget.view_changed.connect(self.on_view_changed) # 波形图视图改变
-        self.h_scrollbar.valueChanged.connect(self.on_scrollbar_moved) # 水平滚动条值改变
+        self.playback_slider.sliderMoved.connect(self.player.setPosition)
+
+        # --- 视图与导航 ---
+        self.waveform_widget.view_changed.connect(self.on_view_changed)
+        self.h_scrollbar.valueChanged.connect(self.on_scrollbar_moved)
         
-        # 连接渲染精细度和共振峰精细度滑块的信号
+        # [关键修复] 添加缺失的滑块信号连接
         self.render_density_slider.valueChanged.connect(self._update_render_density_label)
         self.formant_density_slider.valueChanged.connect(self._update_formant_density_label)
 
-        self.analyze_button.clicked.connect(self.run_full_analysis) # 运行完整分析
-        self.analyze_formants_button.clicked.connect(self.run_view_formant_analysis) # 运行可见区域共振峰分析
+        # --- 分析动作 ---
+        self.analyze_acoustics_button.clicked.connect(self.run_acoustics_analysis)
+        self.analyze_spectrogram_button.clicked.connect(self.run_spectrogram_analysis)
+        self.analyze_formants_button.clicked.connect(self.run_view_formant_analysis)
 
-        # 选区双向同步：
-        # 1. 从语谱图到波形图
+        # --- 选区同步与快捷键 ---
         self.spectrogram_widget.selectionChanged.connect(self.waveform_widget.set_selection)
-        # 2. 从波形图到语谱图
         self.waveform_widget.selectionChanged.connect(self.spectrogram_widget.set_selection)
-        
-        # 3. 将两个控件的选区改变信号都连接到主页面的处理槽
         self.spectrogram_widget.selectionChanged.connect(self.on_selection_changed)
         self.waveform_widget.selectionChanged.connect(self.on_selection_changed)
-        
-        # 4. 允许两个控件都能触发缩放到选区
         self.spectrogram_widget.zoomToSelectionRequested.connect(self.zoom_to_selection)
         self.waveform_widget.zoomToSelectionRequested.connect(self.zoom_to_selection)
-        
-        # Ctrl+A 全选快捷键
         self.select_all_shortcut = QShortcut(QKeySequence.SelectAll, self)
         self.select_all_shortcut.activated.connect(self._select_all)
         
-        # 可视化选项的开关和复选框连接
+        # --- 可视化选项 ---
         all_toggles = [self.show_f0_toggle, self.show_intensity_toggle, self.show_formants_toggle]
         for toggle in all_toggles:
-            toggle.stateChanged.connect(self._update_dependent_widgets) # 更新依赖控件状态
-            toggle.stateChanged.connect(self.update_overlays)         # 更新叠加层显示
-
-        all_checkboxes = [self.show_f0_points_checkbox, self.show_f0_derived_checkbox,
-                          self.smooth_intensity_checkbox, self.highlight_f1_checkbox,
-                          self.highlight_f2_checkbox, self.show_other_formants_checkbox]
+            toggle.stateChanged.connect(self._update_dependent_widgets)
+            toggle.stateChanged.connect(self.update_overlays)
+        all_checkboxes = [self.show_f0_points_checkbox, self.show_f0_derived_checkbox, self.smooth_intensity_checkbox, self.highlight_f1_checkbox, self.highlight_f2_checkbox, self.show_other_formants_checkbox]
         for cb in all_checkboxes:
-            cb.stateChanged.connect(self.update_overlays) # 更新叠加层显示
+            cb.stateChanged.connect(self.update_overlays)
 
-        # 连接所有持久化设置的信号到保存槽函数
-        # 可视化选项
+        # --- 持久化设置 ---
         self.show_f0_toggle.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_f0', bool(s)))
         self.show_f0_points_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_f0_points', bool(s)))
         self.show_f0_derived_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_f0_derived', bool(s)))
@@ -2149,19 +2330,15 @@ class AudioAnalysisPage(QWidget):
         self.highlight_f1_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('highlight_f1', bool(s)))
         self.highlight_f2_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('highlight_f2', bool(s)))
         self.show_other_formants_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_other_formants', bool(s)))
-
-        # 高级分析参数
         self.pre_emphasis_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('pre_emphasis', bool(s)))
         self.f0_range_slider.rangeChanged.connect(self._on_f0_range_changed)
-        #self.f0_min_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_min', t))
-        #self.f0_max_input.textChanged.connect(lambda t: self._on_persistent_setting_changed('f0_max', t))
-        
-        # 语谱图设置
         self.render_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('render_density', v))
         self.formant_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('formant_density', v))
         self.spectrogram_type_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('is_wide_band', bool(s)))
+        self.chunk_size_slider.valueChanged.connect(self._on_chunk_settings_changed)
+        self.chunk_overlap_slider.valueChanged.connect(self._on_chunk_settings_changed)
 
-        # 导出相关信号连接
+        # --- 导出 ---
         self.spectrogram_widget.exportViewAsImageRequested.connect(self.handle_export_image)
         self.spectrogram_widget.exportAnalysisToCsvRequested.connect(self.handle_export_csv)
         self.spectrogram_widget.exportSelectionAsWavRequested.connect(self.handle_export_wav)
@@ -2497,20 +2674,34 @@ class AudioAnalysisPage(QWidget):
         # self.play_pause_btn.setEnabled(True) # <-- 移除
         # self.playback_slider.setEnabled(True) # <-- 移除
         self.analysis_actions_group.setEnabled(True)
+        self.analyze_acoustics_button.setEnabled(False)
+        self.analyze_acoustics_button.setToolTip("请先运行“分析语谱图”以启用此功能。")
+
 
         if self._pending_csv_path:
             self._apply_csv_data(self._pending_csv_path)
             self._pending_csv_path = None
 
-    def run_full_analysis(self):
+    def run_acoustics_analysis(self):
         """
-        运行完整的声学分析。
+        [已简化] 启动分块声学分析。
+        此时语谱图已存在，直接使用其hop_length。
         """
         if self.audio_data is None:
             QMessageBox.warning(self, "无音频", "请先加载音频文件。")
             return
         
-        # [修改] 直接从滑块获取值，不再需要try-except和文本解析
+        # 安全检查，确保语谱图已生成
+        if self.spectrogram_widget.spectrogram_image is None:
+             QMessageBox.warning(self, "需要语谱图", "请先运行“分析语谱图”。")
+             return
+
+        # 清除旧的F0/强度数据
+        self.spectrogram_widget.set_analysis_data(
+            f0_data=None, f0_derived_data=None, intensity_data=None, 
+            clear_previous_formants=False
+        )
+        
         f0_min = self.f0_range_slider.lowerValue()
         f0_max = self.f0_range_slider.upperValue()
         
@@ -2518,16 +2709,44 @@ class AudioAnalysisPage(QWidget):
             QMessageBox.warning(self, "参数错误", "F0范围的最小值必须小于最大值。")
             return
 
-        # 运行后台分析任务
-        self.run_task('analyze', 
-                      audio_data=self.audio_data, 
+        # [核心修改] 直接使用语谱图的hop_length，不再需要复杂的检查
+        forced_hop_length = self.spectrogram_widget.hop_length
+
+        self.run_task('analyze_acoustics', 
+                      audio_data=self.audio_data,
                       sr=self.sr, 
-                      is_wide_band=self.spectrogram_type_checkbox.isChecked(), 
-                      render_density=self.render_density_slider.value(), # 传递渲染密度
+                      forced_hop_length=forced_hop_length,
                       pre_emphasis=self.pre_emphasis_checkbox.isChecked(), 
                       f0_min=f0_min, 
-                      f0_max=f0_max, 
-                      progress_text="正在进行完整声学分析...")
+                      f0_max=f0_max,
+                      chunk_size_ms=self.chunk_size_slider.value(),
+                      chunk_overlap_ms=self.chunk_overlap_slider.value(),
+                      progress_text="正在实时分析 F0 和强度...")
+
+    # [新增] 用于语谱图分析的新方法
+    def run_spectrogram_analysis(self):
+        """
+        [已修复] 运行语谱图背景分析。
+        这会建立一个新的“黄金标准”分辨率，因此必须清除所有旧的叠加数据。
+        """
+        if self.audio_data is None:
+            QMessageBox.warning(self, "无音频", "请先加载音频文件。")
+            return
+
+        # [关键修复逻辑]
+        # 因为要生成新的背景，所以必须清除所有旧的、可能不匹配的叠加数据。
+        self.spectrogram_widget.set_analysis_data(
+            f0_data=None, f0_derived_data=None, intensity_data=None, 
+            formants_data=None, clear_previous_formants=True
+        )
+
+        self.run_task('analyze_spectrogram',
+                      audio_data=self.audio_data,
+                      sr=self.sr,
+                      is_wide_band=self.spectrogram_type_checkbox.isChecked(),
+                      render_density=self.render_density_slider.value(),
+                      pre_emphasis=self.pre_emphasis_checkbox.isChecked(),
+                      progress_text="正在分析语谱图背景...")
 
     def run_view_formant_analysis(self):
         """
@@ -2555,42 +2774,55 @@ class AudioAnalysisPage(QWidget):
                       pre_emphasis=self.pre_emphasis_checkbox.isChecked(), 
                       progress_text="正在分析可见区域共振峰...")
 
-    def on_analysis_finished(self, results):
+    # [新增] 处理声学分析结果的回调
+    def on_acoustics_finished(self, results):
         """
-        完整声学分析任务完成时的槽函数。
-        Args:
-            results (dict): 包含分析结果的字典。
+        声学分析（F0、强度）任务完成时的槽函数。
         """
-        if self.progress_dialog: self.progress_dialog.close() # 关闭进度对话框
-        
-        hop_length = results.get('hop_length', 256) # 获取跳跃长度，默认为256
-        self.spectrogram_widget.set_data(results.get('S_db'), self.sr, hop_length) # 设置语谱图数据
-        
-        # 显式地清除任何可能存在的旧共振峰数据，因为此分析不再生成它们。
+        if self.progress_dialog: self.progress_dialog.close()
+
+        # 清除旧的F0和强度数据，但保留共振峰和语谱图背景
         self.spectrogram_widget.set_analysis_data(
-            f0_data=results.get('f0_raw'), 
-            f0_derived_data=results.get('f0_derived'), 
+            f0_data=results.get('f0_raw'),
+            f0_derived_data=results.get('f0_derived'),
             intensity_data=results.get('intensity'),
-            formants_data=None, # 明确设为 None，因为完整分析不生成共振峰
-            clear_previous_formants=True
+            formants_data=self.spectrogram_widget._formants_data, # 保留现有的共振峰
+            clear_previous_formants=False
         )
+
+    # [新增] 处理语谱图分析结果的回调
+    def on_spectrogram_finished(self, results):
+        """
+        语谱图分析任务完成时的槽函数。
+        """
+        if self.progress_dialog: self.progress_dialog.close()
+
+        # 检查后台任务是否真的返回了语谱图数据
+        if 'S_db' in results and 'hop_length' in results:
+            hop_length = results.get('hop_length', 256)
+            self.spectrogram_widget.set_data(results.get('S_db'), self.sr, hop_length)
+
+            # [核心修改] 启用F0分析按钮并更新提示
+            self.analyze_acoustics_button.setEnabled(True)
+            self.analyze_acoustics_button.setToolTip("快速运行基频（F0）和强度分析。\n结果将叠加在当前语谱图上。")
+        else:
+            # 如果后台任务因某些原因（如被取消）未返回有效数据，则不启用按钮
+            pass
 
     def on_formant_view_finished(self, results):
         """
-        当仅分析视图内共振峰的任务完成时调用。
-        Args:
-            results (dict): 包含共振峰分析结果的字典。
+        [已修复] 当仅分析视图内共振峰的任务完成时调用。
         """
         if self.progress_dialog:
             self.progress_dialog.close()
     
-        formant_data = results.get('formants_view', []) # 获取共振峰数据，默认为空列表
+        formant_data = results.get('formants_view', [])
     
-        # 将 clear_previous_formants 参数设置为 True
-        # 这会告诉语谱图控件在添加新数据前，先清空旧的共振峰列表。
-        self.spectrogram_widget.set_analysis_data(
+        # [关键修复] 调用新的、专门的方法来只更新共振峰数据，
+        # 这样就不会再清除已经存在的F0和强度数据了。
+        self.spectrogram_widget.update_formants_data(
             formants_data=formant_data, 
-            clear_previous_formants=True
+            clear_previous=True  # 替换旧的共振峰数据，而不是追加
         )
     
         QMessageBox.information(
@@ -2634,50 +2866,59 @@ class AudioAnalysisPage(QWidget):
 
     def run_task(self, task_type, progress_text="正在处理...", **kwargs):
         """
-        启动一个后台任务。
-        Args:
-            task_type (str): 任务类型。
-            progress_text (str, optional): 进度对话框中显示的文本。
-            **kwargs: 传递给 AudioTaskWorker 的其他参数。
+        [最终版] 启动一个后台任务。
+        根据任务类型，智能选择显示“确切进度”或“滚动中”的进度条。
         """
         if self.is_task_running:
             QMessageBox.warning(self, "操作繁忙", "请等待当前分析任务完成后再试。")
             return
         
-        self.is_task_running = True # 设置任务运行标志
+        self.is_task_running = True
         
-        # 创建并显示进度对话框
-        self.progress_dialog = QProgressDialog(progress_text, "取消", 0, 0, self)
-        self.progress_dialog.setWindowModality(Qt.WindowModal) # 设置为模态对话框
+        # [核心修改] 根据任务类型决定进度条的样式
+        if task_type == 'analyze_acoustics':
+            # F0分析是分块的，可以计算确切进度，所以使用范围(0, 100)
+            min_val, max_val = 0, 100
+        else:
+            # 其他任务（加载、语谱图、共振峰）是整体完成的，
+            # 设置min和max都为0，使其显示为“滚动中”的繁忙样式。
+            min_val, max_val = 0, 0
+        
+        # 使用上面决定的值来创建进度对话框
+        self.progress_dialog = QProgressDialog(progress_text, "取消", min_val, max_val, self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setValue(0) # 初始值设为0
         self.progress_dialog.show()
         
-        self.task_thread = QThread() # 创建新线程
-        self.worker = AudioTaskWorker(task_type, **kwargs) # 创建工作器实例
-        self.worker.moveToThread(self.task_thread) # 将工作器移动到新线程
+        self.task_thread = QThread()
+        self.worker = AudioTaskWorker(task_type, **kwargs)
+        self.worker.moveToThread(self.task_thread)
 
-        # 连接线程和工作器的信号
-        self.task_thread.started.connect(self.worker.run) # 线程启动时运行工作器
-        self.worker.error.connect(self.on_task_error) # 工作器发生错误时调用错误处理槽
+        # --- 连接信号（这部分逻辑保持不变）---
+        self.task_thread.started.connect(self.worker.run)
+        self.worker.error.connect(self.on_task_error)
+        
+        self.worker.finished.connect(self.task_thread.quit)
+        self.worker.error.connect(self.task_thread.quit)
 
-        # 根据任务类型连接完成信号
         if task_type == 'load':
             self.worker.finished.connect(self.on_load_finished)
-        elif task_type == 'analyze':
-            self.worker.finished.connect(self.on_analysis_finished)
+        elif task_type == 'analyze_acoustics':
+            self.worker.chunk_finished.connect(self.on_acoustics_chunk_finished)
+            self.worker.finished.connect(self.on_acoustics_analysis_done)
+        elif task_type == 'analyze_spectrogram':
+            self.worker.finished.connect(self.on_spectrogram_finished)
         elif task_type == 'analyze_formants_view':
             self.worker.finished.connect(self.on_formant_view_finished)
         
-        # 任务完成或线程结束时清理
-        self.worker.finished.connect(self.task_thread.quit) # 工作器完成时退出线程
-        self.worker.finished.connect(self.worker.deleteLater) # 工作器完成时删除工作器对象
-        self.task_thread.finished.connect(self.task_thread.deleteLater) # 线程结束时删除线程对象
-        self.task_thread.finished.connect(self.on_thread_finished) # 线程结束时调用清理槽
+        self.task_thread.finished.connect(self.on_thread_finished)
+        self.worker.deleteLater()
+        self.task_thread.finished.connect(self.task_thread.deleteLater)
 
-        # 连接进度对话框的取消信号到线程中断请求
         if self.progress_dialog:
             self.progress_dialog.canceled.connect(self.task_thread.requestInterruption)
         
-        self.task_thread.start() # 启动线程
+        self.task_thread.start()
 
     def load_audio_file(self, filepath):
         """
@@ -2724,21 +2965,33 @@ class AudioAnalysisPage(QWidget):
 
     def on_thread_finished(self):
         """
-        后台任务线程结束时的槽函数，用于清理线程和工作器引用。
+        [已修复] 后台任务线程结束时的最终清理槽函数。
+        无论任务是正常完成、被取消还是出错，此方法都必须被调用。
         """
-        self.task_thread, self.worker = None, None
-        self.is_task_running = False # 重置任务运行标志
+        # 确保进度对话框被关闭
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+
+        # 安全地清理线程和工作器引用
+        self.task_thread = None
+        self.worker = None
+        
+        # [关键修复] 在这里重置任务运行标志
+        self.is_task_running = False
 
     def on_task_error(self, error_msg):
         """
-        后台任务发生错误时的槽函数。
-        Args:
-            error_msg (str): 错误信息。
+        [已修复] 后台任务发生错误时的槽函数。
+        现在它只负责显示错误信息，所有清理工作由 on_thread_finished 完成。
         """
-        if hasattr(self, 'progress_dialog') and self.progress_dialog:
-            self.progress_dialog.close() # 关闭进度对话框
+        # 注意：不再在这里关闭进度条或重置 is_task_running，
+        # 因为 on_thread_finished 会统一处理。
+        import traceback
+        traceback.print_exc() # 打印详细的堆栈信息到控制台，便于调试
         QMessageBox.critical(self, "任务失败", f"处理过程中发生错误:\n{error_msg}")
-        self.clear_all() # 清除所有状态
+        # 可选：可以清除部分UI状态，但保留已加载的音频
+        self.spectrogram_widget.set_analysis_data(None, None, None, None)
 
     def update_icons(self):
         """
@@ -2747,7 +3000,8 @@ class AudioAnalysisPage(QWidget):
         self.open_file_btn.setIcon(self.icon_manager.get_icon("open_file"))
         self.on_player_state_changed(self.player.state()) # 根据播放器状态更新播放/暂停按钮图标
 
-        self.analyze_button.setIcon(self.icon_manager.get_icon("analyze_dark"))
+        self.analyze_acoustics_button.setIcon(self.icon_manager.get_icon("chart2"))
+        self.analyze_spectrogram_button.setIcon(self.icon_manager.get_icon("wav"))
         formant_icon = self.icon_manager.get_icon("analyze_dark")
         if formant_icon.isNull(): formant_icon = self.icon_manager.get_icon("analyze") # 如果特定图标不存在，使用通用图标
         self.analyze_formants_button.setIcon(formant_icon)
@@ -3130,16 +3384,41 @@ class AudioAnalysisPage(QWidget):
         # 调用父窗口的方法来更新并保存模块状态
         self.parent_window.update_and_save_module_state('audio_analysis', key, value)
 
+    def _on_chunk_settings_changed(self):
+        """
+        当分块大小或重叠滑块的值改变时调用。
+        """
+        chunk_size = self.chunk_size_slider.value()
+        chunk_overlap = self.chunk_overlap_slider.value()
+
+        # 更新标签显示
+        self.chunk_size_value_label.setText(f"{chunk_size} ms")
+        self.chunk_overlap_value_label.setText(f"{chunk_overlap} ms")
+
+        # 动态调整重叠滑块的最大值，确保重叠量小于块大小
+        # 至少留出10ms的步进空间
+        max_overlap = max(0, chunk_size - 10)
+        self.chunk_overlap_slider.setMaximum(max_overlap)
+
+        # 如果当前重叠值超过了新的最大值，则自动修正
+        if chunk_overlap > max_overlap:
+            self.chunk_overlap_slider.setValue(max_overlap)
+        
+        # 保存设置
+        self._on_persistent_setting_changed('chunk_size_ms', chunk_size)
+        self._on_persistent_setting_changed('chunk_overlap_ms', self.chunk_overlap_slider.value())
+
     def _load_persistent_settings(self):
         """
-        加载并应用所有持久化的用户设置。
+        [最终版] 加载并应用所有持久化的用户设置。
+        此方法现在包含对新的分块大小和重叠滑块的加载逻辑。
         """
-        # 从全局配置中安全地获取本模块的状态字典
+        # 从全局配置中安全地获取本模块的状态字典，如果不存在则返回空字典
         module_states = self.parent_window.config.get("module_states", {}).get("audio_analysis", {})
         
-        # 定义所有需要加载的控件及其属性、键名和默认值
+        # 定义所有需要加载的常规控件及其属性、键名和默认值
         controls_to_load = [
-            # 可视化选项 (Toggles)
+            # 可视化选项 (Toggles & Checkboxes)
             (self.show_f0_toggle, 'setChecked', 'show_f0', True),
             (self.show_f0_points_checkbox, 'setChecked', 'show_f0_points', True),
             (self.show_f0_derived_checkbox, 'setChecked', 'show_f0_derived', True),
@@ -3149,28 +3428,28 @@ class AudioAnalysisPage(QWidget):
             (self.highlight_f1_checkbox, 'setChecked', 'highlight_f1', True),
             (self.highlight_f2_checkbox, 'setChecked', 'highlight_f2', True),
             (self.show_other_formants_checkbox, 'setChecked', 'show_other_formants', True),
-            # 高级分析参数 (只剩下一个复选框)
+            
+            # 高级分析参数
             (self.pre_emphasis_checkbox, 'setChecked', 'pre_emphasis', False),
-            # 语谱图设置
+            
+            # 语谱图与渲染设置
             (self.render_density_slider, 'setValue', 'render_density', 4),
             (self.formant_density_slider, 'setValue', 'formant_density', 5),
             (self.spectrogram_type_checkbox, 'setChecked', 'is_wide_band', False),
         ]
 
-        # 批量加载设置
+        # 批量加载常规设置
         for control, setter_method_name, key, default_value in controls_to_load:
-            control.blockSignals(True) # 暂时阻塞信号，避免加载时触发多次保存
-            value_to_set = module_states.get(key, default_value) # 获取设置值，如果不存在则使用默认值
-            # 使用 getattr 动态调用控件的 setter 方法来设置值
+            # 暂时阻塞信号，避免在加载设置时触发不必要的保存操作
+            control.blockSignals(True)
+            value_to_set = module_states.get(key, default_value)
             getattr(control, setter_method_name)(value_to_set)
-            control.blockSignals(False) # 解除信号阻塞
+            control.blockSignals(False)
 
-        # [新增] 单独加载F0范围滑块的值
+        # --- 单独加载 F0 范围滑块的值 ---
         self.f0_range_slider.blockSignals(True)
-        # [修改] 从配置中读取下限和上限，并提供新的默认值
         lower_val = module_states.get('f0_min', 10)
         upper_val = module_states.get('f0_max', 700)
-        # 设置滑块的值
         self.f0_range_slider.setLowerValue(int(lower_val))
         self.f0_range_slider.setUpperValue(int(upper_val))
         self.f0_range_slider.blockSignals(False)
@@ -3178,11 +3457,32 @@ class AudioAnalysisPage(QWidget):
         self.f0_min_label.setText(str(self.f0_range_slider.lowerValue()))
         self.f0_max_label.setText(str(self.f0_range_slider.upperValue()))
             
-        # 手动触发一次UI更新，确保依赖关系和标签正确显示
+        # --- [新增] 单独加载分块大小和重叠滑块的值 ---
+        self.chunk_size_slider.blockSignals(True)
+        self.chunk_overlap_slider.blockSignals(True)
+        
+        # 加载分块大小
+        chunk_size = module_states.get('chunk_size_ms', 200)
+        self.chunk_size_slider.setValue(chunk_size)
+        
+        # 关键：在加载重叠值之前，必须先根据加载的块大小设置重叠滑块的最大值
+        max_overlap = max(0, chunk_size - 10)
+        self.chunk_overlap_slider.setMaximum(max_overlap)
+        
+        # 加载分块重叠值，并确保它不超过新的最大值
+        chunk_overlap = module_states.get('chunk_overlap_ms', 10)
+        self.chunk_overlap_slider.setValue(min(chunk_overlap, max_overlap))
+
+        self.chunk_size_slider.blockSignals(False)
+        self.chunk_overlap_slider.blockSignals(False)
+
+        # --- 最后，手动触发一次所有依赖UI的更新 ---
         self._update_dependent_widgets()
         self.update_overlays()
         self._update_render_density_label(self.render_density_slider.value())
         self._update_formant_density_label(self.formant_density_slider.value())
+        # 手动触发一次分块设置的更新，以同步标签文本
+        self._on_chunk_settings_changed()
 
 
 # SpectrumSliceDialog 类：显示频谱切片的对话框

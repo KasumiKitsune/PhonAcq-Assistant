@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QColor, QPen, QBrush, QPalette
-from modules.custom_widgets_module import AnimatedListWidget # [新增]
+from modules.custom_widgets_module import AnimatedListWidget, AnimatedSlider # [新增]
 # [新增] 导入 QMediaPlayer 和 QMediaContent
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
@@ -89,23 +89,29 @@ class ClickableSlider(QSlider):
         super().mouseMoveEvent(event)
 
 class ReorderDialog(QDialog):
+    """一个让用户拖动或使用按钮来重排音频文件顺序的对话框。"""
     def __init__(self, filepaths, parent=None, icon_manager=None):
         super().__init__(parent)
         self.icon_manager = icon_manager
         self.setWindowTitle("连接并重排音频")
         self.setMinimumSize(450, 300)
 
+        # 保存原始路径以供后续重排
+        self.original_paths = filepaths
+
+        # --- UI 初始化 ---
         layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("请拖动文件以调整顺序，或使用按钮微调，并输入新文件名:"))
 
-        layout.addWidget(QLabel("请拖动文件以调整顺序，并输入新文件名:"))
-
-        # 文件列表
+        # 文件列表 (使用支持动画的自定义控件)
         self.file_list = AnimatedListWidget()
-        self.file_list.setDragDropMode(QAbstractItemView.InternalMove) # 启用拖放排序
-        self.file_list.addItemsWithAnimation([os.path.basename(p) for p in filepaths])
-        self.original_paths = filepaths # 保存原始路径以供重排
+        self.file_list.setDragDropMode(QAbstractItemView.InternalMove) # 启用内置的拖放排序
         
-        # 移动按钮
+        # [关键修复] 添加缺失的这一行，用文件名填充列表
+        # 使用 addItemsWithAnimation 是因为这是一个 AnimatedListWidget
+        self.file_list.addItemsWithAnimation([os.path.basename(p) for p in filepaths])
+        
+        # 上移/下移按钮
         button_layout = QHBoxLayout()
         self.up_button = QPushButton("上移")
         self.down_button = QPushButton("下移")
@@ -118,7 +124,7 @@ class ReorderDialog(QDialog):
         self.new_name_input = QLineEdit("concatenated_output")
         form_layout.addRow("新文件名:", self.new_name_input)
         
-        # 确定/取消按钮
+        # OK / Cancel 按钮
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
 
         layout.addWidget(self.file_list)
@@ -126,25 +132,27 @@ class ReorderDialog(QDialog):
         layout.addLayout(form_layout)
         layout.addWidget(self.button_box)
 
+        # --- 信号连接 ---
         self._connect_signals()
+        
+        # --- 图标设置 ---
         self._update_icons()
 
     def _connect_signals(self):
-        self.add_btn.clicked.connect(self.add_source)
-        self.edit_btn.clicked.connect(self.edit_source)
-        self.remove_btn.clicked.connect(self.remove_source)
-        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
-        
-        # --- [核心修改] ---
-        # 连接新的“保存并关闭”按钮到 accept() 槽
-        self.save_close_btn.clicked.connect(self.accept)
+        """连接此对话框中实际存在的控件信号。"""
+        self.up_button.clicked.connect(self.move_up)
+        self.down_button.clicked.connect(self.move_down)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
 
     def _update_icons(self):
+        """设置按钮图标。"""
         if self.icon_manager:
             self.up_button.setIcon(self.icon_manager.get_icon("move_up"))
             self.down_button.setIcon(self.icon_manager.get_icon("move_down"))
 
     def move_up(self):
+        """将当前选中的项向上移动一行。"""
         current_row = self.file_list.currentRow()
         if current_row > 0:
             item = self.file_list.takeItem(current_row)
@@ -152,6 +160,7 @@ class ReorderDialog(QDialog):
             self.file_list.setCurrentRow(current_row - 1)
 
     def move_down(self):
+        """将当前选中的项向下移动一行。"""
         current_row = self.file_list.currentRow()
         if current_row < self.file_list.count() - 1:
             item = self.file_list.takeItem(current_row)
@@ -159,16 +168,11 @@ class ReorderDialog(QDialog):
             self.file_list.setCurrentRow(current_row + 1)
             
     def get_reordered_paths_and_name(self):
-        # 根据当前 QListWidget 中的顺序，重构文件路径列表
+        """根据UI中的当前顺序，返回重排后的完整文件路径列表和新文件名。"""
         reordered_filenames = [self.file_list.item(i).text() for i in range(self.file_list.count())]
-        
-        # 创建一个从文件名到原始完整路径的映射
         path_map = {os.path.basename(p): p for p in self.original_paths}
-
         reordered_full_paths = [path_map[fname] for fname in reordered_filenames]
-        
         new_name = self.new_name_input.text().strip()
-        
         return reordered_full_paths, new_name
 
 # --- WaveformWidget 类定义保持不变 ---
@@ -666,7 +670,9 @@ class AudioManagerPage(QWidget):
         self.play_pause_btn = QPushButton("")
         self.play_pause_btn.setMinimumWidth(80)
         self.play_pause_btn.setToolTip("播放或暂停当前选中的音频。")
-        self.playback_slider = ClickableSlider(Qt.Horizontal)
+        # [核心修改] 使用新的 AnimatedSlider 替换 ClickableSlider
+        self.playback_slider = AnimatedSlider(Qt.Horizontal)
+        self.playback_slider.setObjectName("PlaybackSlider") # 增加 objectName 以便 QSS 定位
         self.playback_slider.setToolTip("显示当前播放进度，可拖动或点击以跳转。")
         
         volume_layout = QHBoxLayout()

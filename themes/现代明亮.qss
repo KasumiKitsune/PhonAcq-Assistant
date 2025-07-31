@@ -655,6 +655,35 @@ RangeSlider {
     qproperty-handleRadius: 10;            /* 圆形滑块 (半径约为尺寸的一半) */
 }
 /*
+/* --- AnimatedSlider 样式 --- */
+AnimatedSlider {
+    /* --- 轨道颜色 --- */
+    qproperty-trackColor: #EAE0D6;         /* 对应 QSlider::groove - 基础背景色 */
+    qproperty-hoverTrackColor: #DCD0C0;    /* 对应 QSlider::groove:hover - 悬停时加深 */
+    
+    /* --- 范围高亮区颜色 --- */
+    qproperty-rangeColor: #8F4C33;         /* 主题强调色 */
+    qproperty-hoverRangeColor: #a45f43;    /* 悬停时颜色变亮 */
+
+    /* --- 滑块颜色 --- */
+    qproperty-handleColor: #FFFFFF;        /* 对应 QSlider::handle - 基础背景色 */
+    qproperty-handleBorderColor: #8F4C33;  /* 对应 QSlider::handle - 基础边框色 */
+    qproperty-hoverHandleColor: #F5EDE2;   /* 对应 QSlider::handle:hover - 悬停背景色 */
+    qproperty-pressedHandleColor: #EAE0D6; /* 对应 QSlider::handle:pressed - 按下背景色 */
+    qproperty-pressedHandleBorderColor: #7a3f23; /* 按下时边框颜色加深 */
+    
+    /* --- 轨道尺寸 --- */
+    qproperty-barHeight: 6;                /* 对应 QSlider::groove height */
+    qproperty-hoverBarHeight: 18;           /* 悬停时轨道稍微变粗 */
+
+    /* --- 滑块尺寸与形状 --- */
+    qproperty-handleSize: 18;              /* 对应 QSlider::handle width/height */
+    qproperty-hoverHandleSize: 24;         /* 悬停时滑块放大 */
+    qproperty-pressedHandleSize: 16;       /* 按下时滑块缩小 */
+    qproperty-handleBorderWidth: 2;        /* 对应 QSlider::handle border-width */
+    qproperty-handleRadius: 12;            /* 圆形滑块 (半径约为尺寸的一半) */
+}
+/*
 ================================================================================
 【新增】自定义动画列表样式 (AnimatedListWidget Style - Modern Elegance)
 ================================================================================ 

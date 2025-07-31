@@ -2,7 +2,7 @@
 
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QListWidget, QStyle, 
-                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem)
+                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider)
 from PyQt5.QtCore import (pyqtProperty, pyqtSignal, QEvent, QEasingCurve, 
                           QParallelAnimationGroup, QPoint, QPropertyAnimation, 
                           QRect, QRectF, QSequentialAnimationGroup, QSize, Qt, QObject, QTimer)
@@ -888,46 +888,37 @@ class ColorButton(QLabel):
 class _ItemAnimationHolder(QObject):
     """
     一个继承自 QObject 的内部动画代理类。
-
-    [核心使命]
-    解决 QListWidgetItem 无法直接作为 QPropertyAnimation 目标的问题。
-    它的每个实例与一个 QListWidgetItem 关联，持有该项目的所有动画属性
-    （如透明度、位移、背景色），并作为动画引擎的操作目标。
-
-    [工作原理]
-    1. QPropertyAnimation 作用于此类的实例 (一个 QObject)。
-    2. 动画引擎改变此类实例的 pyqtProperty (如 opacity)。
-    3. setter 方法被调用，它会：
-       a. 更新自身的内部值 (如 self._opacity)。
-       b. 将新值存入关联的 QListWidgetItem 的 UserRole 数据中。
-    4. valueChanged 信号会触发 update_view() 槽，请求列表重绘对应的项目。
+    [v1.1] 增加了主动失效机制，以防止在访问已删除的 QListWidgetItem 时发生崩溃。
     """
     def __init__(self, item, parent=None):
         super().__init__(parent)
         self.item = item
-        
-        # 初始化动画属性的内部存储
+        self._is_valid = True # [新增] 有效性标志
+
         self._opacity = 0.0
         self._y_offset = 0
         self._bg_brush = QBrush(Qt.transparent)
         
-        # 立即将初始值同步到 QListWidgetItem
         self.sync_to_item()
 
+    def invalidate(self):
+        """[新增] 一个公开的方法，用于在 item 即将被删除前调用。"""
+        self._is_valid = False
+        self.item = None # 立即断开对 item 的引用
+
     def sync_to_item(self):
-        """将内部属性值写入关联的 QListWidgetItem 的数据角色中。"""
+        if not self._is_valid: return # [新增] 安全检查
         self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, self._opacity)
         self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, self._y_offset)
         self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
 
-    # --- 动画目标属性 ---
-    # 这些 pyqtProperty 是 QPropertyAnimation 能够识别和操作的接口。
-    
+    # --- 动画目标属性 (增加安全检查) ---
     @pyqtProperty(float)
     def opacity(self): 
         return self._opacity
     @opacity.setter
     def opacity(self, value): 
+        if not self._is_valid: return # [新增] 安全检查
         self._opacity = value
         self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, value)
 
@@ -936,6 +927,7 @@ class _ItemAnimationHolder(QObject):
         return self._y_offset
     @y_offset.setter
     def y_offset(self, value): 
+        if not self._is_valid: return # [新增] 安全检查
         self._y_offset = value
         self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, value)
 
@@ -944,11 +936,14 @@ class _ItemAnimationHolder(QObject):
         return self._bg_brush.color()
     @bg_color.setter
     def bg_color(self, color): 
+        if not self._is_valid: return # [新增] 安全检查
         self._bg_brush = QBrush(color)
         self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
         
     def update_view(self):
         """一个槽函数，当任何动画属性改变时被调用，用于请求UI重绘。"""
+        if not self._is_valid or self.item is None: return # [新增] 安全检查
+        
         list_widget = self.item.listWidget()
         if list_widget:
             index = list_widget.indexFromItem(self.item)
@@ -1067,6 +1062,11 @@ class AnimatedListWidget(QListWidget):
         self._hovered_item_id = None
         self._pressed_item_id = None
         self._current_animations = {} # {item_id: QPropertyAnimation}
+        # [新增] 中央动画调度系统
+        self._animation_queue = []
+        self._animation_timer = QTimer(self)
+        self._animation_timer.setInterval(40) # 默认交错延迟
+        self._animation_timer.timeout.connect(self._process_animation_queue)
 
         # --- 默认QSS属性 ---
         # 这些值可以在主题QSS文件中通过 qproperty- 语法覆盖
@@ -1236,69 +1236,94 @@ class AnimatedListWidget(QListWidget):
         if not item: return
         target_brush = self._get_target_brush_for_item(item)
         self._animate_item_bg(item, target_brush)
+
+    def _process_animation_queue(self):
+        """从队列中取出一个项目并启动其进入动画。"""
+        if not self._animation_queue:
+            self._animation_timer.stop()
+            return
+
+        holder_ref = self._animation_queue.pop(0)
+
+        # [核心安全检查] 确保在动画启动前，holder 仍然有效
+        if not holder_ref or not holder_ref.parent(): 
+            return # 如果 holder 已被删除，则静默地跳过
+
+        parallel_anim = QParallelAnimationGroup(holder_ref)
+        
+        opacity_anim = QPropertyAnimation(holder_ref, b"opacity", holder_ref)
+        opacity_anim.setDuration(200) # 动画持续时间
+        opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
+        opacity_anim.setStartValue(0.0)
+        opacity_anim.setEndValue(1.0)
+
+        offset_anim = QPropertyAnimation(holder_ref, b"y_offset", holder_ref)
+        offset_anim.setDuration(200) # 动画持续时间
+        offset_anim.setEasingCurve(QEasingCurve.OutCubic)
+        offset_anim.setStartValue(20) # 从下方20像素处开始
+        offset_anim.setEndValue(0)
+
+        opacity_anim.valueChanged.connect(holder_ref.update_view)
+        offset_anim.valueChanged.connect(holder_ref.update_view)
+
+        parallel_anim.addAnimation(opacity_anim)
+        parallel_anim.addAnimation(offset_anim)
+        parallel_anim.start(QPropertyAnimation.DeleteWhenStopped)
     
     # --- 核心功能：项目进入动画与清空 ---
     
     def addItemsWithAnimation(self, items_text):
         """
-        用交错的、从下往上淡入的动画来添加一批项目。
+        [重构] 用交错的、从下往上淡入的动画来添加一批项目，使用中央队列。
         """
-        self.clear()
+        self.clear() # clear() 现在会停止旧的动画计时器
         
-        # ==================== 可调参数 ====================
-        ANIM_DURATION = 200  # 每个项目动画的持续时间 (毫秒)
-        STAGGER_DELAY = 40   # 每个项目动画开始之间的延迟 (毫秒)
-        # ===============================================
+        STAGGER_DELAY = 20   # 每个项目动画开始之间的延迟 (毫秒)
+        self._animation_timer.setInterval(STAGGER_DELAY)
 
-        for i, text in enumerate(items_text):
+        for text in items_text:
             item = QListWidgetItem(text)
-            item.setToolTip(text) # 设置Tooltip以显示完整名称
+            item.setToolTip(text)
             
             holder = _ItemAnimationHolder(item, self)
             item.setData(self.ANIM_HOLDER_ROLE, holder)
+            
+            # [核心修改] 不再创建 QTimer，而是将 holder 添加到队列
+            self._animation_queue.append(holder)
+            
+            # 先将 item 添加到 list 中，但它是完全透明且有位移的
             super().addItem(item)
-
-            def start_single_animation(holder_ref=holder):
-                if not holder_ref or not holder_ref.parent(): return
-                
-                parallel_anim = QParallelAnimationGroup(holder_ref)
-                
-                opacity_anim = QPropertyAnimation(holder_ref, b"opacity", holder_ref)
-                opacity_anim.setDuration(ANIM_DURATION)
-                opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
-                opacity_anim.setStartValue(0.0)
-                opacity_anim.setEndValue(1.0)
-
-                offset_anim = QPropertyAnimation(holder_ref, b"y_offset", holder_ref)
-                offset_anim.setDuration(ANIM_DURATION)
-                offset_anim.setEasingCurve(QEasingCurve.OutCubic)
-                offset_anim.setStartValue(20) # 从下方20像素处开始
-                offset_anim.setEndValue(0)
-
-                opacity_anim.valueChanged.connect(holder_ref.update_view)
-                offset_anim.valueChanged.connect(holder_ref.update_view)
-
-                parallel_anim.addAnimation(opacity_anim)
-                parallel_anim.addAnimation(offset_anim)
-                parallel_anim.start(QPropertyAnimation.DeleteWhenStopped)
-
-            QTimer.singleShot(i * STAGGER_DELAY, start_single_animation)
+            
+        # 如果队列不为空，则启动主计时器
+        if self._animation_queue:
+            self._animation_timer.start()
 
     def clear(self):
-        """覆盖原生的 clear 方法，以安全地停止动画和清理资源。"""
+        """[重构 v1.1] 覆盖原生 clear 方法，以安全地停止动画和清理资源。"""
+        # 1. 立即停止新的动画调度
+        self._animation_timer.stop()
+        self._animation_queue.clear()
+        
+        # 2. 停止所有正在运行的背景色过渡动画
         for anim_id in list(self._current_animations.keys()):
             anim = self._current_animations.pop(anim_id, None)
             try:
                 if anim: anim.stop()
             except RuntimeError: pass
             
+        # 3. [核心修复] 在删除 item 之前，遍历所有 item 并使其 holder 失效
         for i in range(self.count()):
             item = self.item(i)
-            holder = item.data(self.ANIM_HOLDER_ROLE)
-            if holder: holder.deleteLater()
+            if item:
+                holder = item.data(self.ANIM_HOLDER_ROLE)
+                if holder:
+                    holder.invalidate() # 通知 holder 不要再访问 item
             
+        # 4. 清理内部状态
         self._hovered_item_id = None
         self._pressed_item_id = None
+
+        # 5. 最后，安全地调用父类的 clear 方法来删除所有 QListWidgetItem
         super().clear()
         
     def _item_from_id(self, item_id):
@@ -1313,3 +1338,366 @@ class AnimatedListWidget(QListWidget):
         """当控件大小变化时，重新计算布局以确保省略号正确显示。"""
         super().resizeEvent(event)
         self.scheduleDelayedItemsLayout()
+# ==============================================================================
+# 7. 自定义动画进度条 (AnimatedSlider) - v1.1 [尺寸自适应修复版]
+# ==============================================================================
+class AnimatedSlider(QSlider):
+    """
+    一个从 QSlider 继承的、支持丰富动画和主题化的单手柄滑块。
+    v1.2: 修复了手柄在放大动画时边缘被裁切的问题，并自动继承 RangeSlider 的样式。
+    """
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.setMouseTracking(True)
+        
+        # --- 内部状态 ---
+        self._handle_pressed = False
+        self._handle_hovered = False
+        self._track_hovered = False
+        self.handle_rect = QRect()
+
+        # --- QSS 可配置属性 (从 RangeSlider 借鉴并初始化) ---
+        # 这些默认值是为了确保即使QSS没有定义，控件也能正常显示
+        self._bar_height = 6
+        self._handle_width = 18
+        self._handle_height = 18
+        self._handle_border_width = 2
+        self._handleRadius = 9
+        
+        self._hover_bar_height = 0
+        self._hover_handle_width = 0
+        self._hover_handle_height = 0
+        self._pressed_handle_width = 0
+        self._pressed_handle_height = 0
+        
+        self._trackBrush = QBrush(QColor("#E9EDF0")) # 默认浅灰色轨道
+        self._rangeBrush = QBrush(QColor("#3B97E3")) # 默认蓝色填充
+        self._hoverTrackBrush = QBrush(QColor("#D9DEE4")) # 悬停时轨道颜色
+        self._hoverRangeBrush = QBrush(QColor("#5DA9E8")) # 悬停时填充颜色
+        self._handleBrush = QBrush(Qt.white)          # 默认白色手柄
+        self._hoverHandleBrush = QBrush(QColor("#E9EDF0")) # 悬停时手柄颜色
+        self._pressedHandleBrush = QBrush(QColor("#D9DEE4")) # 按下时手柄颜色
+        self._handleBorderColor = QColor("#3B97E3")   # 默认手柄边框色
+        self._pressedHandleBorderColor = QColor("#2F78C0") # 按下时手柄边框色
+        
+        # --- 动画系统 ---
+        self._bar_height_anim_value = self._bar_height
+        self._handle_w_anim = self._handle_width
+        self._handle_h_anim = self._handle_height
+
+        self.bar_animation = QPropertyAnimation(self, b"_bar_height_anim_value")
+        self.h_w_anim = QPropertyAnimation(self, b"_handle_w_anim")
+        self.h_h_anim = QPropertyAnimation(self, b"_handle_h_anim")
+        
+        ANIMATION_DURATION = 80
+        easing = QEasingCurve.OutCubic
+        self.bar_animation.setDuration(ANIMATION_DURATION); self.bar_animation.setEasingCurve(easing)
+        self.h_w_anim.setDuration(ANIMATION_DURATION); self.h_w_anim.setEasingCurve(easing)
+        self.h_h_anim.setDuration(ANIMATION_DURATION); self.h_h_anim.setEasingCurve(easing)
+
+    # --- 覆盖 sizeHint 和 minimumSizeHint ---
+    def sizeHint(self):
+        """告诉布局系统此控件的理想尺寸。"""
+        # 计算最大可能的手柄高度
+        _, max_h = self._get_max_handle_dimension()
+        
+        # 控件的总高度需要容纳最大手柄、其边框以及一些额外的垂直“呼吸空间”
+        height = max_h + self._handle_border_width * 2 + 4 # 4px 额外空间
+        
+        # 宽度可以是一个合理的默认值，因为滑块通常会水平拉伸
+        return QSize(150, height)
+
+    def minimumSizeHint(self):
+        """告诉布局系统此控件的最小尺寸。"""
+        # 在这种情况下，最小尺寸和理想尺寸应该相同，以确保动画空间。
+        return self.sizeHint()
+
+    # --- 动画属性的 pyqtProperty (保持不变) ---
+    @pyqtProperty(int)
+    def _bar_height_anim_value(self): return self.__bar_height_anim_value
+    @_bar_height_anim_value.setter
+    def _bar_height_anim_value(self, value): self.__bar_height_anim_value = value; self.update()
+    @pyqtProperty(int)
+    def _handle_w_anim(self): return self.__handle_w_anim
+    @_handle_w_anim.setter
+    def _handle_w_anim(self, val): self.__handle_w_anim = val; self.update()
+    @pyqtProperty(int)
+    def _handle_h_anim(self): return self.__handle_h_anim
+    @_handle_h_anim.setter
+    def _handle_h_anim(self, val): self.__handle_h_anim = val; self.update()
+    
+    # --- QSS 颜色属性 (QBrush) (保持不变) ---
+    @pyqtProperty(QBrush)
+    def trackBrush(self): return self._trackBrush
+    @trackBrush.setter
+    def trackBrush(self, brush): self._trackBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def rangeBrush(self): return self._rangeBrush
+    @rangeBrush.setter
+    def rangeBrush(self, brush): self._rangeBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def hoverTrackBrush(self): return self._hoverTrackBrush
+    @hoverTrackBrush.setter
+    def hoverTrackBrush(self, brush): self._hoverTrackBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def hoverRangeBrush(self): return self._hoverRangeBrush
+    @hoverRangeBrush.setter
+    def hoverRangeBrush(self, brush): self._hoverRangeBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def handleBrush(self): return self._handleBrush
+    @handleBrush.setter
+    def handleBrush(self, brush): self._handleBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def hoverHandleBrush(self): return self._hoverHandleBrush
+    @hoverHandleBrush.setter
+    def hoverHandleBrush(self, brush): self._hoverHandleBrush = brush; self.update()
+    @pyqtProperty(QBrush)
+    def pressedHandleBrush(self): return self._pressedHandleBrush
+    @pressedHandleBrush.setter
+    def pressedHandleBrush(self, brush): self._pressedHandleBrush = brush; self.update()
+    
+    # --- QSS 边框颜色属性 (QColor) (保持不变) ---
+    @pyqtProperty(QColor)
+    def handleBorderColor(self): return self._handleBorderColor
+    @handleBorderColor.setter
+    def handleBorderColor(self, color): self._handleBorderColor = color; self.update()
+    @pyqtProperty(QColor)
+    def pressedHandleBorderColor(self): return self._pressedHandleBorderColor
+    @pressedHandleBorderColor.setter
+    def pressedHandleBorderColor(self, color): self._pressedHandleBorderColor = color; self.update()
+    
+    # --- QSS 尺寸与形状属性 (保持不变) ---
+    @pyqtProperty(int)
+    def handleRadius(self): return self._handleRadius
+    @handleRadius.setter
+    def handleRadius(self, radius): self._handleRadius = radius; self.update()
+    @pyqtProperty(int)
+    def barHeight(self): return self._bar_height
+    @barHeight.setter
+    def barHeight(self, h): self._bar_height = h; self._bar_height_anim_value = h; self.update()
+    @pyqtProperty(int)
+    def hoverBarHeight(self): return self._hover_bar_height
+    @hoverBarHeight.setter
+    def hoverBarHeight(self, h): self._hover_bar_height = h; self.update()
+    @pyqtProperty(int)
+    def handleWidth(self): return self._handle_width
+    @handleWidth.setter
+    def handleWidth(self, w): self._handle_width = w; self._handle_w_anim = w; self.update()
+    @pyqtProperty(int)
+    def handleHeight(self): return self._handle_height
+    @handleHeight.setter
+    def handleHeight(self, h): self._handle_height = h; self._handle_h_anim = h; self.update()
+    @pyqtProperty(int)
+    def hoverHandleWidth(self): return self._hover_handle_width
+    @hoverHandleWidth.setter
+    def hoverHandleWidth(self, w): self._hover_handle_width = w; self.update()
+    @pyqtProperty(int)
+    def hoverHandleHeight(self): return self._hover_handle_height
+    @hoverHandleHeight.setter
+    def hoverHandleHeight(self, h): self._hover_handle_height = h; self.update()
+    @pyqtProperty(int)
+    def pressedHandleWidth(self): return self._pressed_handle_width
+    @pressedHandleWidth.setter
+    def pressedHandleWidth(self, w): self._pressed_handle_width = w; self.update()
+    @pyqtProperty(int)
+    def pressedHandleHeight(self): return self._pressed_handle_height
+    @pressedHandleHeight.setter
+    def pressedHandleHeight(self, h): self._pressed_handle_height = h; self.update()
+    @pyqtProperty(int)
+    def handleBorderWidth(self): return self._handle_border_width
+    @handleBorderWidth.setter
+    def handleBorderWidth(self, w): self._handle_border_width = w; self.update()
+
+    # --- [核心修改] 新增QColor兼容性属性 ---
+    @pyqtProperty(QColor)
+    def trackColor(self): return self._trackBrush.color()
+    @trackColor.setter
+    def trackColor(self, color): self.trackBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def rangeColor(self): return self._rangeBrush.color()
+    @rangeColor.setter
+    def rangeColor(self, color): self.rangeBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def hoverTrackColor(self): return self._hoverTrackBrush.color()
+    @hoverTrackColor.setter
+    def hoverTrackColor(self, color): self.hoverTrackBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def hoverRangeColor(self): return self._hoverRangeBrush.color()
+    @hoverRangeColor.setter
+    def hoverRangeColor(self, color): self.hoverRangeBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def handleColor(self): return self._handleBrush.color()
+    @handleColor.setter
+    def handleColor(self, color): self.handleBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def hoverHandleColor(self): return self._hoverHandleBrush.color()
+    @hoverHandleColor.setter
+    def hoverHandleColor(self, color): self.hoverHandleBrush = QBrush(color)
+    @pyqtProperty(QColor)
+    def pressedHandleColor(self): return self._pressedHandleBrush.color()
+    @pressedHandleColor.setter
+    def pressedHandleColor(self, color): self.pressedHandleBrush = QBrush(color)
+    
+    # --- [核心修改] 新增 handleSize 等尺寸兼容性属性 ---
+    @pyqtProperty(int)
+    def handleSize(self): return self._handle_width
+    @handleSize.setter
+    def handleSize(self, size): 
+        self.handleWidth = size
+        self.handleHeight = size
+
+    @pyqtProperty(int)
+    def hoverHandleSize(self): return self._hover_handle_width
+    @hoverHandleSize.setter
+    def hoverHandleSize(self, size): 
+        self.hoverHandleWidth = size
+        self.hoverHandleHeight = size
+
+    @pyqtProperty(int)
+    def pressedHandleSize(self): return self._pressed_handle_width
+    @pressedHandleSize.setter
+    def pressedHandleSize(self, size): 
+        self.pressedHandleWidth = size
+        self.pressedHandleHeight = size
+    # --- 辅助函数：获取最大手柄尺寸 (用于布局) ---
+    def _get_max_handle_dimension(self):
+        # 考虑默认、悬停和按下状态下的最大手柄尺寸
+        hover_w = self._hover_handle_width if self._hover_handle_width > 0 else self._handle_width + 4
+        pressed_w = self._pressed_handle_width if self._pressed_handle_width > 0 else self._handle_width - 2
+        max_w = max(self._handle_width, hover_w, pressed_w)
+
+        hover_h = self._hover_handle_height if self._hover_handle_height > 0 else self._handle_height + 4
+        pressed_h = self._pressed_handle_height if self._pressed_handle_height > 0 else self._handle_height - 2
+        max_h = max(self._handle_height, hover_h, pressed_h)
+        return max_w, max_h
+
+    # --- 核心绘制方法 (PaintEvent) ---
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # 阻止原生 QSlider 绘制任何东西，完全由我们接管
+        # super().paintEvent(event) # 不要调用父类的 paintEvent
+        
+        w, h = self.width(), self.height()
+        
+        # 计算手柄中心点所需的安全边距
+        margin = (self._get_max_handle_dimension()[0] + self._handle_border_width) // 2
+        
+        # 绘制轨道
+        current_bar_height = self._bar_height_anim_value
+        track_b = self._hoverTrackBrush if self._track_hovered else self._trackBrush
+        bar_y = (h - current_bar_height) // 2
+        
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(track_b)
+        painter.drawRoundedRect(margin, bar_y, w - 2 * margin, current_bar_height, current_bar_height//2, current_bar_height//2)
+        
+        # 绘制已填充部分 (从起始到当前值)
+        current_x = self._value_to_pixel(self.value())
+        range_b = self._hoverRangeBrush if self._track_hovered else self._rangeBrush
+        painter.setBrush(range_b)
+        painter.drawRoundedRect(margin, bar_y, current_x - margin, current_bar_height, current_bar_height//2, current_bar_height//2)
+        
+        # 绘制手柄
+        handle_w, handle_h = self._handle_w_anim, self._handle_h_anim
+        handle_b, border_c = self._get_handle_brushes(self._handle_pressed, self._handle_hovered)
+        painter.setBrush(handle_b)
+        painter.setPen(QPen(border_c, self._handle_border_width))
+        self.handle_rect = QRect(current_x - handle_w//2, (h-handle_h)//2, handle_w, handle_h)
+        painter.drawRoundedRect(self.handle_rect, self._handleRadius, self._handleRadius)
+
+    # --- 动画启动逻辑 ---
+    def _start_animations(self):
+        bar_target = self._hover_bar_height if self._hover_bar_height > 0 else self._bar_height + 2
+        # 如果 QSS 没有定义 hoverBarHeight，就使用默认的 +2 放大效果
+        # 如果 QSS 定义了 hoverBarHeight 为 0，则表示不放大
+        if self._hover_bar_height == 0 and self._track_hovered:
+            self.bar_animation.setEndValue(self._bar_height) # 不放大
+        else:
+            self.bar_animation.setEndValue(bar_target if self._track_hovered or self._handle_pressed else self._bar_height)
+        self.bar_animation.start()
+        
+        w_target = self._handle_width; h_target = self._handle_height
+        if self._handle_pressed:
+            w_target = self._pressed_handle_width if self._pressed_handle_width > 0 else self._handle_width - 2
+            h_target = self._pressed_handle_height if self._pressed_handle_height > 0 else self._handle_height - 2
+        elif self._handle_hovered:
+            w_target = self._hover_handle_width if self._hover_handle_width > 0 else self._handle_width + 4
+            h_target = self._hover_handle_height if self._hover_handle_height > 0 else self._handle_height + 4
+            
+        self.h_w_anim.setEndValue(w_target); self.h_h_anim.setEndValue(h_target)
+        self.h_w_anim.start(); self.h_h_anim.start()
+    
+    # --- 辅助方法：获取手柄的画刷和边框颜色 ---
+    def _get_handle_brushes(self, pressed, hovered):
+        if pressed: 
+            return self._pressedHandleBrush, self._pressedHandleBorderColor
+        elif hovered: 
+            # 如果 QSS 没有定义 hoverHandleBrush，就回退到默认手柄画刷
+            if not self._hoverHandleBrush.color().isValid() and self._hoverHandleBrush.style() == Qt.NoBrush:
+                return self._handleBrush, self._handleBorderColor
+            return self._hoverHandleBrush, self._handleBorderColor
+        else: 
+            return self._handleBrush, self._handleBorderColor
+        
+    # --- 事件处理 (MousePress, MouseMove, MouseRelease, Leave) ---
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            new_val = self._pixel_to_value(event.pos().x())
+            self.setValue(new_val) # 立即跳转到点击位置
+            self._handle_pressed = True
+            self._start_animations()
+            # 发射 sliderMoved 信号，让播放器立即响应（QSlider 的标准行为）
+            self.sliderMoved.emit(new_val) 
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._handle_pressed:
+            new_val = self._pixel_to_value(event.pos().x())
+            self.setValue(new_val)
+            self.sliderMoved.emit(new_val) # 拖动时持续发射
+        
+        old_handle_hovered, old_track_hovered = self._handle_hovered, self._track_hovered
+        self._handle_hovered = self.handle_rect.contains(event.pos())
+        
+        # 只有当手柄没有被悬停时，才检查是否悬停在轨道上
+        bar_y = (self.height() - self._bar_height_anim_value) // 2
+        bar_rect = QRect(0, bar_y, self.width(), self._bar_height_anim_value)
+        self._track_hovered = bar_rect.contains(event.pos()) and not self._handle_hovered
+
+        if old_handle_hovered != self._handle_hovered or old_track_hovered != self._track_hovered:
+            self._start_animations()
+        
+        super().mouseMoveEvent(event) # 确保QSlider的原生行为不被完全阻断
+
+    def mouseReleaseEvent(self, event):
+        self._handle_pressed = False
+        self._start_animations()
+        super().mouseReleaseEvent(event) # 确保QSlider的原生行为
+
+    def leaveEvent(self, event):
+        self._handle_hovered = False
+        self._track_hovered = False
+        self._start_animations()
+        super().leaveEvent(event) # 确保QSlider的原生行为
+    
+    # --- 像素与值转换 (与 RangeSlider 几乎相同) ---
+    def _value_to_pixel(self, value):
+        # 这里的 margin 必须考虑最大手柄尺寸，以确保手柄完全在可见区域内
+        margin = (self._get_max_handle_dimension()[0] + self._handle_border_width) // 2
+        pixel_span = self.width() - 2 * margin
+        span = self.maximum() - self.minimum()
+        if span == 0: return margin # 避免除以零
+        return int(margin + pixel_span * (value - self.minimum()) / span)
+
+    def _pixel_to_value(self, pixel):
+        margin = (self._get_max_handle_dimension()[0] + self._handle_border_width) // 2
+        pixel_span = self.width() - 2 * margin
+        clamped_pixel = max(margin, min(pixel, self.width() - margin)) # 钳制像素值在有效范围内
+        pixel_ratio = (clamped_pixel - margin) / pixel_span if pixel_span > 0 else 0
+        span = self.maximum() - self.minimum()
+        val = self.minimum() + span * pixel_ratio
+        return int(max(self.minimum(), min(self.maximum(), val))) # 钳制结果值在有效范围内
