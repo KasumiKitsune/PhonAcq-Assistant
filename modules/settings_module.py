@@ -452,7 +452,7 @@ class SettingsPage(QWidget):
         
         # 确保开关状态和Tooltip在加载完成后立即更新
         self._update_compact_switch_state(self.theme_combo.currentIndex())
-        
+        self.compact_mode_switch.sync_visual_state_to_checked_state()
         file_settings = config.get("file_settings", {}); gtts_settings = config.get("gtts_settings", {}); app_settings = config.get("app_settings", {})
         
         default_wordlist = file_settings.get('word_list_file', '')

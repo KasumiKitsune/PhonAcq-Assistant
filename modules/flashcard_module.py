@@ -4,7 +4,7 @@
 MODULE_NAME = "速记卡"
 MODULE_DESCRIPTION = "使用图文、音频结合的方式进行学习和记忆，并自动记录学习进度。"
 # ---
-
+MODULE_CONTENT_PREFERRED_SIZE = (1250, 900) 
 import os
 import sys
 import random

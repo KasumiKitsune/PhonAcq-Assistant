@@ -83,6 +83,23 @@ class LogViewerPage(QWidget):
         self.export_btn.clicked.connect(self.export_to_excel)
         self.chinese_mode_switch.stateChanged.connect(self.on_language_mode_changed)
         self.filter_input.textChanged.connect(self.filter_table)
+    def _build_log_data_sources(self):
+        """
+        [新增] 构建并设置 self.LOG_DATA_SOURCES 实例属性。
+        此方法应在构造函数中被调用，以确保数据源在任何其他操作之前都可用。
+        """
+        results_dir_base = self.config.get('file_settings', {}).get('results_dir', os.path.join(self.BASE_PATH, "Results"))
+        self.LOG_DATA_SOURCES = {
+            "标准朗读采集 (common)": {
+                "path": os.path.join(results_dir_base, "common")
+            },
+            "看图说话采集 (visual)": {
+                "path": os.path.join(results_dir_base, "visual")
+            },
+            "语音包录制": {
+                "path": os.path.join(self.BASE_PATH, "audio_record")
+            }
+        }
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -157,6 +174,7 @@ class LogViewerPage(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         main_layout.addWidget(splitter)
+        self.load_and_refresh()
         
     def update_icons(self):
         self.export_btn.setIcon(self.icon_manager.get_icon("export"))

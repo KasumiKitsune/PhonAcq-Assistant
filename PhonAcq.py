@@ -145,7 +145,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem, QLineEdit, 
                              QFileDialog, QMessageBox, QComboBox, QSlider, QStyle, 
                              QFormLayout, QGroupBox, QCheckBox, QTabWidget, QScrollArea, 
-                             QSpacerItem, QSizePolicy, QGraphicsOpacityEffect, QWidgetAction)
+                             QSpacerItem, QSizePolicy, QGraphicsOpacityEffect, QWidgetAction, QMenu, QDialog)
 from PyQt5.QtGui import QIntValidator, QPainter, QPen, QBrush
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect, QSize, QEasingCurve, QPropertyAnimation, QParallelAnimationGroup, QPoint, QEvent
 from modules.custom_widgets_module import ToggleSwitch
@@ -436,7 +436,7 @@ class AnimationManager:
             return
 
         # 2. 定义动画参数
-        duration = 150
+        duration = 100
         offset = 20
 
         # --- 消失动画逻辑 ---
@@ -515,6 +515,27 @@ class AnimationManager:
         anim_group_appear.start(QParallelAnimationGroup.DeleteWhenStopped)
 
 class MainWindow(QMainWindow):
+    class RememberingWindow(QMainWindow):
+        def __init__(self, module_key, main_window_ref, parent=None):
+            super().__init__(parent)
+            self.module_key = module_key
+            self.main_window_ref = main_window_ref
+
+        def closeEvent(self, event):
+            """当窗口关闭时，重写此事件以保存其几何信息。"""
+            # 1. 确保 'window_geometries' 键在配置中存在
+            if 'window_geometries' not in self.main_window_ref.config:
+                self.main_window_ref.config['window_geometries'] = {}
+            
+            # 2. 获取几何信息并将其转换为JSON兼容的字符串 (Base64)
+            geometry_data = self.saveGeometry().toBase64().data().decode('utf-8')
+            self.main_window_ref.config['window_geometries'][self.module_key] = geometry_data
+            
+            # 3. 调用主窗口的保存方法
+            self.main_window_ref.save_config()
+            
+            # 4. 必须调用父类的closeEvent，否则窗口不会关闭！
+            super().closeEvent(event)
     def __init__(self, app_ref, splash_ref=None, tooltips_ref=None):
         super().__init__()
         self.app_ref = app_ref
@@ -578,38 +599,53 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.plugin_manager.load_enabled_plugins)
 
         # 页面创建
-        self.accent_collection_page = self.create_module_or_placeholder('accent_collection_module', '标准朗读采集', 
+        self.accent_collection_page = self.create_module_or_placeholder('accent_collection_page', 'accent_collection_module', '标准朗读采集', 
             lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, im, rdf))
 
-        self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_module', '提示音录制', 
+        self.voicebank_recorder_page = self.create_module_or_placeholder('voicebank_recorder_page', 'voicebank_recorder_module', '提示音录制', 
             lambda m, ts, w, l, im, rdf: m.create_page(self, WORD_LIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
-        self.audio_manager_page = self.create_module_or_placeholder('audio_manager_module', '音频数据管理器', 
+        
+        self.audio_manager_page = self.create_module_or_placeholder('audio_manager_page', 'audio_manager_module', '音频数据管理器', 
             lambda m, ts, im: m.create_page(self, self.config, BASE_PATH, self.config['file_settings'].get("results_dir"), AUDIO_RECORD_DIR, im, ts))
-        self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_module', '通用词表编辑器', 
+
+        # ... 对所有其他页面创建调用进行同样的修改 ...
+        self.wordlist_editor_page = self.create_module_or_placeholder('wordlist_editor_page', 'wordlist_editor_module', '通用词表编辑器', 
             lambda m, im, dl: m.create_page(self, WORD_LIST_DIR, im, dl))
-        self.converter_page = self.create_module_or_placeholder('excel_converter_module', 'Excel转换器', 
+            
+        self.converter_page = self.create_module_or_placeholder('converter_page', 'excel_converter_module', 'Excel转换器', 
             lambda m, im: m.create_page(self, WORD_LIST_DIR, MODULES, im))
-        self.help_page = self.create_module_or_placeholder('help_module', '帮助文档', 
+
+        self.help_page = self.create_module_or_placeholder('help_page', 'help_module', '帮助文档', 
             lambda m: m.create_page(self))
-        DIALECT_VISUAL_WORDLIST_DIR = os.path.join(BASE_PATH, "dialect_visual_wordlists")
-        os.makedirs(DIALECT_VISUAL_WORDLIST_DIR, exist_ok=True)
-        self.dialect_visual_page = self.create_module_or_placeholder('dialect_visual_collector_module', '看图说话采集', 
-            lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, BASE_PATH, DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
-        self.dialect_visual_editor_page = self.create_module_or_placeholder('dialect_visual_editor_module', '图文词表编辑器', 
-            lambda m, ts, im: m.create_page(self, DIALECT_VISUAL_WORDLIST_DIR, ts, im))
-        self.tts_utility_page = self.create_module_or_placeholder('tts_utility_module', 'TTS 工具',
+        
+        # [核心修改] 将局部变量提升为实例变量
+        self.DIALECT_VISUAL_WORDLIST_DIR = os.path.join(self.BASE_PATH, "dialect_visual_wordlists")
+        os.makedirs(self.DIALECT_VISUAL_WORDLIST_DIR, exist_ok=True)
+        
+        # [核心修改] 更新创建页面时的调用，使用 self.DIALECT_VISUAL_WORDLIST_DIR
+        self.dialect_visual_page = self.create_module_or_placeholder('dialect_visual_page', 'dialect_visual_collector_module', '看图说话采集', 
+            lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, self.BASE_PATH, self.DIALECT_VISUAL_WORDLIST_DIR, AUDIO_RECORD_DIR, ts, w, l, im, rdf))
+        
+        self.dialect_visual_editor_page = self.create_module_or_placeholder('dialect_visual_editor_page', 'dialect_visual_editor_module', '图文词表编辑器', 
+            lambda m, ts, im: m.create_page(self, self.DIALECT_VISUAL_WORDLIST_DIR, ts, im))
+        
+        self.tts_utility_page = self.create_module_or_placeholder('tts_utility_page', 'tts_utility_module', 'TTS 工具',
             lambda m, ts, w, dl, std_wld, im: m.create_page(self, self.config, AUDIO_TTS_DIR, ts, w, dl, std_wld, im))
-        self.flashcard_page = self.create_module_or_placeholder('flashcard_module', '速记卡',
-            lambda m, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val: \
-        m.create_page(self, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val)
-        )
-        self.settings_page = self.create_module_or_placeholder('settings_module', '程序设置',
-            lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir)) 
-        self.audio_analysis_page = self.create_module_or_placeholder('audio_analysis_module', '音频分析', 
-            lambda m, im, ts: m.create_page(self, im, ts))     
-        # [修改] 日志查看器页面创建，注入 icon_manager
-        self.log_viewer_page = self.create_module_or_placeholder('log_viewer_module', '日志查看器',
+
+        self.flashcard_page = self.create_module_or_placeholder('flashcard_page', 'flashcard_module', '速记卡',
+            lambda m, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val: m.create_page(self, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val))
+        
+        self.settings_page = self.create_module_or_placeholder('settings_page', 'settings_module', '程序设置',
+            lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir))
+
+        self.audio_analysis_page = self.create_module_or_placeholder('audio_analysis_page', 'audio_analysis_module', '音频分析', 
+            lambda m, im, ts: m.create_page(self, im, ts))
+
+        self.log_viewer_page = self.create_module_or_placeholder('log_viewer_page', 'log_viewer_module', '日志查看器',
             lambda m, ts, im: m.create_page(self, self.config, ts, im))
+            
+        # [新增] 在 __init__ 中初始化独立窗口列表
+        self.independent_windows = []
         
         if self.splash_ref:
             self.splash_ref.showMessage("构建用户界面...", Qt.AlignBottom | Qt.AlignLeft, Qt.white)
@@ -663,6 +699,254 @@ class MainWindow(QMainWindow):
             
         self.apply_theme()
         self.on_main_tab_changed(0) # 初始加载第一个标签页
+        # --- [新增] 为所有标签页启用右键上下文菜单 ---
+        self._setup_tab_context_menus()
+
+    def _setup_tab_context_menus(self):
+        """遍历并为所有主、子标签页的TabBar设置上下文菜单策略。"""
+        # 为主标签页设置
+        self.main_tabs.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.main_tabs.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
+        
+        # 遍历主标签页，为所有子标签页（如果存在）设置
+        for i in range(self.main_tabs.count()):
+            sub_widget = self.main_tabs.widget(i)
+            if isinstance(sub_widget, QTabWidget):
+                sub_widget.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
+                sub_widget.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
+
+    def _show_tab_context_menu(self, position):
+        """当在TabBar上右键时，显示上下文菜单。"""
+        # [新增] 导入性能监视器
+        try:
+            from modules.performance_monitor import PerformanceMonitor
+            psutil_available = True
+        except ImportError:
+            psutil_available = False
+
+        tab_widget = self.sender().parent()
+        if not isinstance(tab_widget, QTabWidget):
+            return
+
+        # ... (之前的所有逻辑保持不变) ...
+        tab_index = tab_widget.tabBar().tabAt(position)
+        if tab_index == -1: return
+        page_widget = tab_widget.widget(tab_index)
+        if not page_widget: return
+        can_refresh = bool(page_widget.property("recreation_factory"))
+        DISABLED_FOR_NEW_WINDOW = ['settings_page', 'help_page']
+        attr_name = page_widget.property("main_window_attr_name")
+        can_open_new = can_refresh and (attr_name not in DISABLED_FOR_NEW_WINDOW)
+        
+        # [修改] 增加psutil的可用性检查
+        can_monitor = psutil_available and attr_name is not None
+        
+        # 如果所有功能都不可用，则不显示菜单
+        if not can_refresh and not can_open_new and not can_monitor:
+            return
+
+        menu = QMenu(self)
+        
+        # 添加“刷新”和“新建窗口”菜单项 (逻辑不变)
+        if can_refresh:
+            # ...
+            refresh_icon = self.icon_manager.get_icon("refresh")
+            refresh_action = menu.addAction(refresh_icon, "刷新此标签页")
+            refresh_action.triggered.connect(lambda: self._refresh_tab(tab_widget, tab_index))
+
+        if can_open_new:
+            # ...
+            new_window_icon = self.icon_manager.get_icon("new_window")
+            new_window_action = menu.addAction(new_window_icon, "在新窗口中打开")
+            new_window_action.triggered.connect(lambda: self._open_tab_in_new_window(tab_widget, tab_index))
+        
+        # [新增] 添加“性能监视”菜单项
+        if can_monitor:
+            if not menu.isEmpty():
+                menu.addSeparator()
+            
+            monitor_icon = self.icon_manager.get_icon("monitor") # 假设你有一个名为 monitor.svg/png 的图标
+            monitor_action = menu.addAction(monitor_icon, "性能监视")
+            monitor_action.triggered.connect(lambda: self.open_performance_monitor(page_widget))
+        elif not can_monitor and psutil_available is False:
+             if not menu.isEmpty():
+                menu.addSeparator()
+             monitor_action = menu.addAction("性能监视 (不可用)")
+             monitor_action.setToolTip("请安装 psutil 库以启用此功能 (pip install psutil)")
+             monitor_action.setEnabled(False)
+
+        if menu.isEmpty():
+            return
+            
+        global_pos = tab_widget.tabBar().mapToGlobal(position)
+        self.animation_manager.animate_menu(menu, global_pos)
+
+    # [新增] 在 MainWindow 中添加打开监视器的槽函数
+    def open_performance_monitor(self, target_widget):
+        """
+        为指定的小部件打开一个性能监视器窗口。
+        此版本会动态地为目标小部件添加一个销毁信号，并将其传递给
+        监视器，以建立一个健壮的生命周期管理链接。
+        """
+        # --- 防止重复打开同一个监视器的逻辑保持不变 ---
+        # 我们检查是否已经为这个小部件打开了一个监视器
+        for win in self.independent_windows:
+            # 增加一个对 QDialog 的检查，使其更具鲁棒性
+            if isinstance(win, QDialog) and getattr(win, 'target_widget', None) == target_widget:
+                win.activateWindow()
+                win.raise_()
+                return
+        
+        # --- 动态创建信号并实例化监视器 ---
+        try:
+            from modules.performance_monitor import PerformanceMonitor
+            from PyQt5.QtCore import pyqtSignal
+
+            # [核心修复] 在目标页面上动态创建信号，如果它还不存在的话。
+            # 这使得任何 QWidget 都可以被监视，而无需修改其原始类。
+            if not hasattr(target_widget, 'aboutToBeDestroyed'):
+                 target_widget.aboutToBeDestroyed = pyqtSignal()
+            
+            # 创建监视器实例，并将主窗口(self)作为父级传入
+            monitor_dialog = PerformanceMonitor(target_widget, parent=self)
+            
+            # --- 后续的生命周期管理逻辑保持不变 ---
+            # 将其添加到独立窗口列表中以管理其生命周期
+            self.independent_windows.append(monitor_dialog)
+            # 当监视器窗口被销毁时（例如用户关闭它），自动从列表中移除，防止内存泄漏
+            monitor_dialog.destroyed.connect(lambda obj=monitor_dialog: self.independent_windows.remove(obj) if obj in self.independent_windows else None)
+            
+            monitor_dialog.show()
+
+        except ImportError:
+             # 如果 performance_monitor.py 或 psutil 缺失，给出提示
+             QMessageBox.warning(self, "功能缺失", "无法加载性能监视器模块。\n请确保 'modules/performance_monitor.py' 文件存在，并且已安装 'psutil' 库。")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开性能监视器时发生未知错误:\n{e}")
+
+
+    def _refresh_tab(self, tab_widget, index):
+        """
+        [v2 - 带通知版]
+        销毁并重建指定的标签页，并在销毁前发出通知，以便关联的窗口
+        （如性能监视器）可以安全地关闭。
+        """
+        old_widget = tab_widget.widget(index)
+        if not old_widget:
+            return
+        
+        factory = old_widget.property("recreation_factory")
+        attr_name = old_widget.property("main_window_attr_name") 
+
+        if not factory or not attr_name:
+            print(f"警告: 标签页 '{tab_widget.tabText(index)}' 缺少重建信息，无法刷新。")
+            return
+
+        # [核心修复] 在销毁前，发射 aboutToBeDestroyed 信号
+        # 检查该信号是否存在，以防万一
+        if hasattr(old_widget, 'aboutToBeDestroyed'):
+            try:
+                old_widget.aboutToBeDestroyed.emit()
+            except Exception as e:
+                print(f"发射 aboutToBeDestroyed 信号时出错: {e}")
+
+        # --- 后续的页面替换逻辑保持不变 ---
+        tab_text = tab_widget.tabText(index)
+        tab_icon = tab_widget.tabIcon(index)
+        tab_tooltip = tab_widget.tabToolTip(index)
+
+        # 使用工厂创建新的页面实例
+        new_widget = factory()
+
+        # 更新 MainWindow 上的直接引用
+        setattr(self, attr_name, new_widget)
+
+        # 在UI上执行替换
+        tab_widget.removeTab(index)
+        old_widget.deleteLater() # 安全地安排旧部件的删除
+        tab_widget.insertTab(index, new_widget, tab_icon, tab_text)
+        tab_widget.setTabToolTip(index, tab_tooltip)
+        
+        # 切换到新创建的标签页以触发其加载逻辑
+        tab_widget.setCurrentIndex(index)
+
+    def _open_tab_in_new_window(self, tab_widget, index):
+        """
+        [v3 - State-Aware]
+        在一个新的独立窗口中创建标签页的副本。
+        - 首先尝试从设置中加载上次的窗口几何信息。
+        - 如果没有，则使用主题感知的智能尺寸计算作为后备。
+        - 窗口关闭时会自动保存其位置和大小。
+        """
+        from PyQt5.QtCore import QByteArray # 确保导入 QByteArray
+
+        current_widget = tab_widget.widget(index)
+        if not current_widget: return
+
+        factory = current_widget.property("recreation_factory")
+        tab_text = tab_widget.tabText(index)
+        module_key = current_widget.property("module_key")
+
+        if not factory or not module_key:
+            QMessageBox.warning(self, "操作失败", "此标签页不支持在新窗口中打开或缺少身份信息。")
+            return
+
+        # 1. 创建窗口和内容实例
+        #    使用我们新的 RememberingWindow 类！
+        new_win = self.RememberingWindow(module_key, self)
+        new_widget_instance = factory()
+
+        # 2. 准备窗口的基本属性
+        new_win.setAttribute(Qt.WA_DeleteOnClose)
+        new_win.setWindowTitle(f"{tab_text} - [独立窗口] ")
+        new_win.setWindowIcon(self.windowIcon())
+        new_win.setStyleSheet(self.styleSheet())
+        new_win.setCentralWidget(new_widget_instance)
+
+        # 3. [核心逻辑] 尝试加载已保存的几何信息
+        saved_geometries = self.config.get('window_geometries', {})
+        saved_geom_b64 = saved_geometries.get(module_key)
+
+        if saved_geom_b64:
+            # 如果找到了，就恢复它
+            geom_data = QByteArray.fromBase64(saved_geom_b64.encode('utf-8'))
+            new_win.restoreGeometry(geom_data)
+        else:
+            # 如果没找到（第一次打开），则使用我们的智能尺寸计算作为后备
+            # --- 主题感知的智能尺寸计算逻辑 (保持不变) ---
+            content_min_size = (750, 550)
+            content_pref_size = (950, 750)
+            if module_key in MODULES:
+                try:
+                    module_obj = MODULES[module_key]['module']
+                    if hasattr(module_obj, 'MODULE_CONTENT_MINIMUM_SIZE'):
+                        content_min_size = module_obj.MODULE_CONTENT_MINIMUM_SIZE
+                    if hasattr(module_obj, 'MODULE_CONTENT_PREFERRED_SIZE'):
+                        content_pref_size = module_obj.MODULE_CONTENT_PREFERRED_SIZE
+                except Exception as e:
+                    print(f"从模块 '{module_key}' 获取内容尺寸元数据时出错: {e}")
+            
+            frame_width = new_win.frameGeometry().width() - new_win.geometry().width()
+            frame_height = new_win.frameGeometry().height() - new_win.geometry().height()
+            final_min_size = (content_min_size[0] + frame_width, content_min_size[1] + frame_height)
+            final_pref_size = (content_pref_size[0] + frame_width, content_pref_size[1] + frame_height)
+            
+            new_win.setMinimumSize(*final_min_size)
+            new_win.resize(*final_pref_size)
+            new_win.move(self.x() + 50, self.y() + 50)
+
+        # 4. 显示窗口并管理其生命周期
+        new_win.show()
+        self.independent_windows.append(new_win)
+        new_win.destroyed.connect(lambda obj=new_win: self.independent_windows.remove(obj) if obj in self.independent_windows else None)
+
+    def save_config(self):
+        """A centralized helper to save the current self.config state to file."""
+        try:
+            with open(self.SETTINGS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4)
+        except Exception as e:
+            print(f"Error saving configuration to {self.SETTINGS_FILE}: {e}", file=sys.stderr)
 
     # [新增] 用于模块间通信的槽函数
     def go_to_audio_analysis(self, filepath):
@@ -725,75 +1009,104 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的工具提示时出错: {e}")
 
-    def create_module_or_placeholder(self, module_key, name, page_factory):
-        """根据模块是否加载成功，创建真实页面或占位符页面。"""
+    def create_module_or_placeholder(self, attr_name, module_key, name, page_factory):
+        """
+        [v4 - 稳定闭环版]
+        根据模块是否加载成功，创建真实页面或占位符页面。
+        此版本基于已知的工作结构进行修复，确保重建的页面也能获得
+        完整的属性和新的重建配方，实现无限次刷新。
+
+        :param attr_name: 页面在 MainWindow 实例中对应的属性名 (e.g., 'accent_collection_page')。
+        :param module_key: 在全局 MODULES 字典中的键名 (e.g., 'accent_collection_module')。
+        :param name: 用户友好的模块名称 (e.g., '标准朗读采集')。
+        :param page_factory: 一个lambda函数，封装了创建页面实例所需的具体调用。
+        :return: 创建好的 QWidget 页面实例，或一个占位符 QWidget。
+        """
+        # [核心修复] 立即定义能够创建“下一代”页面的、闭环的重建配方。
+        # 它的工作就是重新调用本函数，确保任何被创建的页面都经过完整的属性注入流程。
+        future_recreation_factory = lambda: self.create_module_or_placeholder(
+            attr_name, module_key, name, page_factory
+        )
+
+        page = None
+        # --- 以下逻辑用于创建“当前这一代”的页面实例 ---
         if module_key in MODULES:
             try:
+                # 这个 try-except 块只负责创建初始页面，不再需要定义或存储它自己的工厂。
                 module = MODULES[module_key]['module']
-                
-                # --- 根据模块标识符注入不同依赖 ---
+
+                # --- 根据模块标识符，直接调用 page_factory 创建页面 ---
                 if module_key == 'settings_module':
-                    return page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR)
+                    page = page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR)
                 
                 elif module_key == 'flashcard_module':
-                    # ... (此模块逻辑不变) ...
-                    from PyQt5.QtWidgets import QLabel 
+                    from PyQt5.QtWidgets import QLabel
                     ScalableImageLabelClass = QLabel
                     if 'dialect_visual_collector_module' in MODULES:
                         ScalableImageLabelClass = getattr(MODULES['dialect_visual_collector_module']['module'], 'ScalableImageLabel', QLabel)
-                    return page_factory(module, ToggleSwitch, ScalableImageLabelClass, 
+                    page = page_factory(module, ToggleSwitch, ScalableImageLabelClass, 
                                         BASE_PATH, AUDIO_TTS_DIR, AUDIO_RECORD_DIR, icon_manager)
 
-                # --- [修改] 为所有录音模块注入 resolve_recording_device 函数 ---
                 elif module_key == 'accent_collection_module':
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
+                    page = page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device)
 
                 elif module_key == 'dialect_visual_collector_module':
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
+                    page = page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device)
 
                 elif module_key == 'voicebank_recorder_module':
-                    return page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device) # 新增
+                    page = page_factory(module, ToggleSwitch, Worker, Logger, icon_manager, resolve_recording_device)
                 
-                # --- 其他模块的依赖注入保持不变 ---
                 elif module_key == 'dialect_visual_editor_module':
-                    return page_factory(module, ToggleSwitch, icon_manager)
+                    page = page_factory(module, ToggleSwitch, icon_manager)
                 
                 elif module_key == 'audio_manager_module':
-                    return page_factory(module, ToggleSwitch, icon_manager)
-                
-                elif module_key in ['pinyin_to_ipa_module']: # 修正：移除 dialect_visual_editor_module
-                    return page_factory(module, ToggleSwitch)
+                    page = page_factory(module, ToggleSwitch, icon_manager)
                 
                 elif module_key == 'wordlist_editor_module':
-                    return page_factory(module, icon_manager, detect_language)
+                    page = page_factory(module, icon_manager, detect_language)
 
                 elif module_key == 'excel_converter_module':
-                    return page_factory(module, icon_manager)
+                    page = page_factory(module, icon_manager)
                 
                 elif module_key == 'tts_utility_module':
-                    return page_factory(module, ToggleSwitch, Worker, detect_language, WORD_LIST_DIR, icon_manager)
+                    page = page_factory(module, ToggleSwitch, Worker, detect_language, WORD_LIST_DIR, icon_manager)
 
                 elif module_key == 'audio_analysis_module':
-                    return page_factory(module, icon_manager, ToggleSwitch)
+                    page = page_factory(module, icon_manager, ToggleSwitch)
 
                 elif module_key == 'log_viewer_module':
-                    return page_factory(module, ToggleSwitch, icon_manager)
+                    page = page_factory(module, ToggleSwitch, icon_manager)
 
                 else:
-                    return page_factory(module)
+                    # 适用于没有复杂依赖的模块, 如 help_module
+                    page = page_factory(module)
 
             except Exception as e:
                 print(f"创建模块 '{name}' 页面时出错: {e}", file=sys.stderr)
+                page = None
         
-        # ... (占位符逻辑不变) ...
-        from PyQt5.QtWidgets import QLabel, QVBoxLayout
-        page = QWidget()
-        layout = QVBoxLayout(page); layout.setAlignment(Qt.AlignCenter)
-        if module_key == 'settings_module':
-            label_text = f"设置模块 ('{name}') 加载失败。\n请检查 'modules/settings_module.py' 文件是否存在且无误。"
-        else:
-            label_text = f"模块 '{name}' 未加载或创建失败。\n请检查 'modules/{module_key}.py' 文件以及相关依赖。"
-        label = QLabel(label_text); label.setWordWrap(True); label.setStyleSheet("color: #D32F2F; font-size: 24px;"); layout.addWidget(label)
+        # 如果模块加载失败或创建失败，则创建一个占位符页面
+        if page is None:
+            from PyQt5.QtWidgets import QLabel, QVBoxLayout
+            page = QWidget()
+            layout = QVBoxLayout(page)
+            layout.setAlignment(Qt.AlignCenter)
+            
+            if module_key == 'settings_module':
+                label_text = f"设置模块 ('{name}') 加载失败。\n请检查 'modules/settings_module.py' 文件是否存在且无误。"
+            else:
+                label_text = f"模块 '{name}' 未加载或创建失败。\n请检查 'modules/{module_key}.py' 文件以及相关依赖。"
+            
+            label = QLabel(label_text)
+            label.setWordWrap(True)
+            label.setStyleSheet("color: #D32F2F; font-size: 24px;")
+            layout.addWidget(label)
+            
+        # [核心修复] 为最终创建的页面（无论是真实模块还是占位符）注入“未来”的重建配方。
+        if page:
+            page.setProperty("recreation_factory", future_recreation_factory)
+            page.setProperty("main_window_attr_name", attr_name) 
+            page.setProperty("module_key", module_key)
         return page
     
     def on_main_tab_changed(self, index):
@@ -1175,39 +1488,43 @@ class MainWindow(QMainWindow):
     
         # 对话框关闭后，可以根据需要刷新UI，但目前菜单是动态生成的，所以无需操作。
 
-    def update_and_save_module_state(self, module_key, key_or_value, value=None):
+    def update_and_save_module_state(self, module_key, key_or_value, value=object()):
         """
+        [v1.2 - 哨兵模式健壮版]
         更新并立即保存一个特定模块的状态到 settings.json。
-        这是一个更灵活的API，支持两种调用模式。
-
-        用法1 (保存单个键值对):
-            update_and_save_module_state('my_module', 'some_setting', 123)
-            
-        用法2 (保存整个模块的设置对象):
-            update_and_save_module_state('my_module', {'setting1': 123, 'setting2': 'abc'})
+        此版本使用哨兵对象来完美区分双参数和三参数调用模式。
         """
-        # 确保 module_states 字典存在
-        if "module_states" not in self.config:
-            self.config["module_states"] = {}
-        
-        # 通过检查第三个参数 value 是否被传递来判断调用模式
-        if value is not None:
+        # [核心修复] 使用一个独特的哨兵对象来判断 'value' 是否被传递
+        SENTINEL = object()
+
+        if value is not SENTINEL:
             # --- 模式1：传入了三个参数 (module_key, setting_key, value) ---
-            # 这是旧的模式，用于保存单个设置项
-            if module_key not in self.config["module_states"]:
+            # 即使 value 是 None, 这个分支也能被正确执行
+            
+            # 确保 module_states 字典存在
+            if "module_states" not in self.config:
+                self.config["module_states"] = {}
+            
+            # 确保目标模块的状态是一个字典
+            if not isinstance(self.config["module_states"].get(module_key), dict):
                 self.config["module_states"][module_key] = {}
             
             setting_key = key_or_value
             self.config["module_states"][module_key][setting_key] = value
         else:
             # --- 模式2：只传入了两个参数 (module_key, settings_dict) ---
-            # 这是新的模式，用于一次性保存整个模块的配置
+            # 这种模式下，settings_dict 必须是一个字典
             settings_dict = key_or_value
-            self.config["module_states"][module_key] = settings_dict
+            if isinstance(settings_dict, dict):
+                self.config["module_states"][module_key] = settings_dict
+            else:
+                # 警告逻辑保持不变
+                print(f"警告: 尝试用非字典类型 '{type(settings_dict)}' 覆盖模块 '{module_key}' 的状态。", file=sys.stderr)
+                return
 
-        # 立即将更新后的配置写入文件 (此部分逻辑不变)
+        # 写入文件的逻辑保持不变
         try:
-            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            with open(self.SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
             print(f"为模块 '{module_key}' 保存状态时出错: {e}", file=sys.stderr)

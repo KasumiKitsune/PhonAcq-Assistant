@@ -432,14 +432,38 @@ class PluginManagementDialog(QDialog):
         self.plugin_manager.main_window.update_pinned_plugins_ui()
 
     def toggle_pin_state(self, plugin_id, pin):
+        """
+        切换一个插件的固定状态，并立即刷新所有相关的UI。
+        
+        :param plugin_id: 要操作的插件ID。
+        :param pin: True 表示固定，False 表示取消固定。
+        """
         config = self.plugin_manager.main_window.config
-        plugin_settings = config.setdefault("plugin_settings", {}); pinned_plugins = plugin_settings.setdefault("pinned", [])
+        
+        # 使用 setdefault 确保键总是存在，避免 KeyError
+        plugin_settings = config.setdefault("plugin_settings", {})
+        pinned_plugins = plugin_settings.setdefault("pinned", [])
+
         if pin:
-            if len(pinned_plugins) >= 3: QMessageBox.warning(self, "固定数量已达上限", "工具栏最多只能固定3个插件。"); return
-            if plugin_id not in pinned_plugins: pinned_plugins.append(plugin_id)
+            # 检查是否已达上限
+            if len(pinned_plugins) >= 3:
+                QMessageBox.warning(self, "固定数量已达上限", "工具栏最多只能固定3个插件。")
+                return
+            # 添加到列表（如果不存在）
+            if plugin_id not in pinned_plugins:
+                pinned_plugins.append(plugin_id)
         else:
-            if plugin_id in pinned_plugins: pinned_plugins.remove(plugin_id)
-        self.save_config(config); self.populate_plugin_list()
+            # 从列表中移除（如果存在）
+            if plugin_id in pinned_plugins:
+                pinned_plugins.remove(plugin_id)
+        
+        # 1. 保存配置
+        self.save_config(config)
+        
+        # 2. 刷新本对话框内的插件列表（为了显示/隐藏 📌 图标）
+        self.populate_plugin_list()
+        
+        # 3. [核心修复] 主动通知并调用主窗口的方法，来刷新右上角的固定插件栏
         self.plugin_manager.main_window.update_pinned_plugins_ui()
 
     def is_plugin_pinned(self, plugin_id):

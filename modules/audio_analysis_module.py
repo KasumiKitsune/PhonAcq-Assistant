@@ -608,6 +608,10 @@ class SpectrogramWidget(QWidget):
         self.waveform_sibling = None # 引用波形控件，用于滚动同步 (已废弃，但保留兼容性)
         self._f0_display_min, self._f0_display_max = 75, 400 # F0 Y轴显示范围
         self._f0_axis_enabled = False # 是否显示F0右侧轴
+        # [新增] F0轴模式管理
+        self._f0_axis_is_auto = True # 默认是自动模式
+        self._manual_f0_min = 75
+        self._manual_f0_max = 400
         self._info_box_position = 'top_left' # 悬浮信息框位置 ('top_left' 或 'bottom_right')
 
         # QSS可控颜色属性 (确保这些属性在QSS中可以被覆盖，以便通过样式表改变颜色)
@@ -721,6 +725,54 @@ class SpectrogramWidget(QWidget):
         self._show_intensity, self._smooth_intensity = show_intensity, smooth_intensity
         self._show_formants, self._highlight_f1, self._highlight_f2, self._show_other_formants = show_formants, highlight_f1, highlight_f2, show_other_formants
         self.update() # 触发重绘以应用新的可见性设置
+
+    def set_f0_axis_range(self, lower=None, upper=None):
+        """
+        [新增] 设置F0轴的显示范围模式。
+        如果提供了 lower 和 upper，则进入手动模式；否则，切换到自动模式。
+        """
+        if lower is not None and upper is not None:
+            self._f0_axis_is_auto = False
+            self._manual_f0_min = lower
+            self._manual_f0_max = upper
+            self._f0_display_min = lower
+            self._f0_display_max = upper
+        else:
+            self._f0_axis_is_auto = True
+            # 切换到自动模式时，立即用现有的F0数据重新计算范围
+            self._calculate_and_apply_auto_f0_range()
+        
+        self.update()
+
+    def _calculate_and_apply_auto_f0_range(self):
+        """
+        [新增] 提取出来的、根据当前F0数据计算并应用自动范围的逻辑。
+        """
+        if self._f0_data:
+            times, f0_values = self._f0_data
+            valid_f0 = f0_values[np.isfinite(f0_values)]
+            
+            if len(valid_f0) > 1:
+                actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
+                data_range = actual_max - actual_min
+                padding = max(10, data_range * 0.1)
+                padded_min = actual_min - padding
+                padded_max = actual_max + padding
+                current_range = padded_max - padded_min
+                if current_range < 100:
+                    center = (padded_max + padded_min) / 2
+                    padded_min = center - 50
+                    padded_max = center + 50
+                
+                self._f0_display_min = max(0, padded_min)
+                self._f0_display_max = padded_max
+                self._f0_axis_enabled = True
+            else: 
+                self._f0_display_min, self._f0_display_max = 75, 400
+                self._f0_axis_enabled = False
+        else:
+            self._f0_data = None
+            self._f0_axis_enabled = False
 
     def set_selection(self, selection_tuple):
         """
@@ -858,13 +910,27 @@ class SpectrogramWidget(QWidget):
             if f0_display_range > 0:
                 # 根据F0显示范围动态调整刻度步长
                 step = 50 if f0_display_range > 200 else 25 if f0_display_range > 100 else 10
+                
+                # [核心修改] 获取当前绘图字体的度量信息
+                metrics = painter.fontMetrics()
+                text_height = metrics.height() # 获取字体的高度
+                
                 for freq in range(int(self._f0_display_min // step * step), int(self._f0_display_max) + 1, step):
-                    if freq < self._f0_display_min: continue # 确保刻度在显示范围内
-                    # 计算F0对应的Y坐标
+                    if freq < self._f0_display_min: continue
+                    
                     y = plot_rect.bottom() - ((freq - self._f0_display_min) / f0_display_range * h)
                     painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y)) # 绘制水平网格线
+                    
                     # 绘制F0标签，右侧对齐
-                    painter.drawText(QRect(plot_rect.right() + 5, int(y) - 6, plot_rect.right() - plot_rect.left() - 10, 12), Qt.AlignLeft | Qt.AlignVCenter, f"{freq}")
+                    # [核心修改] 调整绘制区域的Y坐标和高度
+                    # Y坐标：int(y) - text_height // 2，使其垂直居中于刻度线
+                    # 高度：text_height，确保有足够空间
+                    painter.drawText(
+                        QRect(plot_rect.right() + 5, int(y) - text_height // 2, 
+                              plot_rect.right() - plot_rect.left() - 10, text_height), # 使用动态计算的高度
+                        Qt.AlignLeft | Qt.AlignVCenter, 
+                        f"{freq}"
+                    )
 
         # --- 在plot_rect内绘制所有叠加层 ---
         # 强度曲线
@@ -1286,20 +1352,28 @@ class SpectrogramWidget(QWidget):
         data_points = []
         for sample_pos, formants in self._formants_data:
             if start_sample <= sample_pos < end_sample:
-                # 只取前两个共振峰 F1, F2
                 if len(formants) >= 2:
-                    timestamp = sample_pos / self.sr # 添加时间戳
+                    timestamp = sample_pos / self.sr
                     data_points.append({'timestamp': timestamp, 'F1': formants[0], 'F2': formants[1]})
         
         if not data_points:
             QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F1/F2 数据点。请确保已运行共振峰分析。")
             return
             
-        # 转换为 Pandas DataFrame
         df = pd.DataFrame(data_points)
         
-        # 通过插件实例的 execute 方法传递数据
-        self.vowel_plotter_plugin_active.execute(dataframe=df)
+        # --- [核心修改] ---
+        # 1. 获取主页面对象，它持有当前文件路径
+        #    SpectrogramWidget 的父级是 center_panel, 再往上才是主页面 AudioAnalysisPage
+        parent_page = self.parent().parent()
+        
+        source_name_for_plugin = '来自音频分析模块' # 默认值
+        if hasattr(parent_page, 'current_filepath') and parent_page.current_filepath:
+            # 2. 从完整路径中提取不带后缀的文件名
+            source_name_for_plugin = os.path.splitext(os.path.basename(parent_page.current_filepath))[0]
+
+        # 3. 在调用 execute 时，传入 source_name
+        self.vowel_plotter_plugin_active.execute(dataframe=df, source_name=source_name_for_plugin)
 
     def _send_data_to_intonation_visualizer(self):
         """
@@ -1323,18 +1397,22 @@ class SpectrogramWidget(QWidget):
         data_points = []
         for t, f0 in zip(times, f0_values):
             if selection_start_s <= t < selection_end_s:
-                # 直接添加，包括 NaN 值，可视化器会处理它们
                 data_points.append({'timestamp': t, 'f0_hz': f0})
  
         if not data_points:
             QMessageBox.warning(self, "无数据", "在选区内未找到有效的 F0 数据点。")
             return
             
-        # 转换为 Pandas DataFrame
         df = pd.DataFrame(data_points)
         
-        # 通过插件实例的 execute 方法传递数据
-        self.intonation_visualizer_plugin_active.execute(dataframe=df)
+        # --- [核心修改] (与上面 plotter 的修改逻辑完全相同) ---
+        parent_page = self.parent().parent()
+        
+        source_name_for_plugin = '来自音频分析模块' # 默认值
+        if hasattr(parent_page, 'current_filepath') and parent_page.current_filepath:
+            source_name_for_plugin = os.path.splitext(os.path.basename(parent_page.current_filepath))[0]
+
+        self.intonation_visualizer_plugin_active.execute(dataframe=df, source_name=source_name_for_plugin)
 
     # --- 默认的右键菜单事件处理器 ---
     def contextMenuEvent(self, event):
@@ -1406,7 +1484,10 @@ class SpectrogramWidget(QWidget):
 
     def set_analysis_data(self, f0_data=None, f0_derived_data=None, intensity_data=None, formants_data=None, clear_previous_formants=True):
         """
-        设置和更新叠加的分析数据层。此方法现在可以接受 None 值来单独清除特定的数据层。
+        [v1.3 - 手动/自动模式]
+        设置和更新叠加的分析数据层。
+        - F0轴范围：只有在自动模式 (_f0_axis_is_auto=True)下，才会根据新的F0数据更新。
+        - 其他数据：根据传入的参数进行更新或清除。
 
         Args:
             f0_data (tuple, optional): 原始F0数据 (times, f0_values)。如果为 None，则清空原始F0层。
@@ -1418,35 +1499,16 @@ class SpectrogramWidget(QWidget):
         # --- 处理 F0 数据和坐标轴 ---
         if f0_data is not None:
             self._f0_data = f0_data
-            times, f0_values = f0_data
-            valid_f0 = f0_values[np.isfinite(f0_values)] # 过滤掉NaN值来计算范围
-
-            if len(valid_f0) > 1:
-                # 稳健地计算F0坐标轴的显示范围
-                actual_min, actual_max = np.min(valid_f0), np.max(valid_f0)
-                
-                # 1. 计算数据范围并增加10%的上下边距
-                data_range = actual_max - actual_min
-                padding = max(10, data_range * 0.1) # 至少有10Hz的边距
-                
-                padded_min = actual_min - padding
-                padded_max = actual_max + padding
-                
-                # 2. 确保显示范围至少有100Hz宽，避免过度缩放
-                current_range = padded_max - padded_min
-                if current_range < 100:
-                    center = (padded_max + padded_min) / 2
-                    padded_min = center - 50
-                    padded_max = center + 50
-                
-                # 3. 赋值并启用F0轴
-                self._f0_display_min = max(0, padded_min) # 确保不低于0Hz
-                self._f0_display_max = padded_max
-                self._f0_axis_enabled = True
-            else: 
-                # 如果F0数据太少或无效，则使用默认范围且不显示轴
-                self._f0_display_min, self._f0_display_max = 75, 400
-                self._f0_axis_enabled = False
+            
+            # [核心修改] 只有在自动模式下，才根据新数据更新显示范围
+            if self._f0_axis_is_auto:
+                self._calculate_and_apply_auto_f0_range()
+            else:
+                # 在手动模式下，我们不改变 _f0_display_min/max 的值，
+                # 但需要确保 F0 轴是可见的（如果 F0 数据有效）。
+                times, f0_values = f0_data
+                valid_f0 = f0_values[np.isfinite(f0_values)]
+                self._f0_axis_enabled = len(valid_f0) > 1
         else:
             # 如果 f0_data 明确传入为 None，则清空数据并禁用轴
             self._f0_data = None
@@ -1470,10 +1532,9 @@ class SpectrogramWidget(QWidget):
                 self._formants_data = formants_data # 覆盖旧数据
             else:
                 self._formants_data.extend(formants_data) # 追加新数据
-        else:
+        elif clear_previous_formants:
             # 如果 formants_data 为 None，并且要求清除，则清空
-            if clear_previous_formants:
-                self._formants_data = []
+            self._formants_data = []
 
         # 触发重绘以应用所有更改
         self.update()
@@ -2084,6 +2145,36 @@ class AudioAnalysisPage(QWidget):
         vis_layout.addRow("显示共振峰", self.show_formants_toggle)
         vis_layout.addRow(formant_sub_layout)
 
+        # [核心修复] 将标签和滑块布局分开添加，以实现换行
+        
+        # 1. 创建标签并添加到表单布局的第一行
+        f0_axis_label = QLabel("F0 轴范围 (Hz):")
+        vis_layout.addRow(f0_axis_label)
+
+        # 2. 创建包含滑块和数值的垂直布局
+        f0_axis_range_layout = QVBoxLayout()
+        f0_axis_range_layout.setContentsMargins(0, 0, 0, 0) # 移除不必要的边距
+        f0_axis_range_layout.setSpacing(2) # 紧凑的间距
+
+        self.f0_axis_range_slider = RangeSlider(Qt.Horizontal)
+        self.f0_axis_range_slider.setRange(0, 1000)
+        self.f0_axis_range_slider.setToolTip(
+            "手动调整右侧F0轴的显示范围。\n"
+            "将两个滑块都拖到最两端可恢复为自动范围模式。"
+        )
+        f0_axis_range_layout.addWidget(self.f0_axis_range_slider)
+        
+        f0_axis_value_layout = QHBoxLayout()
+        self.f0_axis_min_label = QLabel("Auto")
+        self.f0_axis_max_label = QLabel("Auto")
+        f0_axis_value_layout.addWidget(self.f0_axis_min_label)
+        f0_axis_value_layout.addStretch()
+        f0_axis_value_layout.addWidget(self.f0_axis_max_label)
+        f0_axis_range_layout.addLayout(f0_axis_value_layout)
+        
+        # 3. 将滑块布局添加到表单布局的第二行，并让它跨越两列
+        vis_layout.addRow(f0_axis_range_layout)
+
         self.advanced_params_group = QGroupBox("高级分析参数")
         # [修改] 使用 QVBoxLayout 替换 QFormLayout
         adv_layout = QVBoxLayout(self.advanced_params_group)
@@ -2137,8 +2228,8 @@ class AudioAnalysisPage(QWidget):
         self.chunk_size_slider.setValue(200)      # 默认值: 200ms
         self.chunk_size_slider.setToolTip(
             "调整实时分析时每个数据块的大小（单位：毫秒）。\n"
-            "<li><b>较小的值</b> (如100ms): 响应更快，曲线“生长”得更迅速，但总分析时间可能稍长。</li>"
-            "<li><b>较大的值</b> (如500ms): 每次计算的块更长，曲线“跳跃”得更远，总分析时间可能稍短。</li>"
+            "较小的值 (如100ms): 响应更快，曲线“生长”得更迅速，但总分析时间可能稍长。"
+            "较大的值 (如500ms): 每次计算的块更长，曲线“跳跃”得更远，总分析时间可能稍短。"
         )
         chunk_size_widget = QWidget()
         chunk_size_layout = QHBoxLayout(chunk_size_widget)
@@ -2240,6 +2331,25 @@ class AudioAnalysisPage(QWidget):
         self._on_persistent_setting_changed('f0_min', lower)
         self._on_persistent_setting_changed('f0_max', upper)
 
+    def _on_f0_axis_range_changed(self, lower, upper):
+        """当手动调整F0轴范围的滑块改变时调用。"""
+        # 检查是否处于“自动”模式的边界条件
+        is_auto = (lower == self.f0_axis_range_slider.minimum()) and \
+                  (upper == self.f0_axis_range_slider.maximum())
+
+        if is_auto:
+            self.f0_axis_min_label.setText("Auto")
+            self.f0_axis_max_label.setText("Auto")
+            self.spectrogram_widget.set_f0_axis_range(None, None)
+            # 保存一个特殊值表示自动模式
+            self._on_persistent_setting_changed('f0_axis_manual_range', None)
+        else:
+            self.f0_axis_min_label.setText(str(lower))
+            self.f0_axis_max_label.setText(str(upper))
+            self.spectrogram_widget.set_f0_axis_range(lower, upper)
+            # 保存手动设定的范围
+            self._on_persistent_setting_changed('f0_axis_manual_range', [lower, upper])
+
     # [新增] 用于处理每个分析好的数据块
     def on_acoustics_chunk_finished(self, chunk_result):
         """
@@ -2330,6 +2440,7 @@ class AudioAnalysisPage(QWidget):
         self.highlight_f1_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('highlight_f1', bool(s)))
         self.highlight_f2_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('highlight_f2', bool(s)))
         self.show_other_formants_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('show_other_formants', bool(s)))
+        self.f0_axis_range_slider.rangeChanged.connect(self._on_f0_axis_range_changed)
         self.pre_emphasis_checkbox.stateChanged.connect(lambda s: self._on_persistent_setting_changed('pre_emphasis', bool(s)))
         self.f0_range_slider.rangeChanged.connect(self._on_f0_range_changed)
         self.render_density_slider.valueChanged.connect(lambda v: self._on_persistent_setting_changed('render_density', v))
@@ -3411,7 +3522,7 @@ class AudioAnalysisPage(QWidget):
     def _load_persistent_settings(self):
         """
         [最终版] 加载并应用所有持久化的用户设置。
-        此方法现在包含对新的分块大小和重叠滑块的加载逻辑。
+        此方法现在包含对新的分块大小、重叠滑块和F0轴手动范围的加载逻辑。
         """
         # 从全局配置中安全地获取本模块的状态字典，如果不存在则返回空字典
         module_states = self.parent_window.config.get("module_states", {}).get("audio_analysis", {})
@@ -3446,42 +3557,54 @@ class AudioAnalysisPage(QWidget):
             getattr(control, setter_method_name)(value_to_set)
             control.blockSignals(False)
 
-        # --- 单独加载 F0 范围滑块的值 ---
+        # --- 单独加载 F0 搜索范围滑块的值 ---
         self.f0_range_slider.blockSignals(True)
         lower_val = module_states.get('f0_min', 10)
         upper_val = module_states.get('f0_max', 700)
         self.f0_range_slider.setLowerValue(int(lower_val))
         self.f0_range_slider.setUpperValue(int(upper_val))
         self.f0_range_slider.blockSignals(False)
-        # 手动更新一次标签，确保UI显示正确
         self.f0_min_label.setText(str(self.f0_range_slider.lowerValue()))
         self.f0_max_label.setText(str(self.f0_range_slider.upperValue()))
-            
-        # --- [新增] 单独加载分块大小和重叠滑块的值 ---
+
+        # --- 单独加载分块大小和重叠滑块的值 ---
         self.chunk_size_slider.blockSignals(True)
         self.chunk_overlap_slider.blockSignals(True)
-        
-        # 加载分块大小
         chunk_size = module_states.get('chunk_size_ms', 200)
         self.chunk_size_slider.setValue(chunk_size)
-        
-        # 关键：在加载重叠值之前，必须先根据加载的块大小设置重叠滑块的最大值
         max_overlap = max(0, chunk_size - 10)
         self.chunk_overlap_slider.setMaximum(max_overlap)
-        
-        # 加载分块重叠值，并确保它不超过新的最大值
         chunk_overlap = module_states.get('chunk_overlap_ms', 10)
         self.chunk_overlap_slider.setValue(min(chunk_overlap, max_overlap))
-
         self.chunk_size_slider.blockSignals(False)
         self.chunk_overlap_slider.blockSignals(False)
+
+        # --- [新增] 单独加载F0轴手动范围 ---
+        self.f0_axis_range_slider.blockSignals(True)
+        manual_range = module_states.get('f0_axis_manual_range', None)
+        
+        if manual_range and isinstance(manual_range, list) and len(manual_range) == 2:
+            # 如果保存了手动范围，则应用它
+            self.f0_axis_range_slider.setLowerValue(manual_range[0])
+            self.f0_axis_range_slider.setUpperValue(manual_range[1])
+            self.spectrogram_widget.set_f0_axis_range(manual_range[0], manual_range[1])
+            self.f0_axis_min_label.setText(str(manual_range[0]))
+            self.f0_axis_max_label.setText(str(manual_range[1]))
+        else:
+            # 否则，恢复到自动模式（滑块在两端）
+            self.f0_axis_range_slider.setLowerValue(self.f0_axis_range_slider.minimum())
+            self.f0_axis_range_slider.setUpperValue(self.f0_axis_range_slider.maximum())
+            self.spectrogram_widget.set_f0_axis_range(None, None)
+            self.f0_axis_min_label.setText("Auto")
+            self.f0_axis_max_label.setText("Auto")
+            
+        self.f0_axis_range_slider.blockSignals(False)
 
         # --- 最后，手动触发一次所有依赖UI的更新 ---
         self._update_dependent_widgets()
         self.update_overlays()
         self._update_render_density_label(self.render_density_slider.value())
         self._update_formant_density_label(self.formant_density_slider.value())
-        # 手动触发一次分块设置的更新，以同步标签文本
         self._on_chunk_settings_changed()
 
 

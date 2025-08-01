@@ -18,48 +18,61 @@ def get_base_path():
 def create_page(parent_window, WORD_LIST_DIR, MODULES_REF, icon_manager):
     return ConverterPage(parent_window, WORD_LIST_DIR, icon_manager)
 
-# --- 模板定义 (保持不变) ---
+# --- 模板定义 (更新，包含新的词表和更详细的描述) ---
 templates = {
-    'simple': {
-        'filename': "1_标准词表_单语言模板.xlsx",
-        'description': "最基础的格式，用于标准“口音采集”。\n\n- '组别'列用于分组。\n- '单词'和'IPA'列一一对应。",
-        'data': { '组别': [1, 1, 2, 2], '单词': ['hello', 'world', 'apple', 'banana'], 'IPA': ['həˈloʊ', 'wɜːrld', 'ˈæpəl', 'bəˈnænə'] }
+    'standard_simple': { # 原有的 simple 模板
+        'filename': "1_标准词表_单语言通用模板.xlsx",
+        'description': "<b>类型：</b>标准词表<br><b>用途：</b>最基础的词表格式，适用于单语言的通用词汇或短语采集。<br><b>字段：</b>'组别', '单词', 'IPA', 'Language'。",
+        'data': { '组别': [1, 1, 2, 2], '单词': ['hello', 'world', 'apple', 'banana'], 'IPA': ['həˈloʊ', 'wɜːrld', 'ˈæpəl', 'bəˈnænə'], 'Language': ['en-us', 'en-us', 'en-us', 'en-us'] }
     },
-    'contrast': {
-        'filename': "2_标准词表_音素对比模板.xlsx",
-        'description': "专为语音学中的“最小音对”实验设计。\n\n- 使用'单语言'格式。\n- 将发音相似但意义不同的词（如 ship/sheep）放在同一组别下。",
+    'mandarin_tone_pairs': { # 新增：普通话声调测试
+        'filename': "2_标准词表_普通话声调对测试.xlsx",
+        'description': "<b>类型：</b>标准词表<br><b>用途：</b>专为普通话声调辨识与发音设计。包含声调组合的“最小音对”，非常适合语音学实验或教学。<br><b>示例：</b>如 '飞机' (1-1) 对比 '飞贼' (1-2)。",
         'data': {
-            '组别': [1, 1, 2, 2, 3, 3],
-            '单词': ['ship', 'sheep', 'sit', 'seat', 'cat', 'cart'],
-            'IPA': ['ʃɪp', 'ʃiːp', 'sɪt', 'siːt', 'kæt', 'kɑːrt']
+            '组别': [1, 1, 1, 2, 2, 2],
+            '单词': ['飞机', '飞贼', '飞艇', '银行', '语言', '雨伞'],
+            'IPA': ['fēi jī (1-1)', 'fēi zéi (1-2)', 'fēi tǐng (1-3)', 'yín háng (2-2)', 'yǔ yán (3-2)', 'yǔ sǎn (3-3)'],
+            'Language': ['zh-cn', 'zh-cn', 'zh-cn', 'zh-cn', 'zh-cn', 'zh-cn']
         }
     },
-    'dialect': {
-        'filename': "3_标准词表_方言适应性模板.xlsx",
-        'description': "针对特定方言背景学习者的发音难点设计。\n\n- 示例为吴语区常见的难点音（如齿间音/θ/, /ð/）。",
+    'english_vowel_space': { # 新增：英语元音空间提取
+        'filename': "3_标准词表_英语元音空间提取.xlsx",
+        'description': "<b>类型：</b>标准词表<br><b>用途：</b>用于提取和绘制英语元音F1/F2共振峰的经典hVd词表（如'heed', 'hid', 'hayed'）。每个词都嵌入句法框架，减少协同发音影响。<br><b>示例：</b>'Say heed again.'",
         'data': {
-            '组别': [1, 1, 1, 2, 2, 3, 3],
-            '单词': ['think', 'this', 'three', 'very', 'voice', 'lazy', 'zeal'],
-            'IPA': ['θɪŋk', 'ðɪs', 'θriː', 'ˈvɛri', 'vɔɪs', 'ˈleɪzi', 'ziːl']
+            '组别': [1, 1, 1, 2, 2, 2],
+            '单词': ["Say heed again.", "Say hid again.", "Say head again.", "Say hawed again.", "Say hoed again.", "Say who'd again."],
+            'IPA': ["/hid/", "/hɪd/", "/hɛd/", "/hɔd/", "/hoʊd/", "/hud/"],
+            'Language': ["en-us", "en-us", "en-us", "en-us", "en-us", "en-us"]
         }
     },
-    'phrase': {
-        'filename': "4_标准词表_短语与连读模板.xlsx",
-        'description': "用于测试语流中的语音现象，而非单个词汇。\n\n- 包含常见的连读、省音、同化等例子。",
+    'english_accent_diagnostic': { # 新增：英语口音诊断
+        'filename': "4_标准词表_英语口音诊断.xlsx",
+        'description': "<b>类型：</b>标准词表<br><b>用途：</b>通过精心设计的句子，系统性覆盖区分不同英语口音（如美式、英式）的关键音变现象（如/r/音、元音合并、T-glottalization等）。<br><b>示例：</b>'The farmer's car is far from the barn.'",
         'data': {
             '组别': [1, 1, 2, 2],
-            '单词': ['read it', 'an apple', "what's up", 'give me'],
-            'IPA': ['/ˈriːd_ɪt/', '/ən_ˈæpəl/', '/wʌtsˈʌp/', '/ˈɡɪmi/']
+            '单词': ["The farmer's car is far from the barn.", "I caught the cot in the corner.", "Mary, merry, and marry sound different.", "How now, brown cow?"],
+            'IPA': ["R-lessness test", "Cot-caught merger test", "Mary-marry-merry merger test", "Diphthong analysis"],
+            'Language': ["en-us", "en-us", "en-us", "en-us"]
         }
     },
-    'visual': {
-        'filename': "5_图文词表模板.xlsx",
-        'description': "专为“方言图文采集”功能设计。\n\n- 'id'列是项目的唯一标识符。\n- 'image_path'填写不带后缀的文件名，程序会自动查找图片。\n- 'prompt_text'是展示给被试者的提示文字。\n- 'notes'是仅研究者可见的备注。",
+    'multilingual_pangrams': { # 新增：多语种全字母句
+        'filename': "5_标准词表_多语种全字母句.xlsx",
+        'description': "<b>类型：</b>标准词表<br><b>用途：</b>包含多种语言的“全字母句”（Pangram），每句包含该语言的所有字母。非常适合TTS引擎测试、字体显示测试或跨语言音素频率分析。<br><b>示例：</b>英语, 法语, 德语, 俄语, 日语, 韩语。",
+        'data': {
+            '组别': [1, 1, 1, 2, 2, 2],
+            '单词': ["The quick brown fox jumps over the lazy dog.", "Portez ce vieux whisky au juge blond qui fume.", "Съешь ещё этих мягких французских булок, да выпей же чаю.", "いろはにほへとちりぬるを", "키스의 고유조건은 입술끼리 만나야 하고 특별한 기술은 필요치 않다.", "도서관은 조용한 공부 장소입니다."],
+            'IPA': ["English Pangram", "French Pangram", "Russian Pangram", "Japanese Iroha", "Korean Sentence", "Korean Sentence"],
+            'Language': ["en-us", "fr-fr", "ru", "ja", "ko", "ko"]
+        }
+    },
+    'visual_image_description': { # 新增：图文采集示例
+        'filename': "6_图文词表_农家生活图文采集.xlsx",
+        'description': "<b>类型：</b>图文词表<br><b>用途：</b>为“方言图文采集”功能设计，主题为农家生活场景。引导被试者描述图片内容，以收集相关的名词、动词、量词和方言特有表达。<br><b>字段：</b>'id', 'image_path', 'prompt_text', 'notes'。",
         'data': {
             'id': ['chicken_group', 'rice_field_harvest', 'vegetable_garden', 'old_farmhouse', 'drying_grains'],
             'image_path': ['sample_farm_life/chicken_group', 'sample_farm_life/rice_field_harvest', 'sample_farm_life/vegetable_garden', 'sample_farm_life/old_farmhouse', 'sample_farm_life/drying_grains'],
             'prompt_text': ['请用您的方言说说图片里的这些动物是什么，它们在做什么？', '描述一下这个场景。现在是农忙的什么季节？人们在做什么？', '图中的这些蔬菜，用你们那儿的话都叫什么名字？', '请描述一下这座老房子。它有什么特点？这种房子现在还常见吗？', '粮食丰收后，你们通常怎么晾晒和储存谷物？有什么特别的工具或说法吗？'],
-            'notes': ['目标词汇：鸡、公鸡、母鸡、小鸡、喂食、啄米等。观察量词和动态描述。', '目标词汇：稻田、收割、稻谷、镰刀、打谷等。注意时态和场景描述。', '目标：多种常见蔬菜的方言名称。如：白菜、萝卜、茄子、辣椒、黄瓜等。', '目标：房屋结构、材料的方言词汇，以及相关的文化背景讨论。', '考察与与粮食处理相关的动词和名词。']
+            'notes': ['目标词汇：鸡、公鸡、母鸡、小鸡、喂食、啄米等。', '目标词汇：稻田、收割、稻谷、镰刀等。', '目标：多种常见蔬菜的方言名称。', '目标：房屋结构、材料的方言词汇。', '考察与粮食处理相关的动词和名词。']
         }
     }
 }
@@ -92,8 +105,8 @@ class ConverterPage(QWidget):
         left_layout = QVBoxLayout(left_panel)
         left_panel.setFixedWidth(300)
         
-        self.select_file_btn = QPushButton("  选择文件 或 拖拽至此\n (.py/.json/.csv/.xslx)")
-        self.select_file_btn.setToolTip("选择一个词表文件 (.json, .xlsx, .xls, .csv, .py) 进行转换。\n您也可以直接将文件拖拽到此窗口。")
+        self.select_file_btn = QPushButton("  选择文件 或 拖拽至此\n (.json/.csv/.xlsx)") # 移除 .py
+        self.select_file_btn.setToolTip("选择一个词表文件 (.json, .xlsx, .xls, .csv) 进行转换。\n您也可以直接将文件拖拽到此窗口。") # 移除 .py
         self.select_file_btn.setIconSize(QSize(32, 32))
         
         templates_group = QGroupBox("生成/预览Excel模板")
@@ -173,7 +186,7 @@ class ConverterPage(QWidget):
             urls = event.mimeData().urls()
             if urls and urls[0].isLocalFile():
                 filepath = urls[0].toLocalFile()
-                if filepath.lower().endswith(('.json', '.xlsx', '.xls', '.csv', '.py')):
+                if filepath.lower().endswith(('.json', '.xlsx', '.xls', '.csv')): # 移除 .py
                     event.acceptProposedAction()
 
     def dropEvent(self, event):
@@ -187,9 +200,16 @@ class ConverterPage(QWidget):
     def populate_template_combo(self):
         self.template_combo.clear()
         self.template_combo.addItem("请选择一个模板...", None) # Add a placeholder
-        for key, info in templates.items():
-            display_name = os.path.splitext(info['filename'])[0].split('_', 1)[1]
-            self.template_combo.addItem(display_name, key)
+        # 按照文件名中序号排序，以确保有序显示
+        sorted_templates = sorted(templates.items(), key=lambda item: item[1]['filename'])
+        for key, info in sorted_templates:
+            display_name = os.path.splitext(info['filename'])[0].split('_', 1)[1] # 提取 '1_前缀_名称.xlsx' 中的 '前缀_名称'
+            # 如果是图文词表，显示不同的名称以示区分
+            if 'visual' in key:
+                display_name = f"{display_name} (图文词表)"
+            else:
+                display_name = f"{display_name} (标准词表)"
+            self.template_combo.addItem(display_name, key) # itemData 存储原始key
 
     def on_template_selected(self, index):
         template_key = self.template_combo.currentData()
@@ -203,7 +223,9 @@ class ConverterPage(QWidget):
             return
 
         template_info = templates.get(template_key, {})
+        # [核心修改] 使用 QTextBrowser 来显示富文本描述
         self.template_description_label.setText(template_info.get('description', '无可用描述。'))
+        self.template_description_label.setTextFormat(Qt.RichText) # 确保 QLabel 支持富文本
 
         template_data = template_info.get('data')
         if not template_data:
@@ -239,7 +261,7 @@ class ConverterPage(QWidget):
             QMessageBox.information(self, "生成成功", msg)
 
     def select_file_dialog(self):
-        filters = "支持的词表文件 (*.json *.xlsx *.xls *.csv *.py);;JSON 文件 (*.json);;Excel 文件 (*.xlsx *.xls);;CSV 文件 (*.csv);;Python 脚本 (*.py)"
+        filters = "支持的词表文件 (*.json *.xlsx *.xls *.csv);;JSON 文件 (*.json);;Excel 文件 (*.xlsx *.xls);;CSV 文件 (*.csv)" # 移除 .py
         filepath, _ = QFileDialog.getOpenFileName(self, "选择要转换的文件", self.WORD_LIST_DIR, filters)
         self.select_and_preview_file(filepath)
 
@@ -278,8 +300,7 @@ class ConverterPage(QWidget):
             self.preview_df = df
         elif ext == '.json':
             self.preview_df, self.detected_format = _json_to_dataframe(path)
-        elif ext == '.py':
-            self.preview_df, self.detected_format = _py_to_dataframe(path)
+        # 移除了对 .py 文件的支持
         else:
             raise ValueError(f"不支持的文件类型: {ext}")
 
@@ -311,7 +332,7 @@ class ConverterPage(QWidget):
 
         default_filename = f"{source_basename}_converted"
         
-        filters = "JSON 词表 (*.json);;Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;Python 脚本 (旧版, *.py)"
+        filters = "JSON 词表 (*.json);;Excel 文件 (*.xlsx);;CSV 文件 (*.csv)" # 移除 .py
         output_path, selected_filter = QFileDialog.getSaveFileName(self, "保存为", default_filename, filters)
         
         if not output_path:
@@ -330,10 +351,6 @@ class ConverterPage(QWidget):
                 self.preview_df.to_excel(output_path, index=False)
             elif "(*.csv)" in selected_filter:
                 self.preview_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-            elif "(*.py)" in selected_filter:
-                py_code = _dataframe_to_py(self.preview_df, self.detected_format)
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(py_code)
             else:
                 raise ValueError("未知的保存格式。")
                 
@@ -364,7 +381,11 @@ def _json_to_dataframe(filepath):
         for group in data.get('groups', []):
             group_id = group.get('id')
             for item in group.get('items', []):
-                flat_data.append({'组别': group_id, '单词': item.get('text'), 'IPA': item.get('note'), 'Language': item.get('lang')})
+                # 确保所有必需的列都存在
+                text = item.get('text', '')
+                note = item.get('note', '')
+                lang = item.get('lang', '')
+                flat_data.append({'组别': group_id, '单词': text, 'IPA': note, 'Language': lang})
         return pd.DataFrame(flat_data), 'standard'
     else:
         raise ValueError("无法识别的JSON词表格式。")
@@ -379,8 +400,14 @@ def _dataframe_to_json(df, detected_format):
             try:
                 group_id = int(row['组别'])
                 if group_id not in groups_map: groups_map[group_id] = []
-                groups_map[group_id].append({'text': str(row['单词']), 'note': str(row.get('IPA', '')), 'lang': str(row.get('Language', ''))})
-            except (ValueError, KeyError): continue # Skip rows with invalid group id
+                # 确保所有必需的字段都从 DataFrame 中正确获取
+                text = str(row.get('单词', ''))
+                note = str(row.get('IPA', ''))
+                lang = str(row.get('Language', ''))
+                groups_map[group_id].append({'text': text, 'note': note, 'lang': lang})
+            except (ValueError, KeyError) as e: 
+                print(f"警告: 转换过程中跳过无效行 (组别: {row.get('组别')}, 错误: {e})", file=sys.stderr)
+                continue # Skip rows with invalid group id
         
         groups_list = [{"id": gid, "items": items} for gid, items in sorted(groups_map.items())]
         json_structure = {"meta": {"format": "standard_wordlist", "version": "1.0"}, "groups": groups_list}
@@ -388,7 +415,7 @@ def _dataframe_to_json(df, detected_format):
         raise ValueError(f"不支持从格式 '{detected_format}' 转换为JSON。")
     return json.dumps(json_structure, indent=4, ensure_ascii=False)
 
-def _dataframe_to_py(df, detected_format):
+def _dataframe_to_py(df, detected_format): # 这个函数已经没用了，但保留在这里以防万一
     header = f"# Auto-generated by PhonAcq Converter\n# Conversion date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     if detected_format == 'visual':
         items_list_str = "ITEMS = [\n"
@@ -425,30 +452,3 @@ def generate_template(output_dir, template_type='simple'):
         df = pd.DataFrame(template_info['data']); df.to_excel(template_path, index=False)
         return True, f"成功！模板 '{template_info['filename']}' 已生成至: {output_dir}"
     except Exception as e: return False, f"生成模板文件时出错: {e}"
-def _py_to_dataframe(filepath):
-    """
-    加载旧版的 .py 词表文件并将其转换为 DataFrame。
-    这是一个向后兼容的函数。
-    """
-    # 动态加载 .py 文件需要 importlib
-    import importlib.util
-
-    module_name = f"temp_legacy_module_{os.path.basename(filepath).replace('.', '_')}"
-    spec = importlib.util.spec_from_file_location(module_name, filepath)
-    if spec is None:
-        raise ImportError(f"无法为 '{filepath}' 创建模块规范。")
-    
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    
-    if hasattr(module, 'ITEMS'): # 检测图文词表
-        return pd.DataFrame(module.ITEMS), 'visual'
-    elif hasattr(module, 'WORD_GROUPS'): # 检测标准词表
-        flat_data = []
-        for i, group in enumerate(module.WORD_GROUPS, 1):
-            for word, value in group.items():
-                ipa, lang = value if isinstance(value, tuple) and len(value) == 2 else (str(value), '')
-                flat_data.append({'组别': i, '单词': word, 'IPA': ipa, 'Language': lang})
-        return pd.DataFrame(flat_data), 'standard'
-    else:
-        raise ValueError("旧版 Python 词表文件中未找到 'ITEMS' 或 'WORD_GROUPS' 变量。")

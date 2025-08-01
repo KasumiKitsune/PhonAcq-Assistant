@@ -110,6 +110,7 @@ class VoicebankRecorderPage(QWidget):
         self.update_icons()
         self.setFocusPolicy(Qt.StrongFocus)
         self.apply_layout_settings()
+        self.load_config_and_prepare()
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self); left_layout = QVBoxLayout()

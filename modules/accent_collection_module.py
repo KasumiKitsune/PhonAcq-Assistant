@@ -154,6 +154,7 @@ class AccentCollectionPage(QWidget):
         self.prompt_mode = 'tts' # 默认提示音模式
         
         self._init_ui(); self._connect_signals(); self.update_icons(); self.reset_ui(); self.apply_layout_settings()
+        self.load_config_and_prepare()
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -907,7 +908,6 @@ class AccentCollectionPage(QWidget):
         
         # 搜索路径逻辑保持不变，它会自动优先查找录音
         search_paths = [
-            (self.recordings_folder, ['.wav', '.mp3', '.flac', '.ogg']),
             (os.path.join(self.AUDIO_RECORD_DIR, wordlist_name), ['.wav', '.mp3']),
             (os.path.join(self.AUDIO_TTS_DIR, wordlist_name), ['.wav', '.mp3'])
         ]

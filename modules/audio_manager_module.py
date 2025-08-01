@@ -601,7 +601,7 @@ class AudioManagerPage(QWidget):
         self.staging_list_widget.setToolTip("当前已暂存的音频文件。\n可在此处预览顺序。")
         
         staging_btn_layout = QHBoxLayout()
-        self.connect_staged_btn = QPushButton("连接音频")
+        self.connect_staged_btn = QPushButton("连接")
         self.clear_staged_btn = QPushButton("清空")
         staging_btn_layout.addWidget(self.connect_staged_btn)
         staging_btn_layout.addWidget(self.clear_staged_btn)

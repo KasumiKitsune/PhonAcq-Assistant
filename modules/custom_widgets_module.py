@@ -62,6 +62,27 @@ class ToggleSwitch(QCheckBox):
         self._knob_position_ratio = 1.0 if self.isChecked() else 0.0
         self._knob_margin_anim_value = self._knobMargin
 
+    def sync_visual_state_to_checked_state(self):
+        """
+        强制更新开关的视觉状态（旋钮位置），使其与当前的 isChecked() 状态同步。
+        即使 isChecked() 状态没有变化，也会执行动画或直接设置到最终位置。
+        这用于解决加载时视觉与逻辑脱节的问题。
+        """
+        # 立即将动画的起始值设置为当前视觉位置
+        self.pos_animation.setStartValue(self._knob_position_ratio)
+        
+        # 目标值是根据当前 isChecked() 状态确定的最终位置
+        target_end_value = 1.0 if self.isChecked() else 0.0
+        self.pos_animation.setEndValue(target_end_value)
+        
+        # 直接跳到动画结束，或者短动画播放
+        # 为了加载时立即显示正确状态，我们直接设置结束值并更新
+        self._knob_position_ratio = target_end_value
+        self.update() # 强制重绘
+        
+        # 如果需要动画，可以改为 self.pos_animation.start()
+        # 但对于加载时的同步，通常直接跳到最终状态更合适
+
     # --- 动画目标属性的 pyqtProperty ---
     @pyqtProperty(float)
     def _knob_position_ratio(self):
@@ -472,6 +493,13 @@ class RangeSlider(QWidget):
     def setUpperValue(self, val): self._upper_val = max(self._lower_val, min(val, self._max_val)); self.rangeChanged.emit(self.lowerValue(), self.upperValue()); self.update()
     def lowerValue(self): return int(self._lower_val)
     def upperValue(self): return int(self._upper_val)
+    def minimum(self):
+        """返回滑块的最小值。"""
+        return self._min_val
+
+    def maximum(self):
+        """返回滑块的最大值。"""
+        return self._max_val
     
     # --- 辅助函数 (保持不变) ---
     def _get_max_handle_dimension(self):
