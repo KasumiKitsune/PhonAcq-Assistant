@@ -574,7 +574,7 @@ QMenu::separator {
 }
 /* 菜单项目前的图标区域 */
 QMenu::icon {
-    padding-left: 8px; /* 左内边距 */
+    padding-left: 20px; /* 左内边距 */
     width: 16px;       /* 宽度 */
     height: 16px;      /* 高度 */
 }
@@ -991,13 +991,13 @@ RangeSlider, AnimatedSlider {
     /* --- 滑块颜色 --- */
     qproperty-handleColor: #FFFFFF;
     qproperty-handleBorderColor: #3B6894;
-    qproperty-hoverHandleColor: #A79B82;
+    qproperty-hoverHandleColor: #C5D9E8;
     qproperty-pressedHandleColor: #3B6894;
     qproperty-pressedHandleBorderColor: #1C2A40; 
     
     /* --- 尺寸与形状 (核心修改) --- */
     qproperty-barHeight: 4;
-    qproperty-handleBorderWidth: 1;
+    qproperty-handleBorderWidth: 2;
     qproperty-handleRadius: 0;
     qproperty-hoverBarHeight: 8;           /* 悬停时轨道稍微变粗 */
     
@@ -1011,10 +1011,10 @@ RangeSlider, AnimatedSlider {
      * 按下时，宽度和高度都减小2px。
      * 这将保持其细长的矩形比例。
     */
-    qproperty-hoverHandleWidth: 14;
-    qproperty-hoverHandleHeight: 24;
-    qproperty-pressedHandleWidth: 8;
-    qproperty-pressedHandleHeight: 18;
+    qproperty-hoverHandleWidth: 22;
+    qproperty-hoverHandleHeight: 22;
+    qproperty-pressedHandleWidth: 14;
+    qproperty-pressedHandleHeight: 14;
 }
 /*
 ================================================================================

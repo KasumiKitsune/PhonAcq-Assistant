@@ -1,0 +1,659 @@
+/*
+ * CyberGlyph Neon Theme v2.0 (Full Feature Update)
+ * Author: AI Assistant & Sager
+ * Description: A dark, futuristic theme with bold geometric shapes and neon accents,
+ *              now fully compatible with all latest UI features and theming properties.
+ */
+/* @icon-path: "icons/" */
+/* @theme-type: dark */
+/* @animations: enabled */ /* 显式声明启用动画，或删除此行使用默认 */
+/* @theme-property-compact: false */ /* 显式声明非紧凑模式，或删除此行使用默认 */
+
+
+/* ================== 全局样式 ================== */
+QWidget {
+    font-family: "Lucida Console", "Courier New", "Microsoft YaHei", monospace; 
+    color: #E0D8F0; /* 月光白 */
+    background-color: transparent;
+    font-size: 17px; 
+}
+QMainWindow { background-color: #120D1A; /* 深靛蓝 */ }
+QWidget#CentralWidget, QStackedWidget > QWidget, QTabWidget::pane > QWidget { background-color: #120D1A; }
+QMessageBox, QDialog { background-color: #1A1423; border: 1px solid #60507F; border-radius: 0px; }
+QMessageBox QLabel, QDialog QLabel { font-size: 17px; color: #E0D8F0; }
+
+/* ================== 一级标签页 (Cyber Circuit Board) ================== */
+QTabWidget#MainTabWidget::pane { border: 2px solid #60507F; border-top: none; background-color: #1A1423; border-radius: 0 0 6px 6px; }
+QTabWidget#MainTabWidget::tab-bar { alignment: left; background-color: transparent; }
+QTabWidget#MainTabWidget QTabBar::tab { background-color: #221A30; color: #9080A8; border: 1px solid #3A2F4D; border-bottom: 2px solid #60507F; font-size: 19px; font-weight: bold; margin-right: 3px; min-width: 150px; padding: 10px 18px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+QTabWidget#MainTabWidget QTabBar::tab:hover:!selected { background-color: #3A2F4D; color: #E0D8F0; border-bottom-color: #00FFFF; }
+QTabWidget#MainTabWidget QTabBar::tab:selected { background-color: #1A1423; color: #00FFFF; border: 2px solid #00FFFF; border-bottom: none; border-top-left-radius: 8px; border-top-right-radius: 8px; }
+QTabWidget#MainTabWidget QTabBar::tab:disabled { background-color: #1F1829; color: #504068; border-color: #302840; }
+
+/* ================== 二级标签页 (Data Stream Tabs) ================== */
+QTabWidget#SubTabWidget::pane { border: none; background-color: transparent; }
+QTabWidget#SubTabWidget::tab-bar { alignment: left; border-bottom: 1px solid #3A2F4D; }
+QTabWidget#SubTabWidget QTabBar::tab { background: transparent; color: #9080A8; border: none; border-bottom: 3px solid transparent; padding: 9px 22px; font-size: 17px; margin-right: 5px; }
+QTabWidget#SubTabWidget QTabBar::tab:hover:!selected { color: #E0D8F0; border-bottom: 3px solid #FF00FF; }
+QTabWidget#SubTabWidget QTabBar::tab:selected { color: #FF00FF; font-weight: bold; border-bottom: 3px solid #FF00FF; }
+QTabWidget#SubTabWidget QTabBar::tab:disabled { color: #504068; border-bottom-color: transparent; }
+
+/* ================== 按钮样式 (Geometric & Neon) ================== */
+QPushButton { border: 1px solid #60507F; padding: 9px 18px; border-radius: 0px; font-size: 17px; background-color: #221A30; color: #E0D8F0; min-width: 70px; min-height: 28px;}
+QPushButton:hover { background-color: #3A2F4D; border-color: #00FFFF; color: #00FFFF; }
+QPushButton:pressed { background-color: #120D1A; color: #00b3b3; border-color: #00b3b3;}
+QPushButton:disabled { background-color: #1F1829; color: #504068; border-color: #302840;}
+QPushButton#AccentButton { background-color: #003333; color: #00FFFF; font-weight: bold; border: 2px solid #00FFFF; padding: 10px 20px; border-radius: 2px; }
+QPushButton#AccentButton:hover { background-color: #006666; border-color: #80FFFF; }
+QPushButton#AccentButton:pressed { background-color: #001a1a; color: #99FFFF; border-color: #008080;}
+QPushButton#LinkButton { background-color: transparent; color: #FF00FF; border: none; text-decoration: none; padding: 5px; border-radius: 0px; font-size: 16px; font-style: italic; min-width: auto; min-height: auto;}
+QPushButton#LinkButton:hover { color: #FF99FF; text-decoration: line-through; }
+QPushButton#LinkButton:pressed { color: #FFFFFF; text-decoration: underline;}
+QPushButton#ActionButton_Delete { background-color: #33001a; color: #FF00FF; font-weight: bold; border: 2px solid #FF00FF; padding: 10px 20px; border-radius: 2px;}
+QPushButton#ActionButton_Delete:hover { background-color: #660033; border-color: #FF80FF;}
+QPushButton#ActionButton_Delete:pressed { background-color: #1a000d; color: #FF99FF; border-color: #CC00CC;}
+
+/* ================== 其他常用控件 ================== */
+QLabel { color: #E0D8F0; background-color: transparent;}
+QLabel#StatusLabel { color: #00FFFF; font-style: italic; }
+
+/* [新增/修改] QLabel:hover 效果 */
+QLabel:hover {
+    color: #00FFFF; /* 悬停时文字变为霓虹青色 */
+}
+
+QLineEdit, QPlainTextEdit, QTextBrowser { 
+    background-color: #1A1423; 
+    border: 1px solid #60507F; 
+    border-radius: 0px; 
+    padding: 8px; 
+    color: #E0D8F0; 
+    selection-background-color: #00FFFF; 
+    selection-color: #120D1A; 
+}
+/* [新增/修改] LneEdit, QTextBrowser:hover/focus 效果 */
+QLineEdit:hover, QPlainTextEdit:hover, QTextBrowser:hover {
+    border-color: #FF00FF; /* 悬停时边框变为霓虹洋红 */
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus { border-color: #00FFFF; }
+QTextBrowser a { color: #FF00FF; text-decoration: none; } 
+QTextBrowser a:hover { text-decoration: underline; color: #FF80FF; }
+
+QComboBox { 
+    background-color: #1A1423; 
+    border: 1px solid #60507F; 
+    border-radius: 0px; 
+    padding: 7px 8px; 
+    color: #E0D8F0; 
+    min-height: 17px;
+}
+/* [新增/修改] QComboBox:hover/focus 效果 */
+QComboBox:hover {
+    border-color: #FF00FF; /* 悬停时边框变为霓虹洋红 */
+}
+QComboBox:focus { border-color: #00FFFF; }
+QComboBox::drop-down { 
+    border: none;
+    background-color: #3A2F4D; 
+    width: 20px;
+    border-left: 1px solid #60507F; 
+}
+QComboBox::down-arrow {  width: 12px; height: 12px; }
+
+QComboBox QAbstractItemView { 
+    border: 1px solid #00FFFF; 
+    background-color: #120D1A; 
+    selection-background-color: #3A2F4D; 
+    selection-color: #00FFFF; 
+    outline: 0px; 
+    padding: 3px; 
+    color: #E0D8F0; 
+    border-radius: 0px;
+    margin: 0px; 
+}
+QComboBox QAbstractItemView::item {
+    padding: 6px 10px; 
+    min-height: 20px; 
+}
+
+QGroupBox { 
+    border: 1px dashed #60507F; 
+    border-radius: 0px; 
+    margin-top: 15px; 
+    padding: 25px 15px 15px 15px;
+}
+QGroupBox::title { 
+    subcontrol-origin: margin; 
+    subcontrol-position: top left; 
+    padding: 2px 10px; 
+    margin-left: 10px; 
+    background-color: #60507F; 
+    color: #120D1A; 
+    font-weight: bold;
+    border-radius: 0px; 
+}
+
+QListWidget, QTableWidget { 
+    background-color: #1A1423; 
+    border: 1px solid #3A2F4D; 
+    border-radius: 0px; 
+    alternate-background-color: #20162B; 
+    outline: 0px;
+    gridline-color: #3A2F4D; 
+}
+QListWidget::item, QTableWidget::item { 
+    padding: 5px; 
+    border-bottom: 1px solid #3A2F4D; 
+    color: #E0D8F0;
+}
+/* [新增/修改] QListWidget, QTableWidget item hover/selected/inactive selected 效果 */
+QListWidget::item:hover:!selected, QTableWidget::item:hover:!selected {
+    background-color: rgba(0, 255, 255, 0.1); /* 半透明的霓虹青色，与固定按钮 hover 效果类似 */
+}
+QListWidget::item:selected, QTableWidget::item:selected { 
+    background-color: #00FFFF; 
+    color: #120D1A; 
+}
+QTableWidget::item:selected:!active {
+    background-color: #3A2F4D; /* 非激活选中时使用柔和的背景色 */
+    color: #E0D8F0; /* 文字颜色恢复月光白 */
+}
+
+QTableWidget QLineEdit { 
+    border-radius: 0px;
+    border: 1px solid #00FFFF; 
+    background-color: #221A30; 
+    color: #E0D8F0;
+}
+QTableCornerButton::section {
+    background-color: #221A30; 
+    border: 1px solid #3A2F4D; 
+}
+/* [新增] QTableCornerButton::section hover/pressed 效果 */
+QTableCornerButton::section:hover {
+    background-color: #3A2F4D; /* 悬停时颜色加深 */
+}
+QTableCornerButton::section:pressed {
+    background-color: #1A1423; /* 按下时更深的颜色 */
+}
+
+QHeaderView::section { 
+    background-color: #3A2F4D; 
+    padding: 10px; 
+    border: none; 
+    border-bottom: 2px solid #00FFFF; 
+    font-weight: bold;
+    color: #00FFFF; 
+}
+/* [新增] QHeaderView::section hover/pressed 效果 */
+QHeaderView::section:hover {
+    background-color: #4A3F5B; /* 悬停时背景加深 */
+    color: #80FFFF; /* 文字颜色变亮 */
+    border-bottom-color: #FF00FF; /* 底部边框变为霓虹洋红 */
+}
+QHeaderView::section:pressed {
+    background-color: #1F1829; /* 按下时更深的背景，模拟凹陷 */
+    color: #E0D8F0; /* 文字变为月光白 */
+    border-bottom-color: #00AAAA; /* 底部边框变为暗青色 */
+    padding-top: 11px; /* 模拟被按下 */
+    padding-left: 11px;
+}
+
+QProgressBar { 
+    border: 1px solid #60507F; 
+    border-radius: 0px; 
+    text-align: center; 
+    color: #E0D8F0; 
+    height: 20px; 
+    background-color: #1A1423;
+}
+QProgressBar::chunk { 
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00FFFF, stop:0.5 #8000FF, stop:1 #FF00FF); 
+    border-radius: 0px;
+}
+
+QSlider::groove:horizontal { 
+    border: none; height: 4px; background: #60507F; margin: 2px 0; border-radius: 0px; }
+/* [新增] QSlider::groove:horizontal:hover 效果 */
+QSlider::groove:horizontal:hover {
+    background: #00FFFF; /* 悬停时轨道变为霓虹青色 */
+}
+QSlider::handle:horizontal { 
+    background: #00FFFF; border: 1px solid #00AAAA; width: 10px; height: 20px; margin: -8px 0; border-radius: 0px; }
+/* [新增] QSlider::handle:horizontal hover/pressed 效果 */
+QSlider::handle:horizontal:hover {
+    background: #FF00FF; /* 悬停时滑块变为霓虹洋红 */
+    border-color: #FF80FF; /* 边框变亮 */
+}
+QSlider::handle:horizontal:pressed {
+    background: #8000FF; /* 按下时滑块变为霓虹紫 */
+    border-color: #CC00CC; /* 边框变深 */
+}
+
+QScrollBar:vertical { border: 1px solid #3A2F4D; background: #1A1423; width: 12px; margin: 0; }
+QScrollBar::handle:vertical { background: #60507F; min-height: 25px; border-radius: 0px; border: 1px solid #3A2F4D;}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical { border: none; background: #3A2F4D; height: 10px;}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+QScrollBar:horizontal { border: 1px solid #3A2F4D; background: #1A1423; height: 12px; margin: 0; }
+QScrollBar::handle:horizontal { background: #60507F; min-width: 25px; border-radius: 0px; border: 1px solid #3A2F4D;}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal { border: none; background: #3A2F4D; width: 10px;}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+/* [新增/修改] QScrollBar::handle hover/pressed 效果 */
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+    background: #00FFFF; /* 悬停时滑块变为霓虹青色 */
+}
+QScrollBar::handle:vertical:pressed, QScrollBar::handle:horizontal:pressed {
+    background: #FF00FF; /* 按下时滑块变为霓虹洋红 */
+}
+
+QMenu { background-color: #120D1A; color: #E0D8F0; border: 1px solid #00FFFF; padding: 4px; border-radius: 0px; }
+QMenu::item { background-color: transparent; color: #E0D8F0; padding: 7px 20px 7px 20px; border: 1px solid transparent; margin: 0px; }
+QMenu::item:selected { background-color: #3A2F4D; color: #00FFFF; }
+/* [新增] QMenu::item:pressed 效果 */
+QMenu::item:pressed {
+    background-color: #221A30; /* 按下时更深的背景，模拟凹陷 */
+    color: #80FFFF; /* 文字变为更亮的青色 */
+}
+QMenu::item:disabled { color: #504068; }
+QMenu::separator { height: 2px; background: #60507F; margin: 4px 2px; }
+QMenu::icon { padding-left: 8px; width: 16px; height: 16px; }
+ToggleSwitch {
+    qproperty-trackColorOff: #3A2F4D;
+    qproperty-trackColorOn: #006666;
+    qproperty-knobColor: #00FFFF;
+    qproperty-trackBorderRadius: 0; 
+    qproperty-knobMargin: 0;
+    qproperty-knobShape: 'rectangle';
+    qproperty-knobBorderRadius: 0;
+    qproperty-borderColor: #00FFFF; 
+    qproperty-borderWidth: 2;       
+
+    min-width: 50px;
+    max-width: 50px;
+    min-height: 12px;
+    max-height: 12px;
+}
+/* [新增] ToggleSwitch hover 效果 */
+ToggleSwitch[hover="true"] {
+    qproperty-hoverTrackColorOn: #00FFFF; /* 悬停在打开状态时轨道变为更亮的霓虹青 */
+    qproperty-hoverTrackColorOff: #60507F; /* 悬停在关闭状态时轨道变为柔和紫色 */
+    qproperty-hoverKnobColor: #FF00FF; /* 悬停时滑块变为霓虹洋红 */
+    qproperty-hoverBorderColor: #FF00FF; /* 悬停时边框变为霓虹洋红 */
+    qproperty-hoverKnobMarginOffset: 3; /* 悬停时滑块边距增加2px */
+}
+
+/* --- 方言图文采集页面 --- */
+QLabel#ScalableImageLabel {
+    border: 2px solid #60507F; 
+    background-color: #1A1423; 
+    color: #60507F; 
+    border-radius: 0px; 
+}
+
+QLabel#PromptTextLabel {
+    padding: 8px;
+    color: #FF00FF; 
+    font-size: 20px;
+    font-weight: bold;
+    background-color: #120D1A; 
+    border: 1px dashed #60507F; 
+    border-radius: 0px;
+}
+
+QTextEdit#NotesTextEdit {
+    background-color: #1A1423;
+    border: 1px solid #3A2F4D;
+    border-radius: 0px;
+    padding: 8px;
+    color: #9080A8; 
+}
+
+/* ================== 单选按钮样式 (Radio Button as Neon Square) ================== */
+QRadioButton {
+    spacing: 12px; 
+    padding: 8px 0;
+    font-size: 17px;
+    font-weight: normal; 
+    color: #9080A8; 
+}
+
+QRadioButton:hover {
+    color: #E0D8F0; 
+}
+
+QRadioButton:checked {
+    color: #FF00FF; 
+    font-weight: bold; 
+}
+
+QRadioButton::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 0px; 
+    border: 1px solid #60507F; 
+    background-color: #1A1423; 
+}
+
+QRadioButton::indicator:hover {
+    border: 1px solid #00FFFF; 
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid #FF00FF; 
+    background-color: #330033; 
+}
+
+QRadioButton::indicator:disabled {
+    border: 1px solid #302840;
+    background-color: #1F1829;
+}
+
+QRadioButton:disabled {
+    color: #504068;
+}
+
+/* [新增] QCheckBox 样式，与 QRadioButton 保持一致的霓虹风格 */
+QCheckBox {
+    spacing: 8px;
+    padding: 5px 0;
+    font-size: 17px;
+    font-weight: normal;
+    color: #9080A8; /* 未选中时为柔和的薰衣草色 */
+}
+
+QCheckBox:hover {
+    color: #E0D8F0; /* 悬停时为月光白 */
+}
+
+QCheckBox:checked {
+    color: #00FFFF; /* 选中时为霓虹青色 */
+    font-weight: bold;
+}
+
+QCheckBox::indicator {
+    width: 18px; /* 略小于 QRadioButton，作为区分 */
+    height: 18px;
+    border-radius: 0px;
+    border: 1px solid #60507F;
+    background-color: #1A1423;
+}
+
+QCheckBox::indicator:hover {
+    border: 1px solid #FF00FF; /* 悬停时边框变为霓虹洋红 */
+}
+
+QCheckBox::indicator:checked {
+    border: 1px solid #00FFFF; /* 选中边框为霓虹青 */
+    background-color: #003333; /* 选中时用深青色填充 */
+    /* 假设您的 check.png 或 check.svg 在主题 icons 文件夹中，或由 IconManager 着色 */
+    image: url(themes/神奈川冲浪里/icons/checkbox.png); /* 或者使用 IconManager 自动着色 */
+}
+
+QCheckBox::indicator:disabled {
+    border: 1px solid #302840;
+    background-color: #1F1829;
+}
+
+QCheckBox:disabled {
+    color: #504068;
+}
+
+/* ============================================================================== */
+/* == 4.9 提示框 (QToolTip) - Data Terminal Style == */
+/* ============================================================================== */
+QToolTip {
+    background-color: #120D1A; 
+    color: #00FFFF;
+    border: 1px solid #00FFFF;
+    
+    padding: 6px 10px;
+    
+    border-radius: 0px; 
+    
+    font-family: "Lucida Console", "Courier New", monospace;
+    font-size: 16px;
+    font-weight: bold;
+    
+    opacity: 240;
+}
+
+/* ============================================================================== */
+/* == 5. 自定义控件样式 (Custom Widget Styles) - Part 2 == */
+/* ============================================================================== */
+
+/* --- 为新的 WaveformWidget 添加样式 --- */
+WaveformWidget {
+    qproperty-waveformColor: #FF00FF;       
+    qproperty-cursorColor: #00FFFF;         
+    qproperty-selectionColor: rgba(255, 0, 255, 70); 
+    
+    border: 2px solid #60507F;
+    border-radius: 0px; 
+}
+
+WaveformWidget:disabled {
+    qproperty-waveformColor: #9080A8; 
+    opacity: 0.5;
+}
+
+/* --- 主波形图 (顶部的概览波形) --- */
+#AudioAnalysisPage > QWidget > WaveformWidget {
+    border: 1px solid #3A2F4D;
+    border-bottom: none;
+    border-radius: 0px;
+    qproperty-backgroundColor: #120D1A; 
+    qproperty-waveformColor: #60507F;   
+}
+
+/* --- 语谱图控件 (核心可视化区域) --- */
+SpectrogramWidget {
+    qproperty-backgroundColor: #120D1A; 
+    qproperty-spectrogramMinColor: #120D1A; 
+    qproperty-spectrogramMaxColor: #00FFFF; 
+    
+    qproperty-intensityColor: #FF00FF;
+    
+    qproperty-f0Color: #00FFFF;
+    qproperty-f0DerivedColor: rgba(255, 0, 255, 180);
+    
+    qproperty-f1Color: #FFFFFF;
+    qproperty-formantColor: #00FFFF;
+    
+    qproperty-cursorColor: #FF00FF;
+    
+    qproperty-infoTextColor: #00FFFF;
+    qproperty-infoBackgroundColor: rgba(18, 13, 26, 0.9); 
+    
+    border: 1px solid #3A2F4D;
+    border-radius: 0px;
+}
+
+/* --- 时间轴控件 --- */
+TimeAxisWidget {
+    background-color: #1A1423; 
+}
+/*
+================================================================================
+【新增】插件栏按钮样式 (CyberGlyph Neon)
+================================================================================ 
+*/
+
+/* --- 主插件菜单圆形按钮 --- */
+QPushButton#PluginMenuButtonCircular {
+    border-radius: 16px;
+    border: 2px solid #60507F; 
+    background-color: #1A1423; 
+    padding: 0px 15px 0px 10px; 
+    min-width: 75px; 
+}
+QPushButton#PluginMenuButtonCircular:hover {
+    background-color: #221A30;
+    border-color: #00FFFF; 
+}
+QPushButton#PluginMenuButtonCircular:pressed {
+    background-color: #120D1A;
+}
+
+/* --- 固定的插件快捷按钮 --- */
+QPushButton#PinnedPluginButton {
+    border-radius: 15px;
+    border: 1px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+}
+QPushButton#PinnedPluginButton:hover {
+    background-color: rgba(0, 255, 255, 0.15); 
+}
+QPushButton#PinnedPluginButton:pressed {
+    background-color: rgba(0, 255, 255, 0.3);
+}
+
+/* [新增] 插件菜单中的工具按钮 (QToolButton#PluginMenuItemToolButton) */
+QToolButton#PluginMenuItemToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 0px;
+    padding: 2px;
+    color: #E0D8F0; /* 月光白 */
+}
+QToolButton#PluginMenuItemToolButton:hover {
+    background-color: rgba(255, 0, 255, 0.1); /* 半透明的霓虹洋红 */
+    border: 1px solid #FF00FF; /* 霓虹洋红边框 */
+}
+QToolButton#PluginMenuItemToolButton:pressed {
+    background-color: rgba(255, 0, 255, 0.2); /* 更深的半透明洋红 */
+}
+
+
+/* ==========================================================================
+   标签栏滚动箭头样式 (Tab Bar Scroller Arrow Styling)
+   ========================================================================== */
+QTabBar::scroller {
+    width: 40px; 
+}
+QTabBar QToolButton {
+    background-color: transparent; 
+    border: 1px solid transparent; 
+    border-radius: 4px; 
+    min-width: 16px; 
+    min-height: 16px; 
+}
+QTabBar QToolButton:hover {
+    background-color: rgba(255, 0, 255, 0.15); /* 悬停时半透明的霓虹洋红 */
+    border: 1px solid #FF00FF; /* 霓虹洋红边框 */
+}
+QTabBar QToolButton#qt_scrolltab_left_button {
+    qproperty-icon: url(assets/icons/arrow_left_thin.svg); /* 使用assets目录下的图标，让IconManager着色 */
+    margin-right: 3px; 
+}
+QTabBar QToolButton#qt_scrolltab_right_button {
+    qproperty-icon: url(assets/icons/arrow_right_thin.svg); /* 使用assets目录下的图标，让IconManager着色 */
+    margin-left: 3px; 
+}
+QTabBar QToolButton:disabled {
+    background-color: transparent; 
+    border: 1px solid transparent; 
+    opacity: 0.3; 
+}
+
+
+/* ==========================================================================
+   开关控件样式 (ToggleSwitch Style)
+   ========================================================================== */
+ToggleSwitch::indicator {
+    width: 0px; height: 0px; border: none; margin: 0; padding: 0;
+}
+
+
+/* ==========================================================================
+   QCheckBox 文本样式 (与QRadioButton对齐，并增加选中图标)
+   ========================================================================== */
+/* 注意：QCheckBox的指示器图片需要确保在icons文件夹中 */
+
+
+/* ==========================================================================
+   RangeSlider, AnimatedSlider (新增)
+   ========================================================================== */
+RangeSlider, AnimatedSlider {
+    qproperty-trackColor: #60507F; /* 轨道颜色 */
+    qproperty-rangeColor: #FF00FF; /* 范围颜色 */
+    qproperty-hoverTrackColor: #9080A8; /* 悬停时轨道颜色 */
+    qproperty-hoverRangeColor: #FF80FF; /* 悬停时范围颜色 */
+
+    qproperty-handleColor: #00FFFF; /* 滑块颜色 */
+    qproperty-handleBorderColor: #FF00FF; /* 滑块边框颜色 */
+    qproperty-hoverHandleColor: #FF00FF; /* 悬停时滑块颜色 */
+    qproperty-pressedHandleColor: #8000FF; /* 按下滑块颜色 */
+    qproperty-pressedHandleBorderColor: #CC00CC; /* 按下滑块边框颜色 */
+    
+    qproperty-barHeight: 4;
+    qproperty-handleBorderWidth: 1;
+    qproperty-handleRadius: 0;
+    qproperty-hoverBarHeight: 8;
+    
+    qproperty-handleWidth: 10;
+    qproperty-handleHeight: 20;
+    
+    qproperty-hoverHandleWidth: 22;
+    qproperty-hoverHandleHeight: 22;
+    qproperty-pressedHandleWidth: 14;
+    qproperty-pressedHandleHeight: 14;
+}
+
+/* ==========================================================================
+   AnimatedListWidget Style (新增)
+   ========================================================================== */
+AnimatedListWidget { 
+    background-color: #1A1423;
+    border: 1px solid #3A2F4D;
+    border-radius: 0px; 
+    outline: 0px; 
+}
+
+AnimatedListWidget {
+    qproperty-itemBrush: transparent;
+    qproperty-itemTextColor: #E0D8F0;
+    qproperty-itemRadius: 0;
+    
+    qproperty-itemHoverBrush: rgba(0, 255, 255, 0.1); 
+    qproperty-itemPressedBrush: rgba(0, 255, 255, 0.2); 
+    
+    qproperty-itemSelectedBrush: #00FFFF;
+    qproperty-itemSelectedTextColor: #120D1A;
+
+    qproperty-itemPadding: 4;
+    qproperty-itemTextPadding: 6;
+}
+
+/* ==========================================================================
+   File Manager Tree View Style (新增)
+   ========================================================================= */
+QTreeWidget {
+    background-color: #1A1423; 
+    border: 1px solid #3A2F4D; 
+    border-radius: 0px; 
+    outline: 0px; 
+}
+
+QTreeWidget::item {
+    padding: 2px 1px;
+    border-radius: 0px;
+    color: #E0D8F0;
+}
+
+QTreeWidget::item:hover {
+    background-color: rgba(255, 0, 255, 0.1); /* 半透明的霓虹洋红 */
+}
+
+QTreeWidget::item:selected:active {
+    background-color: rgba(0, 255, 255, 0.3); /* 更深的半透明霓虹青色 */
+    border: 1px solid #00FFFF; /* 霓虹青色边框 */
+}
+
+QTreeWidget::item:selected:!active {
+    background-color: #3A2F4D; /* 柔和的背景色 */
+    color: #E0D8F0; /* 月光白 */
+}

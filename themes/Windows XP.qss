@@ -6,7 +6,6 @@
  *               Focuses on accurate gradients, rounded corners, and 3D border effects.
  * ============================================================================
  */
-/* @icon-path: "../assets/icons" */ /* 使用默认图标，或替换为 XP 风格图标路径 */
 /* @theme-property-compact: false */ /* 明确设置为非紧凑主题，程序将使用默认窗口尺寸 */
 /* @animations: enabled */ /* 提示保留动画 */
 
@@ -559,7 +558,7 @@ QMenu::separator {
     background: #808080;
     margin: 4px 0px; 
 }
-QMenu::icon { padding-left: 0px; width: 16px; height: 16px; }
+QMenu::icon { padding-left: 10px; width: 16px; height: 16px; }
 
 /* --- 4.8 提示框 (QToolTip - XP Standard) & 消息框 (QMessageBox) --- */
 QToolTip {
@@ -1023,4 +1022,23 @@ QTreeWidget::item:selected:!active {
                                       stop: 0 #F0F0F0, stop: 1 #D0D0D0);
     color: #000000; /* 文字恢复为黑色 */
     border: none;
+}
+AnimatedIconButton {
+    
+    /* 也可以使用 min-width */
+    min-width: 24px;
+
+    /* 其他QPushButton的样式，例如圆角 */
+    border-radius: 18px; /* 制作一个药丸形或圆形按钮 */
+    
+    /* 背景色等由 :hover, :pressed 伪状态控制 */
+    background-color: transparent;
+}
+
+AnimatedIconButton:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+AnimatedIconButton:pressed {
+    background-color: rgba(0, 0, 0, 0.12);
 }

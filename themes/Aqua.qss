@@ -449,7 +449,7 @@ QMenu {
 QMenu::item {
     padding: 10px 30px; 
     border-radius: 5px;
-    color: #2b6c8f; /* 深蓝绿 */
+    color: #0b132b; /* 深蓝绿 */
 }
 QMenu::item:selected {
     background-color: #c3e5e5; /* 浅青 */
@@ -459,13 +459,13 @@ QMenu::item:pressed {
     background-color: #f8c3b1; /* 浅橘粉 */
     color: #005f73; /* 更深蓝绿 */
 }
-QMenu::item:disabled { color: #0b132b; } /* 近乎黑的深蓝 */
+QMenu::item:disabled { color: #2b6c8f; } /* 近乎黑的深蓝 */
 QMenu::separator { 
     height: 1px; 
     background: #b9d9eb; /* 浅蓝 */
     margin: 6px; 
 }
-QMenu::icon { padding-left: 10px; width: 18px; height: 18px; }
+QMenu::icon { padding-left: 20px; width: 18px; height: 18px; }
 
 /* --- 4.8 提示框 (QToolTip) & 消息框 (QMessageBox) --- */
 QToolTip {
@@ -773,23 +773,23 @@ RangeSlider, AnimatedSlider {
     qproperty-hoverTrackColor: #b9d9eb;    /* 浅蓝 - 悬停轨道 */
     qproperty-hoverRangeColor: #f4a261;    /* 橘黄 - 悬停范围 */
 
-    qproperty-handleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #f6f6f6, stop: 1 #e9f1f7); /* 纯白灰到极浅蓝灰渐变 */
-    qproperty-hoverHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #f8c3b1, stop: 1 #f4a261); /* 浅橘粉到橘黄渐变 */
-    qproperty-pressedHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #e76f51, stop: 1 #005f73); /* 橘红到更深蓝绿渐变 */
+    qproperty-handleBrush: #e9f1f7; /* 纯白灰到极浅蓝灰渐变 */
+    qproperty-hoverHandleBrush: #f8c3b1; /* 浅橘粉到橘黄渐变 */
+    qproperty-pressedHandleBrush: #e76f51; /* 橘红到更深蓝绿渐变 */
     
     qproperty-handleBorderColor: #2b6c8f; /* 深蓝绿 - 基础边框 */
     qproperty-pressedHandleBorderColor: #005f73; /* 更深蓝绿 - 按下边框 */
 
     qproperty-barHeight: 6;
-    qproperty-hoverBarHeight: 10;
-    qproperty-handleBorderWidth: 1;
-    qproperty-handleRadius: 10;
-    qproperty-handleWidth: 20; /* 增大滑块尺寸 */
-    qproperty-handleHeight: 20;
-    qproperty-hoverHandleWidth: 24;
-    qproperty-hoverHandleHeight: 24;
-    qproperty-pressedHandleWidth: 18;
-    qproperty-pressedHandleHeight: 18;
+    qproperty-hoverBarHeight: 16;
+    qproperty-handleBorderWidth: 2;
+    qproperty-handleRadius: 11;
+    qproperty-handleWidth: 18; /* 增大滑块尺寸 */
+    qproperty-handleHeight: 18;
+    qproperty-hoverHandleWidth: 22;
+    qproperty-hoverHandleHeight: 22;
+    qproperty-pressedHandleWidth: 16;
+    qproperty-pressedHandleHeight: 16;
 }
 
 /* --- AnimatedListWidget 样式 --- */
@@ -884,31 +884,67 @@ QTableWidget QComboBox::down-arrow {
     height: 12px;
 }
 /*
-================================================================================
-【最终版】RangeSlider 样式 (Sunset Glow)
-================================================================================ 
-*/
-RangeSlider {
-    qproperty-trackColor: #c3e5e5;         /* 浅青 */
-    qproperty-rangeColor: #e76f51;         /* 橘红 */
-    qproperty-hoverTrackColor: #b9d9eb;    /* 浅蓝 */
-    qproperty-hoverRangeColor: #f4a261;    /* 橘黄 */
+ * ============================================================================
+ *  9. 自定义无边框窗口样式 (Custom Frameless Window Styles)
+ *  Author: AI Assistant (Successor)
+ *  Description: Styles for the custom title bar and window controls to achieve
+ *               a seamless, modern, frameless window look.
+ * ============================================================================
+ */
 
-    qproperty-handleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #f6f6f6, stop: 1 #e9f1f7); 
-    qproperty-hoverHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #f8c3b1, stop: 1 #f4a261); 
-    qproperty-pressedHandleBrush: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #e76f51, stop: 1 #005f73); 
-    
-    qproperty-handleBorderColor: #2b6c8f; 
-    qproperty-pressedHandleBorderColor: #005f73; 
+/* --- 9.1 主窗口容器 (Main Window Container) --- */
+/* 为中央容器设置圆角，这是实现圆角窗口的关键 */
+#CentralContainer {
+    background-color: #e9f1f7; /* 与主背景色相同 */
+    border-radius: 12px;
+}
 
-    qproperty-barHeight: 6;
-    qproperty-hoverBarHeight: 10;
-    qproperty-handleBorderWidth: 1;
-    qproperty-handleRadius: 10; /* 圆角 */
-    qproperty-handleWidth: 20; 
-    qproperty-handleHeight: 20;
-    qproperty-hoverHandleWidth: 24;
-    qproperty-hoverHandleHeight: 24;
-    qproperty-pressedHandleWidth: 18;
-    qproperty-pressedHandleHeight: 18;
+
+/* --- 9.2 自定义标题栏 (Custom Title Bar) --- */
+#CustomTitleBar {
+    background-color: #e9f1f7; /* 与主背景色相同，实现一体化观感 */
+    border-bottom: 1px solid #b9d9eb; /* 浅蓝色底部分隔线 */
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+/* --- 9.3 标题文本 (Window Title Label) --- */
+#WindowTitleLabel {
+    color: #005f73; /* 更深的蓝绿色，使其更醒目 */
+    font-weight: bold;
+    font-size: 16px;
+    padding-left: 5px;
+}
+
+
+/* --- 9.4 窗口控制按钮 (Window Control Buttons) --- */
+
+/* 通用样式：透明背景，无边框 */
+#MinimizeButton, #MaximizeButton, #CloseButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px; /* 轻微圆角 */
+    padding: 0px; /* 图标将填满整个按钮 */
+}
+
+/* 最小化和最大化/还原按钮的悬停效果 */
+#MinimizeButton:hover, 
+#MaximizeButton:hover {
+    background-color: rgba(43, 108, 143, 0.15); /* 半透明的深蓝绿 */
+}
+
+/* 关闭按钮的悬停效果 - 红色警告 */
+#CloseButton:hover {
+    background-color: #e76f51; /* 主题中的橘红色，作为警告色 */
+}
+
+/* 所有按钮的按下效果 */
+#MinimizeButton:pressed, 
+#MaximizeButton:pressed {
+    background-color: rgba(43, 108, 143, 0.3); /* 更深的半透明深蓝绿 */
+}
+
+/* 关闭按钮的按下效果 */
+#CloseButton:pressed {
+    background-color: #d75f41; /* 比悬停时更深一点的橘红色 */
 }

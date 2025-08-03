@@ -186,7 +186,43 @@ class PluginManager:
     def teardown_all_plugins(self):
         for plugin_id in list(self.active_plugins.keys()):
             self.disable_plugin(plugin_id)
+    def get_plugin_icon(self, plugin_id):
+        """
+        [v3 - 完整着色版]
+        按以下优先级获取指定插件的图标，并确保所有图标都经过着色处理：
+        1. 主题覆盖图标 (由 IconManager 处理，自动着色)
+        2. 插件自身定义的图标 (通过 IconManager.get_icon_from_path 处理，自动着色)
+        3. 全局默认插件图标 (由 IconManager 处理，自动着色)
+        """
+        icon_manager = self.main_window.icon_manager
 
+        # --- 1. 检查主题覆盖 ---
+        theme_override_name = f"plugin_{plugin_id.replace('.', '_')}"
+        if icon_manager.has_icon(theme_override_name):
+            return icon_manager.get_icon(theme_override_name)
+
+        # --- 2. 检查插件自身图标，并通过 IconManager 加载 ---
+        meta = self.available_plugins.get(plugin_id)
+        if meta:
+            icon_filename = meta.get('icon')
+            if icon_filename:
+                icon_path = os.path.join(meta['path'], icon_filename)
+                if os.path.exists(icon_path):
+                    # [核心修复] 不再直接创建QIcon，而是让IconManager处理
+                    return icon_manager.get_icon_from_path(icon_path)
+        
+        # --- 3. 如果以上都失败，则回退到全局默认图标 ---
+        return icon_manager.get_icon("plugin_default")
+    # [核心新增] 公共API，用于获取已激活的插件实例
+    def get_plugin_instance(self, plugin_id):
+        """
+        获取一个已激活的插件的实例，供其他模块或插件进行交互。
+        
+        :param plugin_id: 插件的唯一ID (字符串)。
+        :return: 插件的实例对象；如果插件未激活或不存在，则返回 None。
+        """
+        # self.active_plugins 是一个 {plugin_id: plugin_instance} 格式的字典
+        return self.active_plugins.get(plugin_id)
 # ==============================================================================
 # [新增] 手册查看器对话框
 # ==============================================================================
@@ -333,12 +369,18 @@ class PluginManagementDialog(QDialog):
                 display_name += " 📌"
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, plugin_id); item.setSizeHint(QSize(0, 40))
+
+            # [核心修改] 简化图标设置逻辑
             if plugin_id in self.plugin_manager.active_plugins:
-                item.setIcon(self.icon_manager.get_icon("success")); font = item.font(); font.setBold(True); item.setFont(font)
+                # 如果插件已启用，显示成功图标
+                item.setIcon(self.icon_manager.get_icon("success"))
+                font = item.font(); font.setBold(True); item.setFont(font)
             else:
-                icon_path = os.path.join(meta.get('path', ''), meta.get('icon', ''))
-                if os.path.exists(icon_path): item.setIcon(QIcon(icon_path))
+                # 如果插件未启用，调用新的权威方法获取其图标
+                item.setIcon(self.plugin_manager.get_plugin_icon(plugin_id))
+            
             self.plugin_list.addItem(item)
+            
         if current_id:
             for i in range(self.plugin_list.count()):
                 if self.plugin_list.item(i).data(Qt.UserRole) == current_id: self.plugin_list.setCurrentRow(i); break

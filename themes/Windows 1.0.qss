@@ -467,7 +467,7 @@ QMenu::separator {
     background: #000000;
     margin: 4px 0px; /* [核心修改] 调整边距 */
 }
-QMenu::icon { padding-left: 0px; width: 16px; height: 16px; }
+QMenu::icon { padding-left: 15px; width: 16px; height: 16px; }
 
 /* --- 4.8 提示框 (QToolTip) & 消息框 (QMessageBox) --- */
 QToolTip {

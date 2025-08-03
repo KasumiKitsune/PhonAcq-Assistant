@@ -191,7 +191,7 @@ def setup_and_load_config():
         "audio_settings": { "sample_rate": 44100, "channels": 1, "recording_gain": 1.0, "input_device_index": None, "recording_format": "wav" },
         "file_settings": {"word_list_file": "", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True},
-        "app_settings": {"enable_logging": True},
+        "app_settings": {"enable_logging": True, "startup_page": None}, # [新增] startup_page: None
         "theme": "默认.qss"
     }
     if not os.path.exists(SETTINGS_FILE):
@@ -698,9 +698,32 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             
         self.apply_theme()
-        self.on_main_tab_changed(0) # 初始加载第一个标签页
-        # --- [新增] 为所有标签页启用右键上下文菜单 ---
         self._setup_tab_context_menus()
+        
+        # --- [核心修改] 在末尾调用新的启动页应用函数 ---
+        self._apply_startup_page()
+
+    def _apply_startup_page(self):
+        """
+        [新增] 在程序启动时，读取配置并尝试导航到指定的启动页。
+        如果失败或未设置，则默认导航到第一个标签页。
+        """
+        startup_setting = self.config.get("app_settings", {}).get("startup_page")
+        
+        navigated = False
+        if isinstance(startup_setting, dict):
+            main_tab = startup_setting.get("main")
+            sub_tab = startup_setting.get("sub")
+            if main_tab:
+                # 尝试导航，如果成功，_navigate_to_tab 会返回目标页面实例
+                if self._navigate_to_tab(main_tab, sub_tab) is not None:
+                    navigated = True
+        
+        # 如果导航失败或没有设置启动页，则安全地回退到默认行为
+        if not navigated:
+            self.main_tabs.setCurrentIndex(0)
+            # 确保第一个标签页的内容也被正确加载
+            self.on_main_tab_changed(0)
 
     def _setup_tab_context_menus(self):
         """遍历并为所有主、子标签页的TabBar设置上下文菜单策略。"""
@@ -716,70 +739,135 @@ class MainWindow(QMainWindow):
                 sub_widget.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
 
     def _show_tab_context_menu(self, position):
-        """当在TabBar上右键时，显示上下文菜单。"""
-        # [新增] 导入性能监视器
+
+        # --- 1. 动态导入依赖 ---
         try:
             from modules.performance_monitor import PerformanceMonitor
             psutil_available = True
         except ImportError:
             psutil_available = False
 
+        # --- 2. 确定被点击的UI元素和页面 ---
         tab_widget = self.sender().parent()
         if not isinstance(tab_widget, QTabWidget):
             return
 
-        # ... (之前的所有逻辑保持不变) ...
         tab_index = tab_widget.tabBar().tabAt(position)
-        if tab_index == -1: return
+        if tab_index == -1:
+            return
+            
         page_widget = tab_widget.widget(tab_index)
-        if not page_widget: return
-        can_refresh = bool(page_widget.property("recreation_factory"))
-        DISABLED_FOR_NEW_WINDOW = ['settings_page', 'help_page']
-        attr_name = page_widget.property("main_window_attr_name")
-        can_open_new = can_refresh and (attr_name not in DISABLED_FOR_NEW_WINDOW)
-        
-        # [修改] 增加psutil的可用性检查
-        can_monitor = psutil_available and attr_name is not None
-        
-        # 如果所有功能都不可用，则不显示菜单
-        if not can_refresh and not can_open_new and not can_monitor:
+        if not page_widget:
             return
 
-        menu = QMenu(self)
+        # --- 3. 确定被点击页面的完整标识 (主/子标签名称) ---
+        main_tab_text = None
+        sub_tab_text = None
+
+        if tab_widget == self.main_tabs:
+            # 右键点击的是主标签页
+            main_tab_text = self.main_tabs.tabText(tab_index)
+            sub_widget = self.main_tabs.widget(tab_index)
+            if isinstance(sub_widget, QTabWidget) and sub_widget.count() > 0:
+                # 子标签是当前主标签下已选中的那个
+                sub_tab_text = sub_widget.tabText(sub_widget.currentIndex())
+        else:
+            # 右键点击的是子标签页
+            sub_tab_text = tab_widget.tabText(tab_index)
+            # 向上查找其所属的主标签页
+            for i in range(self.main_tabs.count()):
+                if self.main_tabs.widget(i) == tab_widget:
+                    main_tab_text = self.main_tabs.tabText(i)
+                    break
         
-        # 添加“刷新”和“新建窗口”菜单项 (逻辑不变)
+        # 如果无法确定页面标识，则不继续 (主要针对主标签)
+        if not main_tab_text:
+            return
+
+        # --- 4. 检查各项功能的可用性 ---
+        can_refresh = bool(page_widget.property("recreation_factory"))
+        attr_name = page_widget.property("main_window_attr_name")
+        
+        DISABLED_FOR_NEW_WINDOW = ['settings_page', 'help_page']
+        can_open_new = can_refresh and (attr_name not in DISABLED_FOR_NEW_WINDOW)
+        can_monitor = psutil_available and attr_name is not None
+        can_set_startup = attr_name is not None
+
+        # 如果所有功能都不可用，则不显示菜单
+        if not (can_refresh or can_open_new or can_monitor or can_set_startup):
+            return
+
+        # --- 5. 构建菜单 ---
+        menu = QMenu(self)
+
+        # 功能块: 页面操作
         if can_refresh:
-            # ...
             refresh_icon = self.icon_manager.get_icon("refresh")
             refresh_action = menu.addAction(refresh_icon, "刷新此标签页")
             refresh_action.triggered.connect(lambda: self._refresh_tab(tab_widget, tab_index))
 
         if can_open_new:
-            # ...
             new_window_icon = self.icon_manager.get_icon("new_window")
             new_window_action = menu.addAction(new_window_icon, "在新窗口中打开")
             new_window_action.triggered.connect(lambda: self._open_tab_in_new_window(tab_widget, tab_index))
-        
-        # [新增] 添加“性能监视”菜单项
+
+        # 功能块: 调试与分析
         if can_monitor:
             if not menu.isEmpty():
                 menu.addSeparator()
             
-            monitor_icon = self.icon_manager.get_icon("monitor") # 假设你有一个名为 monitor.svg/png 的图标
+            monitor_icon = self.icon_manager.get_icon("monitor")
             monitor_action = menu.addAction(monitor_icon, "性能监视")
             monitor_action.triggered.connect(lambda: self.open_performance_monitor(page_widget))
-        elif not can_monitor and psutil_available is False:
+        elif not can_monitor and not psutil_available:
              if not menu.isEmpty():
                 menu.addSeparator()
              monitor_action = menu.addAction("性能监视 (不可用)")
              monitor_action.setToolTip("请安装 psutil 库以启用此功能 (pip install psutil)")
              monitor_action.setEnabled(False)
 
+        # 功能块: 个性化设置
+        if can_set_startup:
+            if not menu.isEmpty():
+                menu.addSeparator()
+
+            startup_icon = self.icon_manager.get_icon("launch")
+            startup_action = menu.addAction(startup_icon, "设为启动页")
+            startup_action.triggered.connect(lambda: self._set_startup_page(main_tab_text, sub_tab_text))
+
+            current_startup_page = self.config.get("app_settings", {}).get("startup_page")
+            if current_startup_page is not None:
+                clear_icon = self.icon_manager.get_icon("clear_contents")
+                clear_action = menu.addAction(clear_icon, "清除启动页设置")
+                clear_action.triggered.connect(lambda: self._set_startup_page(None, None))
+
+        # --- 6. 显示菜单 ---
         if menu.isEmpty():
             return
             
         global_pos = tab_widget.tabBar().mapToGlobal(position)
         self.animation_manager.animate_menu(menu, global_pos)
+
+
+    def _set_startup_page(self, main_text, sub_text):
+        """
+        [新增] 将指定的页面设为启动页并保存配置。
+        如果 main_text 和 sub_text 都为 None，则清除设置。
+        """
+        app_settings = self.config.setdefault("app_settings", {})
+        
+        if main_text is None:
+            # 清除设置
+            app_settings["startup_page"] = None
+            QMessageBox.information(self, "提示", "启动页设置已清除。")
+        else:
+            # 设置新的启动页
+            startup_config = {"main": main_text, "sub": sub_text}
+            app_settings["startup_page"] = startup_config
+            display_text = f"{main_text}" + (f" -> {sub_text}" if sub_text else "")
+            QMessageBox.information(self, "提示", f"'{display_text}' 已设为启动页。")
+            
+        self.save_config()
 
     # [新增] 在 MainWindow 中添加打开监视器的槽函数
     def open_performance_monitor(self, target_widget):
@@ -1183,86 +1271,123 @@ class MainWindow(QMainWindow):
                 self.help_page.update_help_content()
             
     def apply_theme(self):
+
+        # 1. 获取主题文件路径
         theme_file_path = self.config.get("theme", "默认.qss")
         if not theme_file_path: theme_file_path = "默认.qss"
         absolute_theme_path = os.path.join(THEMES_DIR, theme_file_path)
         
+        # 2. 初始化主题相关状态变量
         is_compact_theme = False
         icons_disabled = False
-        animations_were_enabled = self.animations_enabled # 记录切换前的状态
-        self.animations_enabled = True
+        is_dark_theme = False # 默认不是暗色主题
+        theme_icon_path_to_set = None
+        override_color = None # 默认没有图标覆盖颜色
 
+        # 记录动画状态，以便在应用新主题后恢复
+        animations_were_enabled = self.animations_enabled 
+        self.animations_enabled = True # 默认启用动画，如果主题禁用则会覆盖
+
+        # 3. 读取QSS文件并解析元数据
+        stylesheet = ""
         if os.path.exists(absolute_theme_path):
-            with open(absolute_theme_path, "r", encoding="utf-8") as f:
-                stylesheet = f.read()
+            try:
+                with open(absolute_theme_path, "r", encoding="utf-8") as f:
+                    stylesheet = f.read()
                 
-                # --- 解析所有主题元属性 ---
-                theme_icon_path_to_set = None
+                # --- 解析 @icon-path ---
                 icon_path_match = re.search(r'/\*\s*@icon-path:\s*"(.*?)"\s*\*/', stylesheet)
                 if icon_path_match:
                     relative_icon_path_str = icon_path_match.group(1).replace("\\", "/")
                     qss_file_directory = os.path.dirname(absolute_theme_path)
                     absolute_icon_path = os.path.join(qss_file_directory, relative_icon_path_str)
                     theme_icon_path_to_set = os.path.normpath(absolute_icon_path)
-                
-                icon_theme_match = re.search(r'/\*\s*@icon-theme:\s*none\s*\*/', stylesheet)
-                if icon_theme_match: icons_disabled = True
-                
-                compact_match = re.search(r'/\*\s*@theme-property-compact:\s*true\s*\*/', stylesheet)
-                if compact_match: is_compact_theme = True
 
-                anim_match = re.search(r'/\*\s*@animations:\s*disabled\s*\*/', stylesheet)
-                if anim_match: self.animations_enabled = False
+                # --- 解析 @theme-type ---
+                dark_match = re.search(r'/\*\s*@theme-type:\s*dark\s*\*/', stylesheet)
+                if dark_match:
+                    is_dark_theme = True
+
+                # --- 解析 @icon-override-color ---
+                color_match = re.search(r'/\*\s*@icon-override-color:\s*(.*?)\s*\*/', stylesheet)
+                if color_match:
+                    try:
+                        # 尝试将匹配到的字符串转换为 QColor
+                        override_color = QColor(color_match.group(1).strip())
+                        if not override_color.isValid():
+                            raise ValueError(f"无效的颜色值: {color_match.group(1).strip()}")
+                    except Exception:
+                        print(f"警告: 无法解析主题颜色 '{color_match.group(1).strip()}' (格式可能不正确，例如 #RRGGBB)。")
+                        override_color = None # 解析失败则设为None
+
+                # --- 解析 @icon-theme: none ---
+                icon_theme_match = re.search(r'/\*\s*@icon-theme:\s*none\s*\*/', stylesheet)
+                if icon_theme_match: 
+                    icons_disabled = True
                 
-                icon_manager.set_theme_icon_path(theme_icon_path_to_set, icons_disabled=icons_disabled)
-                self.setStyleSheet(stylesheet)
+                # --- 解析 @theme-property-compact ---
+                compact_match = re.search(r'/\*\s*@theme-property-compact:\s*true\s*\*/', stylesheet)
+                if compact_match: 
+                    is_compact_theme = True
+
+                # --- 解析 @animations ---
+                anim_match = re.search(r'/\*\s*@animations:\s*disabled\s*\*/', stylesheet)
+                if anim_match: 
+                    self.animations_enabled = False
+                
+            except Exception as e:
+                print(f"读取或解析主题文件 '{absolute_theme_path}' 时出错: {e}", file=sys.stderr)
+                stylesheet = "" # 出错时清空样式表，避免应用部分错误样式
+
         else:
             print(f"主题文件未找到: {absolute_theme_path}", file=sys.stderr)
-            self.setStyleSheet("") 
-            icon_manager.set_theme_icon_path(None, icons_disabled=False)
-        
-        # --- [核心修改] 整合动画的尺寸调整逻辑 ---
-        
-        # 1. 记录切换前的窗口尺寸
+            stylesheet = "" # 文件不存在时清空样式表
+
+        # 4. 应用样式表
+        self.setStyleSheet(stylesheet)
+
+        # 5. 通知 IconManager 更新其状态
+        # 即使主题文件不存在或解析失败，也需要调用这些方法来重置IconManager的状态
+        self.icon_manager.set_theme_icon_path(theme_icon_path_to_set, icons_disabled=icons_disabled)
+        self.icon_manager.set_theme_override_color(override_color)
+        self.icon_manager.set_dark_mode(is_dark_theme)
+
+        # 6. 调整窗口尺寸 (保持不变)
         current_size = self.size()
-        
-        # 2. 根据主题类型，计算出最终的目标尺寸
         target_size = None
         if is_compact_theme:
+            self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
             target_size = QSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
         else:
-            # 对于标准主题，确保我们不会意外缩小一个已经被用户手动放大的窗口
+            self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
             new_width = max(current_size.width(), self.DEFAULT_MIN_SIZE[0])
             new_height = max(current_size.height(), self.DEFAULT_MIN_SIZE[1])
             target_size = QSize(new_width, new_height)
 
-        # 3. 立即设置最小尺寸限制，这对于动画过程中的窗口约束很重要
-        if is_compact_theme:
-            self.setMinimumSize(self.COMPACT_MIN_SIZE[0], self.COMPACT_MIN_SIZE[1])
-        else:
-            self.setMinimumSize(self.DEFAULT_MIN_SIZE[0], self.DEFAULT_MIN_SIZE[1])
-
-        # 4. 判断是否需要执行尺寸变换，并根据动画设置来决定方式
         if current_size != target_size:
             if self.animations_enabled:
-                # 如果动画启用，则调用动画管理器
                 self.animation_manager.animate_window_resize(target_size)
             else:
-                # 如果动画禁用，则瞬间完成尺寸变换
                 self.resize(target_size)
         
-        # --- [修改结束] ---
-
+        # 7. 更新所有模块的图标 (保持不变)
         self.update_all_module_icons()
+        if hasattr(self, 'plugin_menu_button'):
+            self.plugin_menu_button.setIcon(self.icon_manager.get_icon("plugin"))
+
+        # 8. 更新帮助内容（如果需要） (保持不变)
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
 
     def update_all_module_icons(self):
-        """遍历所有已创建的页面，如果它们有 update_icons 方法，就调用它。"""
-        # [修改] 将 dialect_visual_collector_module 添加到通知列表
+        """
+        [v1.1] 遍历所有已创建的页面和UI组件，并调用它们的图标更新方法。
+        这是在主题切换后，一个集中的UI刷新入口。
+        """
+        # --- 原有的模块图标刷新逻辑保持不变 ---
         pages_with_icons = [
             'accent_collection_page',
-            'log_viewer_page', # from previous task
+            'log_viewer_page',
             'dialect_visual_collector_module', 
             'voicebank_recorder_page', 
             'audio_manager_page', 
@@ -1270,9 +1395,8 @@ class MainWindow(QMainWindow):
             'dialect_visual_editor_page', 
             'converter_page',
             'audio_analysis_page',
-            'tts_utility_page', # <-- 新增项
-            'flashcard_page', # <-- 新增项
-            # ... 其他模块
+            'tts_utility_page',
+            'flashcard_page',
         ]
         for page_attr_name in pages_with_icons:
             page = getattr(self, page_attr_name, None)
@@ -1281,6 +1405,9 @@ class MainWindow(QMainWindow):
                     page.update_icons()
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的图标时出错: {e}")
+
+        # [核心修改] 2. 在此方法中，增加对固定插件UI的刷新调用
+        self.update_pinned_plugins_ui()
 
     # --- [vNext 新增] 插件交互API ---
 
@@ -1373,39 +1500,28 @@ class MainWindow(QMainWindow):
         """
         根据配置文件，清空并重新创建所有固定的插件快捷按钮。
         """
-        # 1. 清空现有的所有固定插件按钮
+        # ... (清空和读取配置的逻辑保持不变) ...
         while self.pinned_plugins_layout.count():
             item = self.pinned_plugins_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
-        # 2. 读取配置
         plugin_settings = self.config.get("plugin_settings", {})
         pinned_plugins = plugin_settings.get("pinned", [])
 
-        # 3. 遍历并创建新的按钮
         for plugin_id in pinned_plugins:
             meta = self.plugin_manager.available_plugins.get(plugin_id)
             if not meta:
                 continue
 
-            # 创建按钮
             btn = QPushButton()
-            icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
-            if os.path.exists(icon_path):
-                btn.setIcon(QIcon(icon_path))
-            else:
-                # 如果插件没有图标，使用一个通用后备图标
-                btn.setIcon(self.icon_manager.get_icon("plugin_default"))
+            
+            # [核心修改] 直接调用新的权威方法来获取图标
+            btn.setIcon(self.plugin_manager.get_plugin_icon(plugin_id))
             
             btn.setToolTip(f"{meta['name']}")
-            btn.setObjectName("PinnedPluginButton") # 用于QSS样式
-            btn.setFixedSize(32, 32) # 与主菜单按钮大小一致
-            
-            # 连接点击事件
+            btn.setObjectName("PinnedPluginButton")
+            btn.setFixedSize(32, 32)
             btn.clicked.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
-            
-            # 添加到布局中
             self.pinned_plugins_layout.addWidget(btn)
 
     def _show_plugin_menu(self):
@@ -1445,11 +1561,12 @@ class MainWindow(QMainWindow):
                 btn.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum); btn.setMinimumSize(QSize(min_btn_width, 36)) 
                 meta = self.plugin_manager.available_plugins.get(plugin_id)
                 if not meta: continue 
-                icon_path = os.path.join(meta['path'], meta.get('icon', 'icon.png'))
-                plugin_icon = QIcon(icon_path) if os.path.exists(icon_path) else self.icon_manager.get_icon("plugin_default")
+
+                # [核心修改] 直接调用新的权威方法来获取图标
+                plugin_icon = self.plugin_manager.get_plugin_icon(plugin_id)
+                
                 btn.setIcon(plugin_icon); btn.setIconSize(QSize(24, 24)); btn.setText(meta['name']); btn.setToolTip(meta['description'])
                 btn.setObjectName("PluginMenuItemToolButton") 
-                # 这里不再需要连接 menu.close，动画管理器会处理
                 btn.clicked.connect(lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid))
                 row = i % PLUGINS_PER_COLUMN; col = (num_cols - 1) - (i // PLUGINS_PER_COLUMN)
                 grid_layout.addWidget(btn, row, col)

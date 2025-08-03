@@ -780,7 +780,7 @@ class WordlistEditorPage(QWidget):
 
     def on_file_double_clicked(self, item):
         """双击文件列表项，在文件浏览器中显示该文件。"""
-        self._show_in_explorer(item)
+        self._configure_metadata(item)
 
     def show_file_context_menu(self, position):
         item = self.file_list_widget.itemAt(position)

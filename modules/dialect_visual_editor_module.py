@@ -257,7 +257,7 @@ class DialectVisualEditorPage(QWidget):
                         self.file_list_widget.setCurrentRow(i)
                         break
     def on_file_double_clicked(self, item):
-        self._show_in_explorer(item)
+        self._configure_metadata(item)
 
     def show_file_context_menu(self, position):
         item = self.file_list_widget.itemAt(position)

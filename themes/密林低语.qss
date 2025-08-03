@@ -238,7 +238,7 @@ QMenu::item {
 QMenu::item:selected { background-color: #EAE0C9; color: #4A4034; }
 QMenu::item:disabled { color: #9E9382; }
 QMenu::separator { height: 1px; background: #D8CFC0; margin: 6px 5px; }
-QMenu::icon { padding-left: 10px; width: 16px; height: 16px; }
+QMenu::icon { padding-left: 15px; width: 16px; height: 16px; }
 
 /* ================== ToggleSwitch 样式 (Whispering Woods) ================== */
 ToggleSwitch {

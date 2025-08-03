@@ -2,11 +2,11 @@
 
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QListWidget, QStyle, 
-                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider)
+                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider, QGraphicsOpacityEffect, QPushButton)
 from PyQt5.QtCore import (pyqtProperty, pyqtSignal, QEvent, QEasingCurve, 
                           QParallelAnimationGroup, QPoint, QPropertyAnimation, 
                           QRect, QRectF, QSequentialAnimationGroup, QSize, Qt, QObject, QTimer)
-from PyQt5.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
+from PyQt5.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen, QPixmap
 
 # ==============================================================================
 # 1. 自定义 ToggleSwitch 控件
@@ -1095,6 +1095,7 @@ class AnimatedListWidget(QListWidget):
         self._animation_timer = QTimer(self)
         self._animation_timer.setInterval(40) # 默认交错延迟
         self._animation_timer.timeout.connect(self._process_animation_queue)
+        self._animations_enabled = True
 
         # --- 默认QSS属性 ---
         # 这些值可以在主题QSS文件中通过 qproperty- 语法覆盖
@@ -1168,14 +1169,20 @@ class AnimatedListWidget(QListWidget):
     # --- 动画与事件处理 ---
     
     def _animate_item_bg(self, item, end_brush):
-        """启动单个项目背景色的过渡动画。"""
+        """启动单个项目背景色的过渡动画，或在动画禁用时立即设置。"""
         if not item: return
         holder = item.data(self.ANIM_HOLDER_ROLE)
         if not holder: return
         
+        # [核心修改] 检查动画是否启用
+        if not self._animations_enabled:
+            # 如果动画被禁用，立即设置颜色并请求重绘
+            holder.bg_color = end_brush.color()
+            holder.update_view()
+            return
+
+        # --- 如果动画启用，则执行原始的动画逻辑 ---
         item_id = id(item)
-        
-        # 停止任何正在对该项目进行的旧动画，防止冲突
         try:
             existing_anim = self._current_animations.get(item_id)
             if existing_anim:
@@ -1183,7 +1190,6 @@ class AnimatedListWidget(QListWidget):
                 existing_anim.stop()
         except RuntimeError: pass
 
-        # 创建并配置新的动画
         anim = QPropertyAnimation(holder, b"bg_color", holder)
         anim.setDuration(150)
         anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -1302,29 +1308,63 @@ class AnimatedListWidget(QListWidget):
     
     def addItemsWithAnimation(self, items_text):
         """
-        [重构] 用交错的、从下往上淡入的动画来添加一批项目，使用中央队列。
+        [v1.6 - 性能优化版]
+        用动画添加一批项目。如果项目数量过多或主题禁用了动画，则回退到无动画的快速添加模式。
         """
-        self.clear() # clear() 现在会停止旧的动画计时器
+        self.clear()
         
-        STAGGER_DELAY = 20   # 每个项目动画开始之间的延迟 (毫秒)
-        self._animation_timer.setInterval(STAGGER_DELAY)
+        # --- [核心修改] 检查是否应禁用动画 ---
+        self._animations_enabled = True # 每次调用都重置
+        
+        # 1. 数量检查
+        if len(items_text) > 20:
+            self._animations_enabled = False
+            
+        # 2. 主题检查 (向上查找主窗口的动画设置)
+        if self._animations_enabled:
+            main_window = self.window()
+            if hasattr(main_window, 'animations_enabled') and not main_window.animations_enabled:
+                self._animations_enabled = False
+        
+        # --- 根据动画启用状态执行不同逻辑 ---
+        if self._animations_enabled:
+            # --- 动画模式 ---
+            STAGGER_DELAY = 20
+            self._animation_timer.setInterval(STAGGER_DELAY)
 
-        for text in items_text:
-            item = QListWidgetItem(text)
-            item.setToolTip(text)
+            for text in items_text:
+                item = QListWidgetItem(text)
+                item.setToolTip(text)
+                
+                holder = _ItemAnimationHolder(item, self)
+                item.setData(self.ANIM_HOLDER_ROLE, holder)
+                
+                self._animation_queue.append(holder)
+                
+                super().addItem(item)
+                
+            if self._animation_queue:
+                self._animation_timer.start()
+        else:
+            # --- 快速无动画模式 ---
+            # 使用 blockSignals 进一步优化大批量添加的性能
+            self.blockSignals(True)
+            for text in items_text:
+                item = QListWidgetItem(text)
+                item.setToolTip(text)
+                
+                # 仍然需要 holder 来管理背景色，但状态是立即设置的
+                holder = _ItemAnimationHolder(item, self)
+                holder.opacity = 1.0 # 直接设置为不透明
+                holder.y_offset = 0   # 无位移
+                holder.sync_to_item() # 同步数据
+                item.setData(self.ANIM_HOLDER_ROLE, holder)
+                
+                super().addItem(item)
+            self.blockSignals(False)
             
-            holder = _ItemAnimationHolder(item, self)
-            item.setData(self.ANIM_HOLDER_ROLE, holder)
-            
-            # [核心修改] 不再创建 QTimer，而是将 holder 添加到队列
-            self._animation_queue.append(holder)
-            
-            # 先将 item 添加到 list 中，但它是完全透明且有位移的
-            super().addItem(item)
-            
-        # 如果队列不为空，则启动主计时器
-        if self._animation_queue:
-            self._animation_timer.start()
+            # 手动触发一次选择更新，因为 blockSignals 会阻止它
+            self._on_selection_changed()
 
     def clear(self):
         """[重构 v1.1] 覆盖原生 clear 方法，以安全地停止动画和清理资源。"""
@@ -1729,3 +1769,168 @@ class AnimatedSlider(QSlider):
         span = self.maximum() - self.minimum()
         val = self.minimum() + span * pixel_ratio
         return int(max(self.minimum(), min(self.maximum(), val))) # 钳制结果值在有效范围内
+# ==============================================================================
+# 8. 自定义动画图标按钮 (AnimatedIconButton) - v2.1 [主题感知版]
+# ==============================================================================
+from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtGui import QIcon, QTransform, QPixmap
+
+class AnimatedIconButton(QPushButton):
+    """
+    一个能完全继承 QPushButton QSS样式的、支持双图标动态切换动画的图标按钮。
+    v2.1: 增加了对 IconManager 的感知，能够在主题切换时自动更新图标颜色。
+    """
+    def __init__(self, icon_manager=None, parent=None):
+        super().__init__(parent)
+        self.setText("")
+
+        # [核心修正] 存储 IconManager 引用和图标名称
+        self.icon_manager = icon_manager
+        self._icon1_name = ""
+        self._icon2_name = ""
+        self._pixmap1 = QPixmap()
+        self._pixmap2 = QPixmap()
+
+        # ... (动画属性和 QSS 属性部分保持不变) ...
+        self._scale = 1.0; self._rotation1 = 0.0; self._opacity1 = 1.0
+        self._rotation2 = -90.0; self._opacity2 = 0.0
+        self._pressedScale = 0.95
+        self.scale_anim = QPropertyAnimation(self, b"_scale")
+        self.rot1_anim = QPropertyAnimation(self, b"_rotation1")
+        self.op1_anim = QPropertyAnimation(self, b"_opacity1")
+        self.rot2_anim = QPropertyAnimation(self, b"_rotation2")
+        self.op2_anim = QPropertyAnimation(self, b"_opacity2")
+        ANIM_DURATION = 150; easing = QEasingCurve.OutCubic
+        for anim in [self.scale_anim, self.rot1_anim, self.op1_anim, 
+                     self.rot2_anim, self.op2_anim]:
+            anim.setDuration(ANIM_DURATION); anim.setEasingCurve(easing)
+        self.setCheckable(True)
+        self.toggled.connect(self._start_toggle_animation)
+        self._sync_visual_to_state(self.isChecked())
+        
+    # --- 动画和QSS属性的 pyqtProperty (这部分完全不变) ---
+    @pyqtProperty(float)
+    def _scale(self): return self.__scale
+    @_scale.setter
+    def _scale(self, value): self.__scale = value; self.update()
+    @pyqtProperty(float)
+    def _rotation1(self): return self.__rotation1
+    @_rotation1.setter
+    def _rotation1(self, value): self.__rotation1 = value; self.update()
+    @pyqtProperty(float)
+    def _opacity1(self): return self.__opacity1
+    @_opacity1.setter
+    def _opacity1(self, value): self.__opacity1 = value; self.update()
+    @pyqtProperty(float)
+    def _rotation2(self): return self.__rotation2
+    @_rotation2.setter
+    def _rotation2(self, value): self.__rotation2 = value; self.update()
+    @pyqtProperty(float)
+    def _opacity2(self): return self.__opacity2
+    @_opacity2.setter
+    def _opacity2(self, value): self.__opacity2 = value; self.update()
+    @pyqtProperty(float)
+    def pressedScale(self): return self._pressedScale
+    @pressedScale.setter
+    def pressedScale(self, scale): self._pressedScale = scale
+
+    # --- 核心方法 ---
+    def setIcons(self, icon1_name, icon2_name):
+        """[API变更] 设置按钮的两个状态图标的名称。"""
+        self.setIcon(QIcon())
+        self._icon1_name = icon1_name
+        self._icon2_name = icon2_name
+        self._update_pixmaps()
+
+    def setIconSize(self, size):
+        super().setIconSize(size)
+        if self._icon1_name: # 检查名称是否存在
+            self._update_pixmaps()
+        self.updateGeometry()
+
+    def sizeHint(self):
+        if not self.iconSize().isValid(): return super().sizeHint()
+        left = self.style().pixelMetric(QStyle.PM_ButtonMargin, None, self)
+        right, top, bottom = left, left, left
+        w = self.iconSize().width() + left + right
+        h = self.iconSize().height() + top + bottom
+        return QSize(w, h)
+
+    def _update_pixmaps(self):
+        """[核心重构] 通过 IconManager 实时获取着色后的图标。"""
+        size = self.iconSize()
+        if self.icon_manager and self._icon1_name:
+            icon1 = self.icon_manager.get_icon(self._icon1_name)
+            self._pixmap1 = icon1.pixmap(size)
+        
+        if self.icon_manager and self._icon2_name:
+            icon2 = self.icon_manager.get_icon(self._icon2_name)
+            self._pixmap2 = icon2.pixmap(size)
+            
+        self.update()
+
+    # --- [核心新增] paintEvent 现在会先更新pixmap ---
+    def paintEvent(self, event):
+        # 在每次重绘前，都重新获取一次pixmap，以响应主题变化
+        # 这是一种简单有效的策略，因为IconManager内部有缓存，所以性能开销极小。
+        self._update_pixmaps()
+        
+        super().paintEvent(event)
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        contents_rect = self.contentsRect()
+        center = contents_rect.center()
+
+        painter.translate(center)
+        painter.scale(self._scale, self._scale)
+        painter.translate(-center)
+        
+        # ... (后续的 painter.save/restore/drawPixmap 逻辑保持完全不变) ...
+        if not self._pixmap1.isNull() and self._opacity1 > 0.01:
+            painter.save()
+            painter.setOpacity(self._opacity1)
+            painter.translate(center)
+            painter.rotate(self._rotation1)
+            painter.translate(-center)
+            painter.drawPixmap(center.x() - self._pixmap1.width() // 2, 
+                               center.y() - self._pixmap1.height() // 2,
+                               self._pixmap1)
+            painter.restore()
+        if not self._pixmap2.isNull() and self._opacity2 > 0.01:
+            painter.save()
+            painter.setOpacity(self._opacity2)
+            painter.translate(center)
+            painter.rotate(self._rotation2)
+            painter.translate(-center)
+            painter.drawPixmap(center.x() - self._pixmap2.width() // 2, 
+                               center.y() - self._pixmap2.height() // 2,
+                               self._pixmap2)
+            painter.restore()
+
+    # --- 其他方法 (事件处理, 动画逻辑) 保持完全不变 ---
+    def _sync_visual_to_state(self, checked):
+        if checked: self._rotation1, self._opacity1, self._rotation2, self._opacity2 = 90.0, 0.0, 0.0, 1.0
+        else: self._rotation1, self._opacity1, self._rotation2, self._opacity2 = 0.0, 1.0, -90.0, 0.0
+        self.update()
+    def _start_toggle_animation(self, checked):
+        for anim in [self.rot1_anim, self.op1_anim, self.rot2_anim, self.op2_anim]: anim.stop()
+        self.rot1_anim.setStartValue(self._rotation1); self.op1_anim.setStartValue(self._opacity1)
+        self.rot2_anim.setStartValue(self._rotation2); self.op2_anim.setStartValue(self._opacity2)
+        if checked:
+            self.rot1_anim.setEndValue(90.0); self.op1_anim.setEndValue(0.0)
+            self.rot2_anim.setEndValue(0.0); self.op2_anim.setEndValue(1.0)
+        else:
+            self.rot1_anim.setEndValue(0.0); self.op1_anim.setEndValue(1.0)
+            self.rot2_anim.setEndValue(-90.0); self.op2_anim.setEndValue(0.0)
+        self.rot1_anim.start(); self.op1_anim.start()
+        self.rot2_anim.start(); self.op2_anim.start()
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.scale_anim.stop(); self.scale_anim.setEndValue(self._pressedScale); self.scale_anim.start()
+        super().mousePressEvent(event)
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.scale_anim.stop(); self.scale_anim.setEndValue(1.0); self.scale_anim.start()
+        super().mouseReleaseEvent(event)

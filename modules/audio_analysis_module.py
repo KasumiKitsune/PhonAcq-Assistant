@@ -1971,7 +1971,7 @@ class AudioAnalysisPage(QWidget):
         self._pending_csv_path = None # 用于在加载音频后应用CSV数据
         
         self.player = QMediaPlayer() # 媒体播放器实例
-        self.player.setNotifyInterval(10) # 设置播放进度更新间隔为10毫秒
+        self.player.setNotifyInterval(20) # 设置播放进度更新间隔为10毫秒
         self.known_duration = 0 # 已知音频时长
         
         self.task_thread, self.worker = None, None # 后台任务线程和工作器

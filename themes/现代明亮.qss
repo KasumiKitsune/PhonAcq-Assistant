@@ -378,7 +378,7 @@ QMenu::separator {
     background: #EAE0D6; 
     margin: 6px 5px; 
 }
-
+QMenu::icon { padding-left: 20px; width: 18px; height: 18px; }
 /* --- 工具提示 --- */
 QToolTip {
     background-color: #FFFFFF; 
