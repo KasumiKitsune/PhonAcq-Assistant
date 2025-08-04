@@ -391,12 +391,14 @@ ToggleSwitch {
     qproperty-trackColorOff: #DCD0C0;
     qproperty-trackColorOn: #8F4C33;
     qproperty-knobColor: #FFFFFF;
-    qproperty-trackBorderRadius: 12; /* [修改] 圆角减小 */
+    qproperty-trackBorderRadius: 14; /* [修改] 圆角减小 */
     qproperty-knobMargin: 2; /* [修改] 边距减小 */
     qproperty-knobShape: 'ellipse';
     qproperty-borderWidth: 0;
     min-width: 50px; max-width: 50px; /* [修改] 尺寸减小 */
-    min-height: 24px; max-height: 24px;                      
+    min-height: 21px; max-height: 21px;      
+    qproperty-knobIconOn: url(themes/现代明亮/icons/tick.png); /* “开”状态显示对勾图标 */
+    qproperty-knobIconOff: url(themes/现代明亮/icons/cross.png); /* “关”状态显示关闭图标 */      
 }
 /* 定义 ToggleSwitch 在悬停时的外观 */
 ToggleSwitch[hover="true"] {
@@ -707,4 +709,70 @@ QTreeWidget::item:selected:!active {
     background-color: #F5EDE2; /* 背景：使用更柔和的奶油色 */
     color: #4A4034;            /* 文字：恢复为默认的深褐色 */
     border: 1px solid transparent; /* 非激活时无边框 */
+}
+/*
+================================================================================
+【新增】复选框样式 (QCheckBox Style - Modern Elegance)
+================================================================================ 
+*/
+
+/* --- 1. 复选框整体 --- */
+QCheckBox {
+    spacing: 7px;      /* 指示器与文本之间的间距 */
+    color: #4A4034;      /* 默认文本颜色 */
+    font-weight: normal;
+    padding: 3px 0;
+}
+
+/* 鼠标悬停在复选框上时 */
+QCheckBox:hover {
+    color: #8F4C33; /* 文本颜色变为主题强调色 */
+}
+
+/* 复选框被选中时 */
+QCheckBox:checked {
+    color: #4A4034;
+    font-weight: bold; /* 文本加粗 */
+}
+
+/* --- 2. 指示器 (Indicator) --- */
+/* 这是显示勾选状态的方框 */
+QCheckBox::indicator {
+    width: 18px;        /* 指示器宽度 */
+    height: 18px;       /* 指示器高度 */
+    border: 1px solid #DCD0C0; /* 默认边框颜色 */
+    border-radius: 6px;  /* 圆角 */
+    background-color: #FFFFFF; /* 默认背景色 */
+}
+
+/* 鼠标悬停在指示器上时 */
+QCheckBox::indicator:hover {
+    border-color: #C9A870; /* 边框变为金色 */
+    image: url(themes/现代明亮/icons/hover.png);
+}
+
+/* 指示器被选中时 (勾选状态) */
+QCheckBox::indicator:checked {
+    border-color: #8F4C33; /* 边框变为主题强调色 */
+    background-color: #F5EDE2; /* 背景变为柔和的奶油色 */
+    
+    /* [核心] 使用自定义图标来显示勾选标记 */
+    /* 注意：这里的路径是相对于主题文件所在目录的相对路径 */
+    /* 如果您的主题结构是 themes/现代明亮/现代明亮.qss, icons/checkbox.png, */
+    /* 那么这个路径就是正确的。 */
+    image: url(themes/现代明亮/icons/checkbox.png);
+}
+
+/* 指示器被选中且悬停时 */
+QCheckBox::indicator:checked:hover {
+    background-color: #EAE0D6; /* 背景色加深 */
+}
+
+/* 复选框被禁用时 */
+QCheckBox:disabled {
+    color: #B0B0B0; /* 文本变为灰色 */
+}
+QCheckBox::indicator:disabled {
+    border-color: #E0E0E0;
+    background-color: #F5F5F5;
 }

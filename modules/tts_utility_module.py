@@ -227,8 +227,10 @@ class TtsUtilityPage(QWidget):
         self.start_tts_btn.clicked.connect(self.start_tts_processing)
         self.stop_tts_btn.clicked.connect(self.stop_tts_processing)
         self.open_output_dir_btn.clicked.connect(self.open_target_output_directory)
-        self.output_to_flashcard_switch.stateChanged.connect(self.toggle_output_dir_input)
-                # [新增] 连接持久化设置的信号
+        
+        # [新增] 当“输出到速记卡”开关切换时，调用UI更新逻辑
+        self.output_to_flashcard_switch.stateChanged.connect(self._update_output_ui_state)
+
         self.default_lang_combo.currentIndexChanged.connect(
             lambda: self._on_persistent_setting_changed('default_lang', self.default_lang_combo.currentData())
         )
@@ -238,7 +240,6 @@ class TtsUtilityPage(QWidget):
         self.slow_speed_switch.stateChanged.connect(
             lambda state: self._on_persistent_setting_changed('slow', bool(state))
         )
-        # 注意：output_to_flashcard_switch 的状态是临时的，不应被持久化，因为它依赖于是否加载了词表，所以不在此处连接。
     
     # --- [新增] 更新图标的方法 ---
     def update_icons(self):
@@ -252,15 +253,34 @@ class TtsUtilityPage(QWidget):
         self.start_tts_btn.setIcon(self.icon_manager.get_icon("start_session"))
         self.stop_tts_btn.setIcon(self.icon_manager.get_icon("stop"))
 
-    # --- [新增] 拖放事件处理 ---
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if urls and urls[0].isLocalFile():
-                filepath = urls[0].toLocalFile()
-                # [修改] 检查 .json 扩展名
-                if filepath.lower().endswith('.json'):
+                filepath = urls[0].toLocalFile().lower()
+                # [关键修复] 检查 .json 或 .fdeck 扩展名
+                if filepath.endswith('.json') or filepath.endswith('.fdeck'):
                     event.acceptProposedAction()
+
+    def _update_output_ui_state(self):
+        """[新增] 根据“输出到速记卡”开关的状态，更新UI。"""
+        is_for_flashcard = self.output_to_flashcard_switch.isChecked()
+        
+        # 禁用或启用“自定义输出文件夹”输入框
+        self.output_subdir_input.setEnabled(not is_for_flashcard)
+        
+        # 如果是速记卡模式，清空并提供提示性文本
+        if is_for_flashcard:
+            self.output_subdir_input.blockSignals(True)
+            self.output_subdir_input.setText("")
+            self.output_subdir_input.setPlaceholderText("将自动输出到卡组缓存目录")
+            self.output_subdir_input.blockSignals(False)
+        else:
+            # 恢复正常状态
+            self.output_subdir_input.setPlaceholderText("例如: my_project_tts")
+            # 如果输入框为空，则填充一个默认值
+            if not self.output_subdir_input.text():
+                self.output_subdir_input.setText(f"tts_util_{datetime.now().strftime('%Y%m%d')}")
 
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
@@ -332,52 +352,80 @@ class TtsUtilityPage(QWidget):
         self.editor_table.setRowCount(0); self.add_table_row() 
 
     def load_wordlist_from_file(self, filepath=None):
+        """
+        [vFinal] 从 .json 或 .fdeck 文件加载词条。
+        - 自动检测文件类型并解析。
+        - 如果加载 .fdeck，则自动切换到“输出到速记卡”模式。
+        """
         if not filepath:
-            # [修改] 更新文件对话框的过滤器
-            filepath, _ = QFileDialog.getOpenFileName(self, "选择标准或图文词表文件", self.STD_WORD_LIST_DIR, "JSON 词表文件 (*.json)")
+            # [关键修复] 更新文件对话框的过滤器以包含 .fdeck
+            filepath, _ = QFileDialog.getOpenFileName(
+                self, "选择词表文件", self.STD_WORD_LIST_DIR, 
+                "词表文件 (*.json *.fdeck)"
+            )
         if not filepath: return
 
         self.current_wordlist_path = filepath
         self.loaded_file_label.setText(os.path.basename(filepath))
-        self.log_message(f"已加载词表: {os.path.basename(filepath)}")
+        self.log_message(f"已加载文件: {os.path.basename(filepath)}")
         
         try:
-            # [修改] 使用 json.load() 读取文件
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
             self.editor_table.setRowCount(0)
             words_to_add = []
+            file_format = ""
             
-            # 根据 meta.format 字段判断词表类型
-            meta = data.get("meta", {})
-            file_format = meta.get("format")
+            # --- 根据文件扩展名选择解析方式 ---
+            if filepath.lower().endswith('.fdeck'):
+                import zipfile
+                with zipfile.ZipFile(filepath, 'r') as zf:
+                    if 'manifest.json' not in zf.namelist():
+                        raise ValueError(".fdeck 包内缺少 manifest.json 文件。")
+                    with zf.open('manifest.json') as manifest_file:
+                        data = json.load(manifest_file)
+                
+                # 从 .fdeck 中，我们使用卡片ID作为待转换文本
+                for card in data.get("cards", []):
+                    words_to_add.append({'text': card.get("id", ""), 'lang': ""}) # fdeck 通常不带语言信息
+                file_format = "fdeck"
 
-            if file_format == "standard_wordlist":
-                groups = data.get("groups", [])
-                for group in groups:
-                    for item in group.get("items", []):
-                        words_to_add.append({'text': item.get("text", ""), 'lang': item.get("lang", "")})
-            elif file_format == "visual_wordlist":
-                items = data.get("items", [])
-                for item in items:
-                    # 对于图文词表，我们通常使用其唯一ID作为待转换文本
-                    words_to_add.append({'text': item.get("id", ""), 'lang': ''}) # 图文词表通常无语言信息
-            else:
-                QMessageBox.warning(self, "格式错误", "选择的JSON文件格式未知或不受支持。")
-                self.loaded_file_label.setText("加载失败，格式错误")
-                self.current_wordlist_path = None
-                return
+            elif filepath.lower().endswith('.json'):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                meta = data.get("meta", {})
+                json_format = meta.get("format")
 
+                if json_format == "standard_wordlist":
+                    for group in data.get("groups", []):
+                        for item in group.get("items", []):
+                            words_to_add.append({'text': item.get("text", ""), 'lang': item.get("lang", "")})
+                    file_format = "standard_wordlist"
+                elif json_format == "visual_wordlist":
+                    for item in data.get("items", []):
+                        words_to_add.append({'text': item.get("id", ""), 'lang': ''})
+                    file_format = "visual_wordlist"
+                else:
+                    raise ValueError("JSON文件格式未知或不受支持。")
+            
+            # --- 填充编辑器表格 ---
             for item in words_to_add:
-                if item['text']: # 确保不添加空行
+                if item.get('text'):
                     self.add_table_row(item['text'], item['lang'])
+            
+            # --- [核心UX改进] 智能切换输出模式 ---
+            if file_format == "fdeck":
+                self.output_to_flashcard_switch.setChecked(True)
+            else:
+                self.output_to_flashcard_switch.setChecked(False)
+            
+            # 手动调用UI状态更新
+            self._update_output_ui_state()
+            
+            self.log_message(f"从 {os.path.basename(filepath)} 填充了 {len(words_to_add)} 个词条。")
 
-            self.log_message(f"词表中的 {len(words_to_add)} 个词条已填充到编辑器。")
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            QMessageBox.critical(self, "加载错误", f"加载词表文件失败: {e}")
-            self.loaded_file_label.setText("加载失败")
-            self.current_wordlist_path = None
+        except Exception as e:
+            QMessageBox.critical(self, "加载错误", f"加载文件失败: {e}")
+            self.loaded_file_label.setText("加载失败"); self.current_wordlist_path = None
 
     def get_items_from_editor(self):
         items = []
@@ -400,24 +448,44 @@ class TtsUtilityPage(QWidget):
         is_for_flashcard = self.output_to_flashcard_switch.isChecked()
         target_dir = ""
 
-        # --- [核心修正] 重新定义输出目录的逻辑 ---
+        # --- [vFinal] 输出目录决定逻辑 ---
         if is_for_flashcard:
-            # 模式1: 输出到速记卡
-            if not self.current_wordlist_path:
-                QMessageBox.warning(self, "模式错误", "“输出到速记卡模块”模式需要先加载一个词表文件。")
+            if not self.current_wordlist_path or not self.current_wordlist_path.lower().endswith('.fdeck'):
+                QMessageBox.warning(self, "模式错误", "“输出到速记卡”模式需要先加载一个 .fdeck 文件。")
                 return
-            wordlist_name = os.path.splitext(os.path.basename(self.current_wordlist_path))[0]
-            target_dir = os.path.join(self.base_path_module, "flashcards", "audio_tts", wordlist_name)
-        
+            
+            # 智能地找到 .fdeck 的缓存目录
+            try:
+                import zipfile, hashlib
+                with zipfile.ZipFile(self.current_wordlist_path, 'r') as zf:
+                    manifest_data = json.load(zf.open('manifest.json'))
+                
+                deck_id = manifest_data.get("meta", {}).get("deck_id")
+                if not deck_id:
+                    deck_id = hashlib.sha256(self.current_wordlist_path.encode('utf-8')).hexdigest()[:16]
+                
+                # 检查卡组能力，如果已有音频则警告用户
+                if "audio" in manifest_data.get("meta", {}).get("capabilities", []):
+                    reply = QMessageBox.question(self, "警告", 
+                                                 "该卡组似乎已包含音频文件。\n是否继续生成并覆盖现有音频？",
+                                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if reply == QMessageBox.No: return
+
+                cache_dir = os.path.join(self.base_path_module, "flashcards", "cache", deck_id)
+                target_dir = os.path.join(cache_dir, "audio")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"无法解析 .fdeck 文件或确定缓存目录：\n{e}")
+                return
+
         elif self.current_wordlist_path:
-            # 模式2: 已加载词表，但不是速记卡模式 -> 输出到 audio_tts/词表名/
+            # 已加载 .json 词表 -> 输出到 audio_tts/词表名/
             wordlist_name = os.path.splitext(os.path.basename(self.current_wordlist_path))[0]
             target_dir = os.path.join(self.AUDIO_TTS_DIR_ROOT, wordlist_name)
-            # 自动填充输入框以向用户反馈
             self.output_subdir_input.setText(wordlist_name)
         
         else:
-            # 模式3: 未加载词表 (处理临时列表) -> 输出到 audio_tts/用户自定义/
+            # 未加载任何文件 (处理临时列表) -> 输出到 audio_tts/用户自定义/
             subdir_name = self.output_subdir_input.text().strip()
             if not subdir_name:
                 subdir_name = f"tts_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -435,11 +503,12 @@ class TtsUtilityPage(QWidget):
 
         source_desc = os.path.basename(self.current_wordlist_path) if self.current_wordlist_path else "<当前编辑列表>"
         self.log_message(f"开始TTS转换任务 ({source_desc})... 输出到: {target_dir}")
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("准备中... (0%)")
+        self.progress_bar.setValue(0); self.progress_bar.setFormat("准备中... (0%)")
         self.start_tts_btn.setEnabled(False); self.submit_edited_btn.setEnabled(False); self.load_wordlist_btn.setEnabled(False); self.stop_tts_btn.setEnabled(True)
         self.stop_tts_event.clear()
         tts_settings = {'default_lang': self.default_lang_combo.currentData(), 'auto_detect': self.auto_detect_lang_switch.isChecked(), 'slow': self.slow_speed_switch.isChecked()}
+        
+        # 在传递给 Worker 的参数中，is_for_flashcard 现在是一个准确的布尔值
         self.tts_thread = QThread(); self.tts_worker = self.Worker(self._perform_tts_task, items_to_process, target_dir, tts_settings, self.stop_tts_event, is_for_flashcard)
         self.tts_worker.moveToThread(self.tts_thread); self.tts_worker.progress.connect(self.update_progress) 
         self.tts_worker.finished.connect(self.task_finished_signal.emit); self.tts_worker.error.connect(lambda e_msg: self.task_finished_signal.emit(f"TTS任务出错: {e_msg}"))

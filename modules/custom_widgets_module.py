@@ -39,7 +39,8 @@ class ToggleSwitch(QCheckBox):
         self._knobShape = 'ellipse'
         self._knobBorderRadius = 0 
         self._borderWidth = 0
-        
+        self._knob_icon_on = QIcon()
+        self._knob_icon_off = QIcon()        
         self._is_hovering = False
         self._is_mouse_down = False
         self._has_moved = False
@@ -227,6 +228,26 @@ class ToggleSwitch(QCheckBox):
     def hoverKnobMarginOffset(self): return self._hover_knobMarginOffset
     @hoverKnobMarginOffset.setter
     def hoverKnobMarginOffset(self, offset): self._hover_knobMarginOffset = offset; self.update()
+    # [核心新增] 新增用于QSS设置图标路径的属性
+    @pyqtProperty(str)
+    def knobIconOn(self):
+        # Getter 通常不返回对象本身，而是返回一个可识别的字符串
+        return self._knob_icon_on.name()
+
+    @knobIconOn.setter
+    def knobIconOn(self, path):
+        # Setter 接收一个路径字符串，并创建一个 QIcon 对象
+        self._knob_icon_on = QIcon(path)
+        self.update()
+
+    @pyqtProperty(str)
+    def knobIconOff(self):
+        return self._knob_icon_off.name()
+
+    @knobIconOff.setter
+    def knobIconOff(self, path):
+        self._knob_icon_off = QIcon(path)
+        self.update()
 
 
     def paintEvent(self, event):
@@ -258,6 +279,22 @@ class ToggleSwitch(QCheckBox):
         p.setBrush(QBrush(knob_color))
         if self.knobShape == 'rectangle': p.drawRoundedRect(knob_rect, self._knobBorderRadius, self._knobBorderRadius)
         else: p.drawEllipse(knob_rect)
+        # --- 3. [核心新增] 图标绘制 ---
+        # 根据当前动画位置，判断应该显示哪个图标（提供平滑的淡入淡出效果）
+        # a. 绘制“关”状态图标
+        if not self._knob_icon_off.isNull():
+            p.setOpacity(1.0 - self._knob_position_ratio) # 根据位置比例设置透明度
+            # 计算图标绘制区域（通常比滑块小一点）
+            icon_margin = 3
+            icon_rect = knob_rect.adjusted(icon_margin, icon_margin, -icon_margin, -icon_margin)
+            self._knob_icon_off.paint(p, icon_rect)
+
+        # b. 绘制“开”状态图标
+        if not self._knob_icon_on.isNull():
+            p.setOpacity(self._knob_position_ratio) # 透明度与位置比例同步
+            icon_margin = 3
+            icon_rect = knob_rect.adjusted(icon_margin, icon_margin, -icon_margin, -icon_margin)
+            self._knob_icon_on.paint(p, icon_rect)
     
     def resizeEvent(self, event):
         self._knob_position_ratio = 1.0 if self.isChecked() else 0.0
