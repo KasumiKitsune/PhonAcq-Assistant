@@ -811,30 +811,53 @@ class CustomColorPopup(QDialog):
         painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 6, 6)
 
     def show_animated(self, target_pos):
-        # --- [核心修正] 调整代码执行顺序 ---
-        # 1. 先设置好所有动画的起始值和结束值
+        """
+        [已修复] 显示并播放“出现”动画。
+        此版本在显示窗口前设置好所有动画参数。
+        """
+        # 1. 设置动画方向和值
         self.animation_group.setDirection(QPropertyAnimation.Forward)
         self.opacity_animation.setStartValue(0.0)
         self.opacity_animation.setEndValue(1.0)
+        
         start_pos = QPoint(target_pos.x(), target_pos.y() - 15)
         self.pos_animation.setStartValue(start_pos)
         self.pos_animation.setEndValue(target_pos)
 
-        # 2. 然后再显示窗口
+        # 2. 显示窗口（此时它在 start_pos 位置且完全透明）
         self.show()
         
-        # 3. 最后启动动画
+        # 3. 启动动画
         self.animation_group.start()
         QApplication.instance().installEventFilter(self)
-    
-    # ... (其他方法保持不变) ...
+
     def close_animated(self):
+        """
+        [已修复] 播放“消失”动画并关闭。
+        此版本不再依赖 .setDirection(Backward)，而是显式设置动画值。
+        """
         QApplication.instance().removeEventFilter(self)
-        self.animation_group.setDirection(QPropertyAnimation.Backward)
+        
+        # --- [核心修复] ---
+        # 1. 显式设置“消失”动画的起始值和结束值
+        #    起始值就是控件当前的几何属性
+        self.opacity_animation.setStartValue(self.windowOpacity())
+        self.opacity_animation.setEndValue(0.0)
+        
+        self.pos_animation.setStartValue(self.pos())
+        self.pos_animation.setEndValue(QPoint(self.pos().x(), self.pos().y() - 15))
+
+        # 2. 确保方向是 Forward，因为我们是手动设置的
+        self.animation_group.setDirection(QPropertyAnimation.Forward)
+        
+        # 3. 启动动画
         self.animation_group.start()
 
     def _on_animation_finished(self):
-        if self.animation_group.direction() == QPropertyAnimation.Backward:
+        """当动画（无论是出现还是消失）完成时调用。"""
+        # [核心修复]
+        # 现在，我们通过检查透明度来判断动画是否是“消失”动画
+        if self.windowOpacity() < 0.01: # 接近0时
             self.close()
 
     def eventFilter(self, obj, event):

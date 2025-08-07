@@ -12,12 +12,13 @@ import sys
 from datetime import timedelta
 import math # 新增导入，用于数学计算，如对数和向上取整
 from modules.custom_widgets_module import RangeSlider, AnimatedSlider
+from audio_analysis_batch_panel import AudioAnalysisBatchPanel
 # PyQt5 GUI 库的核心组件导入
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QMessageBox, QGroupBox, QFormLayout, QSizePolicy, QSlider,
                              QScrollBar, QProgressDialog, QFileDialog, QCheckBox, QLineEdit,
-                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea, QFrame) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
-from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint
+                             QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea, QFrame, QTabWidget, QStackedWidget) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
+from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint, QTimer
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont, QCursor, QKeySequence
 
@@ -1985,18 +1986,56 @@ class AudioAnalysisPage(QWidget):
 
     def _init_ui(self):
         """
+        [v2.0 - Tabbed Layout]
         初始化用户界面布局和控件。
+        此版本将左侧面板重构为一个QTabWidget，以容纳“单个文件”和“批量分析”两种模式。
         """
-        main_layout = QHBoxLayout(self) # 主水平布局
+        # =========================================================================
+        # 1. 主布局设置
+        # =========================================================================
+        # 主布局是一个水平布局，将界面分为三列：左侧控制区、中心可视化区、右侧设置区。
+        main_layout = QHBoxLayout(self)
 
-        # --- 左侧面板：信息与动作 ---
-        self.info_panel = QWidget()
-        self.info_panel.setFixedWidth(300)
-        info_layout = QVBoxLayout(self.info_panel)
+        # =========================================================================
+        # 2. 左侧面板重构 (Toggle + StackedWidget)
+        # =========================================================================
+        # 创建一个 QWidget 作为整个左侧面板的容器。
+        self.left_panel = QWidget()
+        main_layout.setSpacing(10) # 设置20像素的间距
+        # [核心修改] 为整个左侧面板设置一个统一的、固定的宽度，以确保视觉一致性。
+        self.left_panel.setFixedWidth(320)
+        left_panel_layout = QVBoxLayout(self.left_panel)
+        left_panel_layout.setContentsMargins(0, 5, 0, 0)
+
+        # --- [核心修改] 创建模式切换控件 ---
+        mode_switcher_layout = QHBoxLayout()
+        mode_switcher_layout.setContentsMargins(9, 0, 9, 5)
+        single_label = QLabel("单个文件")
+        self.mode_toggle = self.ToggleSwitch()
+        self.mode_toggle.setToolTip("切换“单个文件分析”和“批量分析”模式")
+        batch_label = QLabel("批量分析")
         
+        # [核心] 使用 addStretch() 将开关挤到中间
+        mode_switcher_layout.addStretch()
+        mode_switcher_layout.addWidget(single_label)
+        mode_switcher_layout.addWidget(self.mode_toggle)
+        mode_switcher_layout.addWidget(batch_label)
+        mode_switcher_layout.addStretch()
+
+        # --- 2.2. 创建 QStackedWidget 来容纳不同的模式面板 ---
+        # QStackedWidget 像一叠卡片，一次只显示一张（一个面板）。
+        self.mode_stack = QStackedWidget()
+
+        # --- 2.3. 创建“单个文件”面板 ---
+        # 这个面板包含了所有旧版本左侧面板的控件，其内部逻辑保持不变。
+        self.single_file_panel = QWidget()
+        single_file_layout = QVBoxLayout(self.single_file_panel)
+        
+        # “从文件加载音频”按钮
         self.open_file_btn = QPushButton(" 从文件加载音频")
         self.open_file_btn.setToolTip("打开文件浏览器选择一个音频文件进行分析。")
-        
+
+        # 音频信息分组框
         self.info_group = QGroupBox("音频信息")
         info_layout_form = QFormLayout(self.info_group)
         self.filename_label, self.duration_label, self.samplerate_label, self.channels_label, self.bitdepth_label = [QLabel("N/A") for _ in range(5)]
@@ -2006,12 +2045,13 @@ class AudioAnalysisPage(QWidget):
         info_layout_form.addRow("采样率:", self.samplerate_label)
         info_layout_form.addRow("通道数:", self.channels_label)
         info_layout_form.addRow("位深度:", self.bitdepth_label)
-        
+
+        # 播放控制分组框
         self.playback_group = QGroupBox("播放控制")
         playback_layout = QVBoxLayout(self.playback_group)
         self.play_pause_btn = QPushButton("播放")
         self.playback_slider = AnimatedSlider(Qt.Horizontal)
-        self.playback_slider.setObjectName("PlaybackSliderAnalysis") # 设置一个独立的 objectName 以便QSS定制
+        self.playback_slider.setObjectName("PlaybackSliderAnalysis")
         self.time_label = QLabel("00:00.00 / 00:00.00")
         self.play_pause_btn.setEnabled(False)
         self.playback_slider.setEnabled(False)
@@ -2019,31 +2059,40 @@ class AudioAnalysisPage(QWidget):
         playback_layout.addWidget(self.playback_slider)
         playback_layout.addWidget(self.time_label)
 
+        # 分析动作分组框
         self.analysis_actions_group = QGroupBox("分析动作")
         actions_layout = QVBoxLayout(self.analysis_actions_group)
-        
         self.analyze_spectrogram_button = QPushButton(" 分析语谱图")
         self.analyze_spectrogram_button.setToolTip("运行语谱图背景分析。\n这将生成用于叠加F0曲线的背景。")
-        
         self.analyze_acoustics_button = QPushButton(" 分析 F0 & 强度")
         self.analyze_acoustics_button.setToolTip("请先运行“分析语谱图”以启用此功能。")
         self.analyze_acoustics_button.setEnabled(False)
-        
         self.analyze_formants_button = QPushButton(" 分析共振峰")
         self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。")
-        
-        # [顺序调整 1] “分析语谱图”按钮现在被添加到最上面
         actions_layout.addWidget(self.analyze_spectrogram_button)
         actions_layout.addWidget(self.analyze_acoustics_button)
         actions_layout.addWidget(self.analyze_formants_button)
-        
         self.analysis_actions_group.setEnabled(False)
 
-        info_layout.addWidget(self.open_file_btn)
-        info_layout.addWidget(self.info_group)
-        info_layout.addWidget(self.playback_group)
-        info_layout.addWidget(self.analysis_actions_group)
-        info_layout.addStretch()
+        # 将所有控件按顺序添加到“单个文件”面板的布局中
+        single_file_layout.addWidget(self.open_file_btn)
+        single_file_layout.addWidget(self.info_group)
+        single_file_layout.addWidget(self.playback_group)
+        single_file_layout.addWidget(self.analysis_actions_group)
+        single_file_layout.addStretch() # 弹簧，将所有内容推到顶部
+
+        # --- 2.4. 创建“批量分析”面板 ---
+        # 实例化我们从外部文件导入的 AudioAnalysisBatchPanel 类。
+        self.batch_analysis_panel = AudioAnalysisBatchPanel(self)
+
+        # --- 2.5. 将两个面板按顺序添加到 StackedWidget ---
+        self.mode_stack.addWidget(self.single_file_panel)  # Index 0
+        self.mode_stack.addWidget(self.batch_analysis_panel) # Index 1
+        
+        # --- 2.6. 最终组装左侧面板 ---
+        # 将模式切换器和 StackedWidget 添加到左侧面板的主布局中。
+        left_panel_layout.addLayout(mode_switcher_layout)
+        left_panel_layout.addWidget(self.mode_stack)
 
         # 中心可视化区域
         self.center_panel = QWidget()
@@ -2320,9 +2369,21 @@ class AudioAnalysisPage(QWidget):
         settings_layout.addStretch() 
 
         # 6. [修改] 将新的 scroll_area 添加到主布局中
-        main_layout.addWidget(self.info_panel)
-        main_layout.addWidget(self.center_panel, 1)
-        main_layout.addWidget(self.settings_panel_scroll_area) # 替换掉原来的 self.settings_panel
+        main_layout.addWidget(self.left_panel) # [修改] 使用新的 self.left_panel
+        main_layout.addWidget(self.center_panel, 1) # 中心面板占据伸缩空间
+        main_layout.addWidget(self.settings_panel_scroll_area)
+
+    def _adjust_tab_width(self):
+        """根据当前标签页的内容自适应调整 QTabWidget 的宽度。"""
+        current_widget = self.left_panel_tabs.currentWidget()
+        if current_widget:
+            # 强制更新布局以获取正确的尺寸提示
+            current_widget.layout().activate()
+            # 获取内容的理想宽度（sizeHint）
+            width = current_widget.sizeHint().width()
+            # 设置 QTabWidget 的固定宽度
+            self.left_panel_tabs.setFixedWidth(width + 20) # +20 作为边距
+
     def _on_f0_range_changed(self, lower, upper):
         """当F0范围滑块改变时更新标签和持久化设置。"""
         self.f0_min_label.setText(str(lower))
@@ -2389,6 +2450,7 @@ class AudioAnalysisPage(QWidget):
         """
         [已修复] 连接所有UI控件的信号到相应的槽函数。
         """
+        self.mode_toggle.stateChanged.connect(self._on_mode_toggled)
         # --- 文件与播放控制 ---
         self.open_file_btn.clicked.connect(self.open_file_dialog)
         self.play_pause_btn.clicked.connect(self.toggle_playback)
@@ -2454,6 +2516,41 @@ class AudioAnalysisPage(QWidget):
         self.spectrogram_widget.exportAnalysisToCsvRequested.connect(self.handle_export_csv)
         self.spectrogram_widget.exportSelectionAsWavRequested.connect(self.handle_export_wav)
         self.spectrogram_widget.spectrumSliceRequested.connect(self.handle_spectrum_slice_request)
+
+    def _on_mode_toggled(self, checked):
+        """当模式切换开关状态改变时调用。"""
+        # checked 为 True 表示批量模式 (Index 1)
+        # checked 为 False 表示单个文件模式 (Index 0)
+        target_index = 1 if checked else 0
+    
+        # 切换页面前，清理中心面板和播放器，避免状态混淆
+        if self.mode_stack.currentIndex() != target_index:
+            self.clear_all_central_widgets()
+            if self.player.state() != QMediaPlayer.StoppedState:
+                self.player.stop()
+
+        self.mode_stack.setCurrentIndex(target_index)
+
+        if target_index == 1: # 如果切换到的是批量分析
+            self.batch_analysis_panel.on_panel_selected()
+
+    def clear_all_central_widgets(self):
+        """清除所有中心面板的UI状态和数据。"""
+        if self.player.state() != QMediaPlayer.StoppedState:
+            self.player.stop()
+
+        self.waveform_widget.clear()
+        self.spectrogram_widget.clear()
+    
+        self.time_label.setText("00:00.00 / 00:00.00")
+        self.play_pause_btn.setEnabled(False)
+        self.playback_slider.setEnabled(False)
+        self.playback_slider.setValue(0)
+    
+        self.known_duration = 0
+        self.current_selection = None
+        self.is_playing_selection = False
+        self.time_axis_widget.hide()
 
     def _select_all(self):
         """
@@ -2645,23 +2742,42 @@ class AudioAnalysisPage(QWidget):
 
     def toggle_playback(self):
         """
+        [v2.0 - 选区优先版]
         切换播放/暂停状态。
+        此版本实现了“选区优先”逻辑：如果存在选区，则优先播放选区内容。
+        此逻辑对“单个文件”和“批量分析”模式同时生效。
         """
+        # 1. 如果当前正在播放，则无论如何都暂停
         if self.player.state() == QMediaPlayer.PlayingState:
-            self.player.pause() # 如果正在播放，则暂停
+            self.player.pause()
+            return
+
+        # 2. 如果当前是暂停状态，则直接恢复播放
+        if self.player.state() == QMediaPlayer.PausedState:
+            self.player.play()
+            return
+            
+        # 3. 如果当前是停止状态，则进入“选区优先”判断逻辑
+        
+        # 检查是否存在有效选区
+        # self.current_selection 的格式是 (start_sample, end_sample)
+        if self.current_selection and self.sr:
+            start_sample, end_sample = self.current_selection
+            
+            # 计算选区的起始和结束毫秒数
+            start_ms = (start_sample / self.sr) * 1000
+            
+            # 标记我们正在播放选区
+            self.is_playing_selection = True
+            
+            # 将播放器位置设置到选区起点并开始播放
+            self.player.setPosition(int(start_ms))
+            self.player.play()
         else:
-            # 检查是否有选区，并且不是从暂停状态恢复（如果是恢复，则从当前位置继续）
-            if self.current_selection and self.player.state() != QMediaPlayer.PausedState:
-                start_sample, end_sample = self.current_selection
-                start_ms = (start_sample / self.sr) * 1000 # 选区起始时间（毫秒）
-                
-                self.is_playing_selection = True # 标记正在播放选区
-                self.player.setPosition(int(start_ms)) # 设置播放位置到选区起点
-                self.player.play() # 播放
-            else:
-                # 原有逻辑：从当前位置播放或恢复播放
-                self.is_playing_selection = False # 标记不是在播放选区
-                self.player.play() # 播放
+            # 4. 如果没有选区，则执行默认行为：从头播放整个文件
+            self.is_playing_selection = False
+            self.player.setPosition(0)
+            self.player.play()
 
     def on_media_status_changed(self, status):
         """
@@ -2706,39 +2822,16 @@ class AudioAnalysisPage(QWidget):
 
     def clear_all(self):
         """
-        清除所有音频数据、分析结果和UI状态，恢复到初始状态。
+        [修改] 现在它只清理单个文件模式下的状态。
         """
-        # 关闭进度对话框（如果存在）
-        if hasattr(self, 'progress_dialog') and self.progress_dialog and self.progress_dialog.isVisible():
-            self.progress_dialog.close()
-        self.progress_dialog = None # 清除引用
-
-        if self.player.state() != QMediaPlayer.StoppedState:
-            self.player.stop() # 停止播放器
-
-        self.waveform_widget.clear() # 清除波形图数据
-        self.spectrogram_widget.clear() # 清除语谱图数据（包括选区）
-
-        # 重置信息标签
+        self.clear_all_central_widgets() # 调用新的清理函数
+    
+        # 保留只与单个文件模式相关的清理逻辑
         for label in [self.filename_label, self.duration_label, self.samplerate_label, self.channels_label, self.bitdepth_label]:
             label.setText("N/A")
-        
-        self.time_label.setText("00:00.00 / 00:00.00")
-        self.play_pause_btn.setEnabled(False)
-        self.playback_slider.setEnabled(False)
+    
         self.analysis_actions_group.setEnabled(False)
-        
-        # 重置两个新的滑块到它们的默认值
-        self.render_density_slider.setValue(4)
-        self.formant_density_slider.setValue(5)
-
-        self.known_duration = 0
         self.audio_data, self.sr, self.overview_data, self.current_filepath = None, None, None, None
-        
-        # 确保重置选区状态
-        self.current_selection = None
-        self.is_playing_selection = False
-        self.time_axis_widget.hide() # 确保时间轴隐藏
 
     def _update_render_density_label(self, value):
         """
@@ -2977,41 +3070,47 @@ class AudioAnalysisPage(QWidget):
 
     def run_task(self, task_type, progress_text="正在处理...", **kwargs):
         """
-        [最终版] 启动一个后台任务。
-        根据任务类型，智能选择显示“确切进度”或“滚动中”的进度条。
+        [v2.1 - 线程修复版] 启动一个后台任务。
+        此版本重构了信号连接方式，以确保线程和工作器的生命周期被正确管理，
+        从根本上修复了因竞争条件导致的 "RuntimeError: wrapped C/C++ object has been deleted"。
+
+        :param task_type: 要执行的任务类型 ('load', 'analyze_acoustics', etc.)。
+        :param progress_text: 显示在进度对话框上的文本。
+        :param kwargs: 传递给后台工作器的具体任务参数。
         """
+        # 1. 状态检查：防止在已有任务运行时启动新任务
         if self.is_task_running:
             QMessageBox.warning(self, "操作繁忙", "请等待当前分析任务完成后再试。")
             return
         
         self.is_task_running = True
         
-        # [核心修改] 根据任务类型决定进度条的样式
-        if task_type == 'analyze_acoustics':
-            # F0分析是分块的，可以计算确切进度，所以使用范围(0, 100)
-            min_val, max_val = 0, 100
-        else:
-            # 其他任务（加载、语谱图、共振峰）是整体完成的，
-            # 设置min和max都为0，使其显示为“滚动中”的繁忙样式。
-            min_val, max_val = 0, 0
+        # 2. 创建并配置进度对话框
+        # 根据任务类型决定进度条样式（滚动中 vs. 百分比）
+        min_val, max_val = (0, 100) if task_type == 'analyze_acoustics' else (0, 0)
         
-        # 使用上面决定的值来创建进度对话框
         self.progress_dialog = QProgressDialog(progress_text, "取消", min_val, max_val, self)
         self.progress_dialog.setWindowModality(Qt.WindowModal)
-        self.progress_dialog.setValue(0) # 初始值设为0
+        self.progress_dialog.setValue(0)
         self.progress_dialog.show()
         
+        # 3. 创建线程和工作器实例
         self.task_thread = QThread()
         self.worker = AudioTaskWorker(task_type, **kwargs)
         self.worker.moveToThread(self.task_thread)
 
-        # --- 连接信号（这部分逻辑保持不变）---
-        self.task_thread.started.connect(self.worker.run)
-        self.worker.error.connect(self.on_task_error)
-        
+        # --- 4. [核心修复] 重构信号连接以确保线程安全 ---
+
+        # 4.1. 工作器的完成或错误信号，现在只负责请求线程退出。
+        #      这确保了工作器完成其任务后，线程会开始其标准的关闭流程。
         self.worker.finished.connect(self.task_thread.quit)
         self.worker.error.connect(self.task_thread.quit)
 
+        # 4.2. 只有当 QThread 本身发出 finished 信号时（即线程已完全停止），
+        #      才调用我们的主清理函数 on_thread_finished。
+        self.task_thread.finished.connect(self.on_thread_finished)
+        
+        # 4.3. 工作器的信号仍然连接到它们各自的数据处理槽函数，用于更新UI。
         if task_type == 'load':
             self.worker.finished.connect(self.on_load_finished)
         elif task_type == 'analyze_acoustics':
@@ -3022,24 +3121,82 @@ class AudioAnalysisPage(QWidget):
         elif task_type == 'analyze_formants_view':
             self.worker.finished.connect(self.on_formant_view_finished)
         
-        self.task_thread.finished.connect(self.on_thread_finished)
-        self.worker.deleteLater()
-        self.task_thread.finished.connect(self.task_thread.deleteLater)
+        # 4.4. 工作器的错误信号，现在也只连接到错误信息显示槽。
+        self.worker.error.connect(self.on_task_error)
 
+        # 4.5. 线程启动后，自动运行工作器的 run 方法。
+        self.task_thread.started.connect(self.worker.run)
+        
+        # 5. 连接取消按钮
         if self.progress_dialog:
             self.progress_dialog.canceled.connect(self.task_thread.requestInterruption)
         
+        # 6. 启动线程
         self.task_thread.start()
 
     def load_audio_file(self, filepath):
         """
-        加载音频文件。
-        Args:
-            filepath (str): 音频文件路径。
+        [修改] 加载音频文件。
         """
-        self.clear_all() # 清除所有旧状态
-        self.current_filepath = filepath # 记录当前文件路径
-        self.run_task('load', filepath=filepath, progress_text=f"正在加载音频...") # 运行加载任务
+        self.clear_all_central_widgets() # [修改] 使用新的清理函数
+        self.current_filepath = filepath
+        self.run_task('load', filepath=filepath, progress_text=f"正在加载音频...")
+
+    def convert_analysis_to_dataframe(self, analysis_results):
+        """
+        [v2.0 - 共振峰修复版]
+        一个辅助函数，将分析结果字典转换为可保存的Pandas DataFrame。
+        此版本修复了导出CSV时丢失共振峰 (F1, F2...) 数据的bug。
+        """
+        if not analysis_results:
+            return None
+        
+        all_data = []
+        
+        # --- 1. 处理 F0 和强度数据 (保持不变) ---
+        if 'f0_data' in analysis_results and 'intensity_data' in analysis_results:
+            times, f0_vals = analysis_results.get('f0_data', ([], []))
+            intensity = analysis_results.get('intensity_data', [])
+            
+            min_len = min(len(times), len(f0_vals), len(intensity))
+            
+            for i in range(min_len):
+                all_data.append({
+                    'timestamp': times[i], 
+                    'f0_hz': f0_vals[i], 
+                    'intensity': intensity[i]
+                })
+
+        # --- 2. [核心修复] 新增处理共振峰数据的逻辑 ---
+        if 'formants_data' in analysis_results and self.sr:
+            formants_list = analysis_results.get('formants_data', [])
+            
+            for sample_pos, formants in formants_list:
+                # 2.1. 创建一个包含时间戳的基础数据点字典
+                formant_dict = {'timestamp': sample_pos / self.sr}
+                
+                # 2.2. 遍历该音框找到的所有共振峰值
+                for i, f_val in enumerate(formants):
+                    # 创建列名，如 f1_hz, f2_hz, ...
+                    col_name = f'f{i+1}_hz'
+                    formant_dict[col_name] = f_val
+                
+                # 2.3. 将这个包含所有共振峰信息的点添加到总列表中
+                all_data.append(formant_dict)
+        # --- 修复结束 ---
+
+        if not all_data:
+            return None
+            
+        # 3. 合并和整理 DataFrame (保持不变)
+        #    groupby().first() 会将具有相同时间戳的数据点合并为一行。
+        #    对于共振峰数据，每个点的时间戳理论上是唯一的，
+        #    对于F0/强度数据，它们本身就是对齐的。
+        #    这个操作能确保最终结果的整洁。
+        df = pd.DataFrame(all_data)
+        df = df.groupby('timestamp').first().reset_index()
+        df = df.sort_values(by='timestamp').round(4)
+        return df
 
     def open_file_dialog(self):
         """
@@ -3076,32 +3233,32 @@ class AudioAnalysisPage(QWidget):
 
     def on_thread_finished(self):
         """
-        [已修复] 后台任务线程结束时的最终清理槽函数。
-        无论任务是正常完成、被取消还是出错，此方法都必须被调用。
+        [v2.1 - 线程修复版] 后台任务线程结束时的最终清理槽函数。
+        现在由 QThread.finished 信号安全触发。
         """
-        # 确保进度对话框被关闭
         if self.progress_dialog:
             self.progress_dialog.close()
             self.progress_dialog = None
 
-        # 安全地清理线程和工作器引用
-        self.task_thread = None
-        self.worker = None
-        
-        # [关键修复] 在这里重置任务运行标志
+        # 此时线程已停止，可以安全地安排删除
+        if self.worker:
+            self.worker.deleteLater()
+            self.worker = None
+
+        if self.task_thread:
+            self.task_thread.deleteLater()
+            self.task_thread = None
+    
         self.is_task_running = False
 
     def on_task_error(self, error_msg):
         """
-        [已修复] 后台任务发生错误时的槽函数。
-        现在它只负责显示错误信息，所有清理工作由 on_thread_finished 完成。
+        [v2.1 - 线程修复版] 后台任务发生错误时的槽函数。
+        现在只负责显示错误信息，所有清理工作由 on_thread_finished 统一处理。
         """
-        # 注意：不再在这里关闭进度条或重置 is_task_running，
-        # 因为 on_thread_finished 会统一处理。
         import traceback
-        traceback.print_exc() # 打印详细的堆栈信息到控制台，便于调试
+        traceback.print_exc()
         QMessageBox.critical(self, "任务失败", f"处理过程中发生错误:\n{error_msg}")
-        # 可选：可以清除部分UI状态，但保留已加载的音频
         self.spectrogram_widget.set_analysis_data(None, None, None, None)
 
     def update_icons(self):
@@ -3166,58 +3323,65 @@ class AudioAnalysisPage(QWidget):
             traceback.print_exc()
             QMessageBox.critical(self, "渲染失败", f"生成高分辨率图片时发生错误: {e}")
 
-    def render_high_quality_image(self, options):
+    def render_high_quality_image(self, options, source_filepath=None):
         """
-        根据给定选项，创建一个临时的 SpectrogramWidget，以指定的分辨率和样式
-        将其渲染到一个 QPixmap 上。UI元素（文字、轴）的大小保持固定，不随分辨率缩放。
-        Args:
-            options (dict): 导出选项，包含分辨率、是否添加信息标签和时间轴。
-        Returns:
-            QPixmap: 渲染后的高质量图片。
+        [v2.0 - 健壮性修复版]
+        根据给定选项，将当前语谱图控件的视图内容高质量地渲染到一个 QPixmap 上。
+        此版本新增了 'source_filepath' 参数，使其在被外部模块（如批量处理）
+        调用时能够正确显示文件名等上下文信息，从而修复了 'TypeError'。
+
+        :param options: (dict) 导出选项，包含 'resolution', 'info_label', 'add_time_axis'。
+        :param source_filepath: (str, optional) 要在信息标签中显示的源文件路径。
+                                如果为 None，则会回退到使用本模块自己的 self.current_filepath。
+        :return: QPixmap 对象，包含了渲染好的高质量图片。
         """
-        source_widget = self.spectrogram_widget # 源语谱图控件
+        source_widget = self.spectrogram_widget
         resolution = options["resolution"]
         
-        # --- 定义固定的UI元素尺寸 ---
+        # --- 1. 定义固定的UI元素尺寸 ---
+        # 无论最终图片分辨率多大，这些UI元素的像素尺寸都保持不变，确保视觉一致性。
         INFO_FONT_PIXEL_SIZE = 14
         TIME_AXIS_FONT_PIXEL_SIZE = 12
         SPECTROGRAM_AXIS_FONT_PIXEL_SIZE = 12
-        TIME_AXIS_HEIGHT = 35 # 固定像素高度
+        TIME_AXIS_HEIGHT = 35 # 时间轴的固定像素高度
 
+        # --- 2. 布局计算 ---
+        # 如果分辨率为None（例如，选择了“当前窗口大小”），则使用源控件的当前尺寸。
         if resolution is None:
-            # 如果分辨率为None，表示使用当前控件的尺寸
             target_width, target_height = source_widget.width(), source_widget.height()
         else:
             target_width, target_height = resolution
         
-        # --- 布局计算 (使用固定高度) ---
-        axis_height = TIME_AXIS_HEIGHT if options["add_time_axis"] else 0 # 时间轴高度
-        spectrogram_height = target_height - axis_height # 语谱图绘制区域高度
+        # 根据是否添加时间轴，计算语谱图本身需要占据的高度。
+        axis_height = TIME_AXIS_HEIGHT if options["add_time_axis"] else 0
+        spectrogram_height = target_height - axis_height
 
-        # --- 创建渲染目标 ---
-        pixmap = QPixmap(target_width, target_height) # 创建目标QPixmap
-        pixmap.fill(source_widget.backgroundColor) # 填充背景色
+        # --- 3. 创建渲染目标 (QPixmap) ---
+        pixmap = QPixmap(target_width, target_height)
+        # 使用源控件的背景色填充，确保主题一致
+        pixmap.fill(source_widget.backgroundColor)
 
-        # --- 渲染语谱图部分 ---
+        # --- 4. 渲染语谱图主体部分 ---
         if spectrogram_height > 0:
-            # 创建一个临时的 SpectrogramWidget 用于渲染，不显示在屏幕上
+            # 创建一个临时的、不可见的 SpectrogramWidget 用于离屏渲染。
+            # 这样做可以避免干扰主界面的UI。
             temp_widget = SpectrogramWidget(None, self.icon_manager)
-            temp_widget.setAttribute(Qt.WA_DontShowOnScreen) # 不显示在屏幕上
-            temp_widget.show() # 需要show才能正确渲染
+            temp_widget.setAttribute(Qt.WA_DontShowOnScreen)
+            temp_widget.show() # 必须调用 show() 才能使其内部布局生效以供渲染
 
-            # **核心修改**: 为临时控件设置固定的字体大小，确保轴标签大小一致
+            # 设置固定的字体大小，确保轴标签大小在高分辨率下依然清晰可读。
             fixed_font = QFont()
             fixed_font.setPixelSize(SPECTROGRAM_AXIS_FONT_PIXEL_SIZE)
             temp_widget.setFont(fixed_font)
             
-            # 复制源控件的所有可写属性到临时控件
+            # 复制源控件的所有可写属性（如颜色、可见性等）到临时控件。
             meta_obj = temp_widget.metaObject()
             for i in range(meta_obj.propertyOffset(), meta_obj.propertyCount()):
                 prop = meta_obj.property(i)
                 if prop.isWritable():
                     temp_widget.setProperty(prop.name(), source_widget.property(prop.name()))
             
-            # 复制数据和视图状态
+            # 复制核心数据和视图状态
             temp_widget.spectrogram_image = source_widget.spectrogram_image
             temp_widget.sr = source_widget.sr
             temp_widget.hop_length = source_widget.hop_length
@@ -3227,34 +3391,48 @@ class AudioAnalysisPage(QWidget):
                 f0_data=source_widget._f0_data, f0_derived_data=source_widget._f0_derived_data,
                 intensity_data=source_widget._intensity_data, formants_data=source_widget._formants_data
             )
-            temp_widget.set_overlay_visibility(
-                show_f0=source_widget._show_f0, show_f0_points=source_widget._show_f0_points, show_f0_derived=source_widget._show_f0_derived,
-                show_intensity=source_widget._show_intensity, smooth_intensity=source_widget._smooth_intensity,
-                show_formants=source_widget._show_formants, highlight_f1=source_widget._highlight_f1, highlight_f2=source_widget._highlight_f2, show_other_formants=source_widget._show_other_formants
-            )
 
-            temp_widget.resize(target_width, spectrogram_height) # 设置临时控件的大小
+            # --- [核心修复] 显式复制叠加层的可见性状态 ---
+            # 因为这些状态是普通的Python属性而非QProperties，它们不会在属性循环中被自动复制。
+            # 我们必须手动调用 set_overlay_visibility 方法来同步这些状态。
+            temp_widget.set_overlay_visibility(
+                show_f0=source_widget._show_f0,
+                show_f0_points=source_widget._show_f0_points,
+                show_f0_derived=source_widget._show_f0_derived,
+                show_intensity=source_widget._show_intensity,
+                smooth_intensity=source_widget._smooth_intensity,
+                show_formants=source_widget._show_formants,
+                highlight_f1=source_widget._highlight_f1,
+                highlight_f2=source_widget._highlight_f2,
+                show_other_formants=source_widget._show_other_formants
+            )
+            # --- 修复结束 ---
+
+            # 设置临时控件的尺寸为我们计算出的语谱图目标尺寸。
+            temp_widget.resize(target_width, spectrogram_height)
             
-            # 将临时控件的内容渲染到QPixmap的指定区域
+            # 将临时控件的内容渲染到 QPixmap 的指定区域 (顶部)。
             temp_widget.render(pixmap, QPoint(0, 0), QRegion(0, 0, target_width, spectrogram_height))
 
-            temp_widget.hide() # 隐藏临时控件
-            temp_widget.deleteLater() # 延迟删除，确保事件循环处理完毕
+            # 渲染完毕后，清理临时控件。
+            temp_widget.hide()
+            temp_widget.deleteLater()
 
+        # --- 5. 准备在 QPixmap 上进行后续绘制 ---
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # --- 渲染时间轴部分 ---
+        # --- 6. 渲染时间轴部分 (如果需要) ---
         if options["add_time_axis"] and axis_height > 0:
-            axis_rect = QRect(0, spectrogram_height, target_width, axis_height) # 时间轴绘制区域
+            axis_rect = QRect(0, spectrogram_height, target_width, axis_height)
             
+            # ... (此部分的时间轴刻度智能计算和绘制逻辑与之前版本完全相同，无需修改) ...
             view_start_sample = source_widget._view_start_sample
             view_end_sample = source_widget._view_end_sample
             sr = source_widget.sr
             view_duration_s = (view_end_sample - view_start_sample) / sr if sr > 0 else 0
             start_time_s = view_start_sample / sr if sr > 0 else 0
 
-            # 智能计算时间轴刻度
             target_ticks = max(5, int(target_width / 150))
             raw_interval = view_duration_s / target_ticks if target_ticks > 0 else 0
             
@@ -3265,10 +3443,9 @@ class AudioAnalysisPage(QWidget):
                 elif raw_interval / power < 7.5: interval = 5 * power
                 else: interval = 10 * power
                 
-                # **核心修改**: 使用固定的像素字体大小
                 font = QFont(); font.setPixelSize(TIME_AXIS_FONT_PIXEL_SIZE)
                 painter.setFont(font)
-                painter.setPen(source_widget.palette().color(QPalette.Text)) # 使用文本颜色
+                painter.setPen(source_widget.palette().color(QPalette.Text))
 
                 first_tick_time = math.ceil(start_time_s / interval) * interval
                 
@@ -3278,9 +3455,8 @@ class AudioAnalysisPage(QWidget):
 
                     x_pos = (tick_time - start_time_s) / view_duration_s * target_width if view_duration_s > 0 else 0
                     
-                    painter.drawLine(int(x_pos), axis_rect.top(), int(x_pos), axis_rect.top() + 5) # 绘制刻度线
+                    painter.drawLine(int(x_pos), axis_rect.top(), int(x_pos), axis_rect.top() + 5)
                     
-                    # 根据间隔调整时间标签的精度
                     if interval >= 1: label = f"{tick_time:.1f}s"
                     elif interval >= 0.1: label = f"{tick_time:.2f}"
                     elif interval >= 0.01: label = f"{tick_time:.3f}"
@@ -3288,22 +3464,36 @@ class AudioAnalysisPage(QWidget):
                     
                     painter.drawText(QRect(int(x_pos) - 50, axis_rect.top() + 5, 100, axis_rect.height() - 5), Qt.AlignCenter | Qt.TextDontClip, label)
 
-        # --- 渲染信息标签部分 ---
+        # --- 7. [核心修复] 渲染信息标签部分 ---
         if options["info_label"]:
-            # **核心修改**: 使用固定的像素字体大小
             font = QFont(); font.setPixelSize(INFO_FONT_PIXEL_SIZE)
             painter.setFont(font)
-            painter.setPen(QColor(Qt.darkGray)) # 设置信息标签颜色
+            painter.setPen(QColor(Qt.darkGray))
             
-            info_text = f"File: {os.path.basename(self.current_filepath)}\n" \
+            # 7.1. 决定要使用的文件路径
+            #      如果外部调用者（如批量保存）提供了 source_filepath，就优先使用它。
+            #      否则，回退到使用本模块自己加载的 self.current_filepath。
+            path_to_use = source_filepath if source_filepath is not None else self.current_filepath
+            
+            # 7.2. 从有效的路径中提取文件名，并进行安全检查
+            filename_to_display = "N/A" # 默认值
+            # 确保 path_to_use 是一个有效的字符串
+            if path_to_use and isinstance(path_to_use, str):
+                filename_to_display = os.path.basename(path_to_use)
+            
+            # 7.3. 构建并绘制最终的信息文本
+            #      注意：时长(known_duration)和采样率(sr)依赖于调用者（批量保存循环）
+            #      在使用此函数前已经正确设置了 self.main_page 的这些属性。
+            info_text = f"File: {filename_to_display}\n" \
                         f"Duration: {self.format_time(self.known_duration)}\n" \
                         f"Sample Rate: {self.sr} Hz"
             
-            margin = 15 # 固定边距
-            text_rect = QRect(0, 0, target_width - margin, target_height - margin) # 文本绘制区域
-            painter.drawText(text_rect, Qt.AlignRight | Qt.AlignTop, info_text) # 右上角对齐绘制文本
+            margin = 15
+            text_rect = QRect(0, 0, target_width - margin, target_height - margin)
+            painter.drawText(text_rect, Qt.AlignRight | Qt.AlignTop, info_text)
         
-        painter.end() # 结束绘制
+        # 8. 结束绘制并返回最终的 QPixmap
+        painter.end()
         return pixmap
 
     def handle_export_csv(self):

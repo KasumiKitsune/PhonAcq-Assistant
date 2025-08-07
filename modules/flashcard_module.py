@@ -83,31 +83,33 @@ class FlashcardPage(QWidget):
         self.GLOBAL_RECORD_DIR = GLOBAL_RECORD_DIR 
         self.icon_manager = icon_manager 
         
+        # --- 核心状态变量 ---
         self.session_active = False
         self.all_loaded_cards = [] 
         self.cards = [] 
         self.current_card_index = -1
         self.is_answer_shown = False
-        
         self.current_wordlist_path = "" 
         self.current_wordlist_name_no_ext = "" 
         self.current_wordlist_type = "" 
         self.current_cache_dir = None 
         self.current_deck_capabilities = []
-        
         self.progress_data = {} 
         self.session_config = {}
-
-        # [新增] 用于映射显示文本和背后数据的字典
         self.wordlist_data_map = {}
 
+        # --- 多媒体状态变量 ---
         self.player = QMediaPlayer()
-        self.player.stateChanged.connect(self._on_player_state_changed)
+        # [新增] 音频播放队列和例句模式状态
+        self.playback_queue = []
+        self.has_sentence_audio = False
         
         self.audio_mc_queue = []
         self.audio_mc_button_map = {}
         self.is_in_autoplay_sequence = False
 
+        # --- 初始化 ---
+        self.player.stateChanged.connect(self._on_player_state_changed)
         self._init_ui()
         self._connect_signals()
         self.update_icons() 
@@ -351,16 +353,28 @@ class FlashcardPage(QWidget):
         self.auto_show_answer_switch.setToolTip("开启后，在“记忆模式”下切换到新卡片时，会自动显示答案，无需手动点击。")
         self.auto_show_answer_switch.setChecked(module_states.get('auto_show_answer', False))
         auto_show_answer_layout.addWidget(self.auto_show_answer_switch)
+        # --- [新增] 例句播放开关 ---
+        play_sentence_layout = QHBoxLayout()
+        play_sentence_layout.addWidget(QLabel("播放例句音频:"))
+        self.play_sentence_switch = self.ToggleSwitch()
+        self.play_sentence_switch.setToolTip("开启后，在“记忆模式”下，播放完单词音频后将自动播放例句音频。")
+        self.play_sentence_switch.setChecked(module_states.get('play_sentence', False))
+        self.play_sentence_switch.setEnabled(False) # 默认禁用，直到加载了带例句的卡组
+        play_sentence_layout.addWidget(self.play_sentence_switch)
+        # --- 新增结束 ---
+        
         options_layout.addWidget(self.order_mode_group)
         options_layout.addLayout(autoplay_layout)
+        # [新增] 将例句开关添加到布局中
+        options_layout.addLayout(play_sentence_layout)
         options_layout.addLayout(hide_list_layout)
         options_layout.addLayout(auto_show_answer_layout)
-
+    
         right_layout.addWidget(paradigm_group)
         right_layout.addWidget(self.prompt_group)
         right_layout.addWidget(self.test_type_group)
         right_layout.addWidget(options_group)
-        right_layout.addStretch(1) # 将内容推到顶部
+        right_layout.addStretch(1)
 
         # --- 将左右中三栏添加到主布局 ---
         main_layout.addWidget(left_panel)
@@ -418,6 +432,7 @@ class FlashcardPage(QWidget):
         self.auto_show_answer_switch.stateChanged.connect(
             lambda state: self._on_persistent_setting_changed('auto_show_answer', bool(state))
         )
+        self.play_sentence_switch.stateChanged.connect(lambda state: self._on_persistent_setting_changed('play_sentence', bool(state)))
     
         # 快捷键设置
         QShortcut(QKeySequence(Qt.Key_Left), self, self.show_prev_card)
@@ -823,20 +838,17 @@ class FlashcardPage(QWidget):
         self.start_reset_btn.setText("结束学习会话")
         self.update_icons() 
     
-        # [修改] 禁用设置面板和词表列表
-        self.wordlist_list.setEnabled(False)
-        self.memory_radio.setEnabled(False)
-        self.test_radio.setEnabled(False)
-        self.prompt_group.setEnabled(False) 
-        self.test_type_group.setEnabled(False) 
-        self.order_mode_group.setEnabled(False)
-        self.hide_list_switch.setEnabled(False)
+        # 禁用设置面板
+        self.wordlist_list.setEnabled(False); self.memory_radio.setEnabled(False); self.test_radio.setEnabled(False)
+        self.prompt_group.setEnabled(False); self.test_type_group.setEnabled(False) 
+        self.order_mode_group.setEnabled(False); self.hide_list_switch.setEnabled(False)
         self.clear_progress_btn.setEnabled(False)
-    
-        if self.hide_list_switch.isChecked():
-            self.list_widget.hide()
-        else:
-            self.list_widget.show()
+
+        # [新增] 根据卡组是否有例句音频来启用/禁用开关
+        self.play_sentence_switch.setEnabled(self.has_sentence_audio)
+
+        if self.hide_list_switch.isChecked(): self.list_widget.hide()
+        else: self.list_widget.show()
 
         if self.cards:
             self.current_card_index = -1 
@@ -857,55 +869,38 @@ class FlashcardPage(QWidget):
             self.next_btn.setEnabled(False)
             self.mark_mastered_btn.setEnabled(False) 
             self.show_answer_btn.setEnabled(False)
+        self._set_tooltips_enabled(False)
 
     def reset_session(self):
-        """结束当前学习会话，并重置UI和内部状态。"""
         if self.session_active:
-            self.save_progress()
-            self._cleanup_fdeck_cache()
+            self.save_progress(); self._cleanup_fdeck_cache()
         
-        self.session_active = False
-        self.cards.clear()
-        self.all_loaded_cards.clear()
-        self.list_widget.clear()
-    
-        self.card_question_area.set_pixmap(None)
+        self.session_active = False; self.cards.clear(); self.all_loaded_cards.clear()
+        self.list_widget.clear(); self.card_question_area.set_pixmap(None)
         self.card_question_area.setText("请从左侧选择词表并加载")
-    
-        self.card_question_text_label.setText("")
-        self.card_question_text_label.hide()
-    
-        self.card_answer_area.set_pixmap(None)
-        self.card_answer_area.setText("")
-        self.progress_label.setText("卡片: - / -")
-        self.progress_data.clear()
-        self.session_config = {}
-        self.current_cache_dir = None
-    
-        self.list_widget.show()
-        self.start_reset_btn.setText("加载词表并开始学习")
-        self.update_icons()
-    
-        # [修改] 启用设置面板和词表列表
-        self.wordlist_list.setEnabled(True)
-        self.memory_radio.setEnabled(True)
-        self.test_radio.setEnabled(True)
-        self.prompt_group.setEnabled(True)
-        self.test_type_group.setEnabled(True)
-        self.order_mode_group.setEnabled(True)
-        self.hide_list_switch.setEnabled(True)
-        self.clear_progress_btn.setEnabled(True)
-    
-        self.multiple_choice_widget.hide()
-        self.answer_input_widget.hide() 
-    
-        self.prev_btn.setEnabled(False)
-        self.show_answer_btn.setEnabled(False)
-        self.next_btn.setEnabled(False)
-        self.play_audio_btn.setEnabled(False)
-        self.mark_mastered_btn.setEnabled(False)
+        self.card_question_text_label.setText(""); self.card_question_text_label.hide()
+        self.card_answer_area.set_pixmap(None); self.card_answer_area.setText("")
+        self.progress_label.setText("卡片: - / -"); self.progress_data.clear()
+        self.session_config = {}; self.current_cache_dir = None
+        
+        # [新增] 重置例句音频状态
+        self.has_sentence_audio = False
+        self.play_sentence_switch.setEnabled(False)
 
+        self.list_widget.show(); self.start_reset_btn.setText("加载词表并开始学习"); self.update_icons()
+        
+        # 启用设置面板
+        self.wordlist_list.setEnabled(True); self.memory_radio.setEnabled(True); self.test_radio.setEnabled(True)
+        self.prompt_group.setEnabled(True); self.test_type_group.setEnabled(True)
+        self.order_mode_group.setEnabled(True); self.hide_list_switch.setEnabled(True)
+        self.clear_progress_btn.setEnabled(True)
+        
+        self.multiple_choice_widget.hide(); self.answer_input_widget.hide()
+        self.prev_btn.setEnabled(False); self.show_answer_btn.setEnabled(False)
+        self.next_btn.setEnabled(False); self.play_audio_btn.setEnabled(False)
+        self.mark_mastered_btn.setEnabled(False)
         self._update_ui_for_selection()
+        self._set_tooltips_enabled(True)
 
 
     def _prepare_fdeck_cache(self, fdeck_path):
@@ -944,25 +939,59 @@ class FlashcardPage(QWidget):
                         should_extract = True
             
             if should_extract:
-                print(f"Updating cache for deck: {deck_id} from {os.path.basename(fdeck_path)}")
-                # 清理旧缓存 (如果存在)，避免残留文件
                 if os.path.exists(self.current_cache_dir) and os.path.isdir(self.current_cache_dir):
-                    shutil.rmtree(self.current_cache_dir)
-                    os.makedirs(self.current_cache_dir) 
-
+                    shutil.rmtree(self.current_cache_dir); os.makedirs(self.current_cache_dir) 
                 with zipfile.ZipFile(fdeck_path, 'r') as zf:
+                    # [修改] 确保 sentence 文件夹也被解压
                     for member in zf.namelist():
-                        if member.startswith('images/') or member.startswith('audio/') or member == 'manifest.json':
+                        if member.startswith(('images/', 'audio/', 'sentence/', 'manifest.json')):
                             zf.extract(member, self.current_cache_dir)
-                # 写入新的时间戳
-                with open(cache_mtime_file, 'w') as f:
-                    f.write(str(fdeck_mtime))
+                with open(cache_mtime_file, 'w') as f: f.write(str(fdeck_mtime))
+            
+            # [新增] 在准备好缓存后，检查是否存在 sentence 文件夹
+            sentence_dir = os.path.join(self.current_cache_dir, "sentence")
+            self.has_sentence_audio = os.path.isdir(sentence_dir)
             
             return True
-
         except Exception as e:
-            QMessageBox.critical(self, "卡组错误", f"处理 .fdeck 文件失败:\n{e}")
-            return False
+            QMessageBox.critical(self, "卡组错误", f"处理 .fdeck 文件失败:\n{e}"); return False
+
+    def _set_tooltips_enabled(self, enabled):
+        """
+        [新增] 启用或禁用此模块中所有关键UI元素的工具提示。
+        :param enabled: True to show tooltips, False to hide them.
+        """
+        # 定义一个包含所有需要管理工具提示的控件的列表
+        widgets_with_tooltips = [
+            self.wordlist_list, self.start_reset_btn, self.list_widget,
+            self.mark_mastered_btn, self.clear_progress_btn,
+            self.card_question_area, self.card_question_text_label,
+            self.card_answer_area, self.progress_label, self.answer_input,
+            self.answer_submit_btn, self.prev_btn, self.show_answer_btn,
+            self.next_btn, self.play_audio_btn,
+            # 右侧栏
+            self.memory_radio, self.test_radio, self.prompt_text_check,
+            self.prompt_image_check, self.prompt_audio_check,
+            self.test_type_input_radio, self.test_type_mc_image_radio,
+            self.test_type_mc_audio_radio, self.test_type_mc_text_radio,
+            self.smart_random_radio, self.random_radio, self.sequential_radio,
+            self.autoplay_audio_switch, self.play_sentence_switch,
+            self.hide_list_switch, self.auto_show_answer_switch
+        ]
+        
+        # 遍历列表，为每个控件设置工具提示
+        for widget in widgets_with_tooltips:
+            if enabled:
+                # 恢复工具提示。我们从一个临时属性中读取原始提示，
+                # 如果不存在，则保持为空，让控件自己处理。
+                original_tooltip = getattr(widget, '_original_tooltip', '')
+                widget.setToolTip(original_tooltip)
+            else:
+                # 隐藏工具提示。我们先保存原始提示，然后再将其设置为空字符串。
+                # 这样可以确保在恢复时能够找到原始文本。
+                setattr(widget, '_original_tooltip', widget.toolTip())
+                widget.setToolTip('')
+
 
     def _cleanup_fdeck_cache(self):
         """
@@ -1219,7 +1248,7 @@ class FlashcardPage(QWidget):
         self.update_progress_on_view(card.get('id'))
         
     def _prepare_multiple_choice_options(self, current_card, test_type):
-        """[v1.3 - 文本按钮版] 为四选一模式准备选项按钮。"""
+        """[vFinal] 为四选一模式准备选项按钮。"""
         self._clear_multiple_choice_options() 
 
         correct_option_data = None
@@ -1237,7 +1266,6 @@ class FlashcardPage(QWidget):
         elif test_type == 'mc_text':
             correct_option_data = current_card.get('answer')
             distractor_pool_key = 'answer'
-            # [核心修改] 使用新的按钮工厂函数
             widget_factory_func = self._create_text_mc_button
 
         if not correct_option_data:
@@ -1257,22 +1285,27 @@ class FlashcardPage(QWidget):
 
             widget = widget_factory_func(display_data)
             
-            # [核心修改] 统一处理 QPushButton 和 QLabel 的逻辑
-            if isinstance(widget, QLabel): # 图片模式
+            # [关键修复] 在设置 tooltip 之前，检查会话是否处于活动状态
+            if not self.session_active:
+                if isinstance(widget, QLabel): # 图片模式
+                    widget.setToolTip(f"选择此项: {str(display_data)[:50]}...")
+                elif hasattr(widget, 'select_button'): # 音频复合小部件
+                    widget.setToolTip(f"选择音频: {option_data}")
+                # 对于文字按钮 (QPushButton)，其 tooltip 已在 _create_text_mc_button 中设置
+
+            if isinstance(widget, QLabel):
                 widget.setMinimumSize(240, 180)
                 widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                 widget.setFrameShape(QFrame.Box)
                 widget.setFrameShadow(QFrame.Raised)
                 widget.mousePressEvent = lambda event, data=option_data, correct=is_correct: self._handle_mc_click(data, correct)
                 widget.setCursor(Qt.PointingHandCursor) 
-                widget.setToolTip(f"选择此项: {str(display_data)[:50]}...")
                 self.mc_buttons.append(widget)
-            elif isinstance(widget, QPushButton): # 文字模式
+            elif isinstance(widget, QPushButton):
                 widget.clicked.connect(lambda checked, data=option_data, correct=is_correct: self._handle_mc_click(data, correct))
                 self.mc_buttons.append(widget)
-            elif hasattr(widget, 'select_button'): # 音频复合小部件
+            elif hasattr(widget, 'select_button'):
                 widget.select_button.clicked.connect(lambda checked, data=option_data, correct=is_correct: self._handle_mc_click(data, correct))
-                widget.setToolTip(f"选择音频: {option_data}")
                 self.mc_buttons.append(widget)
 
             self.multiple_choice_layout.addWidget(widget, i // 2, i % 2)
@@ -1345,11 +1378,51 @@ class FlashcardPage(QWidget):
         self.play_current_audio(force_card_id=card_id)
 
     def _on_player_state_changed(self, state):
-        """[新增] 当播放器状态改变时调用，用于串联播放。"""
-        # 如果播放停止，并且我们正处于自动播放序列中
+        """当播放器状态改变时调用，用于串联播放。"""
+        # --- 逻辑1: 处理四选一音频的自动播放队列 ---
         if state == QMediaPlayer.StoppedState and self.is_in_autoplay_sequence:
             # 稍作延迟后播放下一个，给用户反应时间
             QTimer.singleShot(300, self._play_next_in_mc_queue)
+            return # 处理完毕，退出
+
+        # --- [新增] 逻辑2: 处理单词->例句的播放队列 ---
+        if state == QMediaPlayer.StoppedState and self.playback_queue:
+            # 如果队列中还有待播放项（即例句）
+            # 延迟1秒后，播放队列中的下一个项目
+            QTimer.singleShot(100, self._play_next_in_queue)
+
+    def _find_audio_path(self, card_id, audio_type='word'):
+        """
+        [新增] 在缓存目录中查找指定类型的音频文件。
+        :param card_id: 卡片的唯一ID。
+        :param audio_type: 'word' 或 'sentence'。
+        :return: 找到的音频文件完整路径，或 None。
+        """
+        if not self.current_cache_dir or not card_id:
+            return None
+            
+        # 根据类型确定要搜索的子目录
+        subdir = "audio" if audio_type == 'word' else "sentence"
+        search_dir = os.path.join(self.current_cache_dir, subdir)
+
+        if not os.path.isdir(search_dir):
+            return None
+
+        # 遍历常用音频格式
+        common_audio_exts = ['.wav', '.mp3', '.flac', '.ogg']
+        for ext in common_audio_exts:
+            path_to_check = os.path.join(search_dir, f"{card_id}{ext}")
+            if os.path.exists(path_to_check):
+                return path_to_check
+        return None
+
+    def _play_next_in_queue(self):
+        """[新增] 播放 self.playback_queue 队列中的下一个音频。"""
+        if self.playback_queue:
+            filepath = self.playback_queue.pop(0) # 从队列头部取出一个路径
+            if filepath and os.path.exists(filepath):
+                self.player.setMedia(QMediaContent(QUrl.fromLocalFile(filepath)))
+                self.player.play()
 
     def _stop_autoplay_sequence(self):
         """[新增] 立即停止自动播放序列，通常由用户手动操作触发。"""
@@ -1579,12 +1652,12 @@ class FlashcardPage(QWidget):
             
             # 2. 根据文本总长度动态计算字体大小
             text_length = len(full_text_to_display)
-            font_size = 16
+            font_size = 14
 
             if text_length > 250:
-                font_size = 11
+                font_size = 10
             elif text_length > 120:
-                font_size = 13
+                font_size = 12
             
             # 3. 将纯文本的换行符 (\n) 转换成 HTML 的换行符 (<br>)
             html_text_to_display = full_text_to_display.replace('\n', '<br>')
@@ -1675,52 +1748,33 @@ class FlashcardPage(QWidget):
 
     def play_current_audio(self, force_card_id=None):
         """
-        [修改] 播放当前卡片关联的音频。
-        force_card_id: 如果提供，则播放该ID对应的音频，而非当前卡片。
+        [vFinal] 播放当前卡片关联的音频。
+        此方法现在是一个播放队列的构建器和启动器。
         """
         if not self.session_active: return
+
+        # 停止任何正在播放的音频
+        self.player.stop()
+        self.playback_queue.clear() # 清空旧的播放队列
 
         audio_key = force_card_id if force_card_id else self.cards[self.current_card_index].get('id')
         if not audio_key: return
 
-        final_path = None
-        common_audio_exts = ['.wav', '.mp3', '.flac', '.ogg']
-
-        if self.current_wordlist_type == 'fdeck':
-            audio_cache_dir = os.path.join(self.current_cache_dir, "audio")
-            if os.path.isdir(audio_cache_dir):
-                for ext in common_audio_exts:
-                    path_to_check = os.path.join(audio_cache_dir, f"{audio_key}{ext}")
-                    if os.path.exists(path_to_check):
-                        final_path = path_to_check
-                        break
-        else: # 对于旧格式 (.json)
-            search_locations = [
-                os.path.join(self.GLOBAL_RECORD_DIR, self.current_wordlist_name_no_ext),
-                self.GLOBAL_RECORD_DIR,
-                os.path.join(self.TTS_DIR, self.current_wordlist_name_no_ext),
-                self.TTS_DIR,
-                os.path.join(self.GLOBAL_TTS_DIR, self.current_wordlist_name_no_ext),
-                self.GLOBAL_TTS_DIR,
-            ]
-
-            for folder in search_locations:
-                if not folder or not os.path.isdir(folder):
-                    continue
-                for ext in common_audio_exts:
-                    path_to_check = os.path.join(folder, f"{audio_key}{ext}")
-                    if os.path.exists(path_to_check):
-                        final_path = path_to_check
-                        break
-                if final_path: break
+        # --- 构建新的播放队列 ---
+        # 1. 添加单词音频
+        word_audio_path = self._find_audio_path(audio_key, 'word')
+        if word_audio_path:
+            self.playback_queue.append(word_audio_path)
         
-        if final_path:
-            try:
-                self.player.setMedia(QMediaContent(QUrl.fromLocalFile(final_path)))
-                self.player.play()
-            except Exception as e:
-                print(f"Error playing audio file {final_path}: {e}")
-                self.parent_window.statusBar().showMessage(f"播放音频 '{audio_key}' 失败", 3000)
+        # 2. 如果启用了例句模式，并且是学习模式，则添加例句音频
+        if self.play_sentence_switch.isChecked() and self.session_config.get('paradigm') == 'memory':
+            sentence_audio_path = self._find_audio_path(audio_key, 'sentence')
+            if sentence_audio_path:
+                self.playback_queue.append(sentence_audio_path)
+        
+        # --- 启动播放队列 ---
+        if self.playback_queue:
+            self._play_next_in_queue()
         else:
             self.parent_window.statusBar().showMessage(f"找不到 '{audio_key}' 的音频文件", 2000)
 

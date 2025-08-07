@@ -787,6 +787,30 @@ class AudioManagerPage(QWidget):
         # 对于所有其他事件，调用父类的默认实现
         return super().eventFilter(obj, event)
 
+    def send_to_batch_analysis(self, filepaths):
+        """
+        [新增] 一个辅助方法，用于将文件列表发送到音频分析模块的批量模式。
+        """
+        # 1. 安全检查，确保音频分析模块已加载
+        if not hasattr(self.parent_window, 'audio_analysis_page'):
+            QMessageBox.warning(self, "功能缺失", "音频分析模块未成功加载。")
+            return
+        
+        audio_analysis_page = self.parent_window.audio_analysis_page
+    
+        # 2. 调用主窗口的导航API，切换到“音频分析” -> “批量分析”标签页
+        target_page = self.parent_window._navigate_to_tab("资源管理", "音频分析")
+        if target_page:
+            # 切换到批量分析模式 (通过切换ToggleSwitch)
+            target_page.mode_toggle.setChecked(True)
+        
+            # 3. 调用批量面板的公共API来加载文件
+            if hasattr(target_page, 'batch_analysis_panel') and \
+               hasattr(target_page.batch_analysis_panel, 'load_files_from_external'):
+                target_page.batch_analysis_panel.load_files_from_external(filepaths)
+        else:
+            QMessageBox.warning(self, "导航失败", "无法切换到音频分析模块。")
+
 # [新增] 用于处理表格中快捷播放按钮点击的智能方法
     def _on_shortcut_play_button_clicked(self, row):
         """
@@ -1612,28 +1636,36 @@ class AudioManagerPage(QWidget):
 
     def open_file_context_menu(self, position):
         """
-        [重构后 v2.1] 构建文件列表的右键上下文菜单，能根据是否选中文件动态显示内容。
+        [v2.2 - 批量分析集成版]
+        构建文件列表的右键上下文菜单。
         """
         menu = QMenu(self.audio_table_widget)
         selected_items = self.audio_table_widget.selectedItems()
 
-        # --- 如果有文件被选中，则构建完整的菜单 ---
         if selected_items:
-            # 第一组：核心播放与分析
             is_single_selection = len(set(item.row() for item in selected_items)) == 1
-            
+            selected_rows_count = len(set(item.row() for item in selected_items))
+            selected_filepaths = sorted(list(set(
+                self.audio_table_widget.item(i.row(), 0).data(Qt.UserRole) for i in selected_items
+            )))
+
+            # --- 第一组：核心播放与分析 ---
             play_action = menu.addAction(self.icon_manager.get_icon("play_audio"), "试听 / 暂停")
             play_action.triggered.connect(self.toggle_playback)
             play_action.setEnabled(is_single_selection)
 
-            analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
+            # --- [核心修改] 动态创建分析菜单项 ---
             analysis_module_available = hasattr(self.parent_window, 'audio_analysis_page') and self.parent_window.audio_analysis_page is not None
-            if analysis_module_available and is_single_selection:
-                from functools import partial
-                filepath = self.audio_table_widget.item(selected_items[0].row(), 0).data(Qt.UserRole)
-                analyze_action.triggered.connect(partial(self.send_to_audio_analysis, filepath))
-            else:
-                analyze_action.setEnabled(False)
+            if analysis_module_available:
+                if is_single_selection:
+                    # 单选时：在单个分析器中打开
+                    analyze_single_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
+                    analyze_single_action.triggered.connect(lambda: self.send_to_audio_analysis(selected_filepaths[0]))
+                else:
+                    # 多选时：发送到批量分析
+                    analyze_batch_action = menu.addAction(self.icon_manager.get_icon("analyze_dark"), f"发送 {selected_rows_count} 个文件到批量分析")
+                    analyze_batch_action.triggered.connect(lambda: self.send_to_batch_analysis(selected_filepaths))
+            # --- 修改结束 ---
 
             menu.addSeparator()
 
@@ -1864,9 +1896,9 @@ class AudioManagerPage(QWidget):
 
     def _show_staging_process_menu(self):
         """
+        [v2.0 - 批量分析集成版]
         当点击“处理暂存区”按钮时，构建并显示一个包含所有可用操作的菜单。
         """
-        # 检查暂存区是否为空
         if not self.staged_files:
             QMessageBox.information(self, "暂存区为空", "请先将文件添加到暂存区再进行处理。")
             return
@@ -1874,27 +1906,66 @@ class AudioManagerPage(QWidget):
         menu = QMenu(self)
         staged_filepaths = list(self.staged_files.keys())
 
-        # 1. 添加“连接”操作
+        # 1. 添加“连接”操作 (保持不变)
         connect_action = menu.addAction(self.icon_manager.get_icon("concatenate"), "连接所有暂存文件...")
         connect_action.triggered.connect(self._concatenate_staged_files)
-        
+    
         menu.addSeparator()
 
-        # 2. 添加“批量处理”插件操作 (如果插件已激活)
+        # --- [核心修改] 新增“发送到批量分析”操作 ---
+        # 检查音频分析模块是否可用
+        analysis_module_available = hasattr(self.parent_window, 'audio_analysis_page') and self.parent_window.audio_analysis_page is not None
+        if analysis_module_available:
+            send_to_analysis_action = menu.addAction(self.icon_manager.get_icon("analyze_dark"), "发送到批量分析...")
+            send_to_analysis_action.triggered.connect(self._send_staged_to_batch_analysis)
+        # --- 修改结束 ---
+
+        # 2. 添加“批量处理”插件操作 (保持不变)
         if hasattr(self, 'batch_processor_plugin_active'):
             process_action = menu.addAction(self.icon_manager.get_icon("submit"), "用批量处理器打开...")
             process_action.triggered.connect(self._send_staged_to_batch_processor)
 
-        # 3. 添加“用外部工具打开”插件操作 (如果插件已激活)
+        # 3. 添加“用外部工具打开”插件操作 (保持不变)
         if hasattr(self, 'external_launcher_plugin_active'):
             launcher_plugin = self.external_launcher_plugin_active
-            # [核心修正] 复用插件的 populate_menu 方法，不再传递多余的参数
             launcher_plugin.populate_menu(menu, staged_filepaths)
 
-        # 在按钮下方显示菜单
-        # from PyQt5.QtCore import QPoint
-        # menu.exec_(self.process_staged_btn.mapToGlobal(QPoint(0, self.process_staged_btn.height())))
-        menu.exec_(QCursor.pos()) # 在鼠标当前位置显示，更方便
+        menu.exec_(QCursor.pos())
+
+
+    def _send_staged_to_batch_analysis(self):
+        """
+        [新增] 核心功能：将暂存区的所有文件发送到音频分析模块的批量模式。
+        """
+        # 1. 检查暂存区是否为空
+        if not self.staged_files:
+            QMessageBox.information(self, "暂存区为空", "暂存区中没有文件可以发送。")
+            return
+        
+        filepaths = list(self.staged_files.keys())
+    
+        # 2. 安全检查，确保音频分析模块已加载
+        if not hasattr(self.parent_window, 'audio_analysis_page'):
+            QMessageBox.warning(self, "功能缺失", "音频分析模块未成功加载。")
+            return
+        
+        audio_analysis_page = self.parent_window.audio_analysis_page
+    
+        # 3. 调用主窗口的导航API，切换到“音频分析”模块
+        target_page = self.parent_window._navigate_to_tab("资源管理", "音频分析")
+        if target_page:
+            # 4. 强制切换到批量分析模式 (通过操作ToggleSwitch)
+            if hasattr(target_page, 'mode_toggle'):
+                target_page.mode_toggle.setChecked(True) # True 表示批量模式
+        
+            # 5. 调用批量面板的公共API来加载文件
+            if hasattr(target_page, 'batch_analysis_panel') and \
+               hasattr(target_page.batch_analysis_panel, 'load_files_from_external'):
+                target_page.batch_analysis_panel.load_files_from_external(filepaths)
+            else:
+                QMessageBox.warning(self, "接口错误", "无法找到音频分析模块的批量加载接口。")
+        else:
+            QMessageBox.warning(self, "导航失败", "无法切换到音频分析模块。")
 
     # [新增] 将暂存区文件发送到批量处理插件的辅助方法
     def _send_staged_to_batch_processor(self):
