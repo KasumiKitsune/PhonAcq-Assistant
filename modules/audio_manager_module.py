@@ -1733,14 +1733,38 @@ class AudioManagerPage(QWidget):
 
     def send_to_audio_analysis(self, filepath):
         """
-        调用主窗口的公共API来切换到音频分析模块并加载文件。
+        [v2.0 - 模式切换修复版]
+        调用主窗口的公共API来切换到音频分析模块并加载单个文件。
+        此版本增加了在加载前强制切换到“单个文件”模式的机制，
+        确保无论用户之前处于何种模式，加载行为都正确无误。
         """
-        # 再次进行安全检查
+        # 1. 安全检查，确保音频分析模块已加载 (保持不变)
         if not (hasattr(self.parent_window, 'go_to_audio_analysis') and callable(self.parent_window.go_to_audio_analysis)):
             QMessageBox.critical(self, "功能缺失", "主程序缺少必要的跳转功能 (go_to_audio_analysis)。")
             return
             
-        self.parent_window.go_to_audio_analysis(filepath)
+        # 2. 调用主窗口的导航 API，它会负责切换到“音频分析”主标签页
+        #    并返回 audio_analysis_page 实例
+        audio_analysis_page = self.parent_window.go_to_audio_analysis(filepath)
+
+        # 3. [核心修复] 在加载文件前，检查并设置正确的模式
+        if audio_analysis_page:
+            # 检查 mode_toggle 是否存在并且当前处于批量模式 (checked)
+            if hasattr(audio_analysis_page, 'mode_toggle') and audio_analysis_page.mode_toggle.isChecked():
+                # 如果是，则以编程方式将其切换回单个文件模式
+                audio_analysis_page.mode_toggle.setChecked(False)
+                # 给予UI一点时间来处理模式切换的事件
+                QApplication.processEvents()
+        
+        # 4. go_to_audio_analysis 内部已经调用了 load_audio_file,
+        #    但为了确保在模式切换后逻辑依然稳健，我们可以在 go_to_audio_analysis 中调整。
+        #    或者，如果 go_to_audio_analysis 只负责导航，我们在这里加载。
+        #    根据 Canary.py 的实现，go_to_audio_analysis 会返回页面实例并加载文件。
+        #    我们的任务是确保在它加载之前，模式是正确的。
+        #    为了更稳健，我们在这里再调用一次 load_audio_file 确保覆盖。
+        #    （更好的做法是修改 go_to_audio_analysis，但为了最小化改动，我们这样做）
+        if audio_analysis_page and hasattr(audio_analysis_page, 'load_audio_file'):
+             audio_analysis_page.load_audio_file(filepath)
 
     def delete_selected_files(self):
         """删除所有在表格中被选中的文件。"""

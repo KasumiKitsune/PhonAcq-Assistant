@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem, QFileDialog, QMessageBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QComboBox, QShortcut,
     QUndoStack, QUndoCommand, QApplication, QMenu, QDialog,
-    QStyledItemDelegate, QTabWidget, QStyle # [核心新增] 导入 QStyledItemDelegate
+    QStyledItemDelegate, QTabWidget, QStyle, QSlider, QGroupBox, QCheckBox, QFormLayout # [核心新增] 导入 QStyledItemDelegate
 )
 from PyQt5.QtCore import Qt, QSize, QEvent, QTimer, QRect
 from PyQt5.QtGui import QKeySequence, QIcon, QPainter, QFontMetrics, QPixmap, QPalette # [核心新增] 导入 QPainter, QFontMetrics, QPixmap
@@ -378,10 +378,24 @@ class MetadataDialog(QDialog):
             self.table.insertRow(row)
             
             key_item = QTableWidgetItem(key)
-            val_item = QTableWidgetItem(str(value))
+            
+            # --- [核心修改] ---
+            display_value = str(value) # 默认显示原始值
+            if key == 'save_date':
+                try:
+                    # 尝试将 ISO 格式字符串解析为 datetime 对象
+                    dt_object = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+                    # 格式化为更友好的本地时间显示
+                    display_value = dt_object.strftime('%Y-%m-%d %H:%M')
+                except (ValueError, TypeError):
+                    # 如果解析失败，安全回退
+                    pass 
+            
+            val_item = QTableWidgetItem(display_value)
+            # --- [修改结束] ---
             
             # 核心键 (如 format, version) 不可编辑
-            if key in ['format', 'version']:
+            if key in ['format', 'version', 'save_date']: # 将 save_date 也设为不可编辑
                 key_item.setFlags(key_item.flags() & ~Qt.ItemIsEditable)
                 val_item.setFlags(val_item.flags() & ~Qt.ItemIsEditable)
 
@@ -430,6 +444,7 @@ class WordlistEditorPage(QWidget):
     def __init__(self, parent_window, WORD_LIST_DIR, icon_manager, detect_language_func):
         super().__init__()
         self.parent_window = parent_window
+        self.config = self.parent_window.config
         self.WORD_LIST_DIR = WORD_LIST_DIR
         self.icon_manager = icon_manager
         self.detect_language_func = detect_language_func
@@ -447,7 +462,8 @@ class WordlistEditorPage(QWidget):
         self.base_path = get_base_path_for_module()
         self.flags_path = os.path.join(self.base_path, 'assets', 'flags')
         self.tts_utility_hook = None
-
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self._perform_autosave)
         # [核心修复] 将 language_delegate 的实例化移到 _init_ui() 调用之前
         self.language_delegate = LanguageDelegate(self)
 
@@ -456,6 +472,7 @@ class WordlistEditorPage(QWidget):
         self.update_icons()
         self.apply_layout_settings()
         self.refresh_file_list()
+        self._apply_autosave_setting()
 
     def _init_ui(self):
         """构建页面的用户界面布局。"""
@@ -466,8 +483,7 @@ class WordlistEditorPage(QWidget):
         left_layout = QVBoxLayout(self.left_panel)
         
         left_layout.addWidget(QLabel("单词表文件:"))
-        
-        self.file_list_widget = AnimatedListWidget()
+        self.file_list_widget = AnimatedListWidget(icon_manager=self.icon_manager)
         
         self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_list_widget.setToolTip("所有可编辑的单词表文件。\n右键单击可进行更多操作。")
@@ -509,7 +525,26 @@ class WordlistEditorPage(QWidget):
         table_btn_layout = QHBoxLayout()
         self.undo_btn = QPushButton("撤销")
         self.redo_btn = QPushButton("重做")
-        self.auto_detect_lang_btn = QPushButton("自动检测语言")
+        self.auto_detect_lang_btn = QPushButton("检测语言")
+        # --- [核心修改 v2.0] ---
+        # 1. 创建一个新的 QWidget 作为容器，而不是一个简单的 QLabel
+        self.autosave_status_container = QWidget()
+        status_layout = QHBoxLayout(self.autosave_status_container)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(5) # 图标和文字之间的间距
+
+        # 2. 创建用于显示图标和文本的两个 QLabel
+        self.autosave_status_icon = QLabel()
+        self.autosave_status_text = QLabel("")
+        self.autosave_status_text.setObjectName("SubtleStatusLabel")
+
+        # 3. 将图标和文本标签添加到容器的布局中
+        status_layout.addWidget(self.autosave_status_icon)
+        status_layout.addWidget(self.autosave_status_text)
+        
+        # 4. 默认隐藏整个容器
+        self.autosave_status_container.hide()
+        # --- [修改结束] ---
         self.add_row_btn = QPushButton("添加行")
         self.remove_row_btn = QPushButton("移除选中行")
         self.remove_row_btn.setObjectName("ActionButton_Delete")
@@ -518,6 +553,7 @@ class WordlistEditorPage(QWidget):
         table_btn_layout.addWidget(self.redo_btn)
         table_btn_layout.addStretch()
         table_btn_layout.addWidget(self.auto_detect_lang_btn)
+        table_btn_layout.addWidget(self.autosave_status_container)
         table_btn_layout.addStretch()
         table_btn_layout.addWidget(self.add_row_btn)
         table_btn_layout.addWidget(self.remove_row_btn)
@@ -526,6 +562,51 @@ class WordlistEditorPage(QWidget):
 
         main_layout.addWidget(self.left_panel)
         main_layout.addWidget(right_panel, 1)
+
+    def _apply_autosave_setting(self):
+        """
+        [新增] 根据当前配置，启动或停止自动保存定时器。
+        """
+        module_states = self.config.get("module_states", {}).get("wordlist_editor", {})
+        is_enabled = module_states.get("autosave_enabled", False)
+        
+        if is_enabled and self.current_wordlist_path and self.is_data_dirty():
+            interval_minutes = module_states.get("autosave_interval_minutes", 15)
+            interval_ms = interval_minutes * 60 * 1000
+            self.autosave_timer.start(interval_ms)
+        else:
+            self.autosave_timer.stop()
+
+    def _perform_autosave(self):
+        """
+        [v2.1 - 带图标版]
+        定时器触发时执行的自动保存槽函数。
+        保存成功后，在UI上显示一个带图标的、短暂的状态提示。
+        """
+        if self.current_wordlist_path and self.is_data_dirty():
+            path_to_save = self.current_wordlist_path
+            
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 自动保存: {os.path.basename(path_to_save)}")
+            
+            self._write_to_file(path_to_save, is_silent=True)
+
+            if not self.is_data_dirty():
+                # --- [核心修改] ---
+                # 1. 从 IconManager 获取 "success" 图标
+                icon = self.icon_manager.get_icon("success")
+                # 2. 将图标转换为适合标签显示的 QPixmap (16x16 像素)
+                pixmap = icon.pixmap(QSize(24, 24))
+                # 3. 设置图标和文本
+                self.autosave_status_icon.setPixmap(pixmap)
+                time_str = datetime.now().strftime('%H:%M')
+                self.autosave_status_text.setText(f"已于 {time_str} 自动保存")
+                
+                # 4. 显示整个容器
+                self.autosave_status_container.show()
+                
+                # 5. 启动一个4秒后自动隐藏容器的定时器
+                QTimer.singleShot(4000, self.autosave_status_container.hide)
+                # --- [修改结束] ---
 
     def load_file_from_path(self, filepath):
         """
@@ -592,6 +673,21 @@ class WordlistEditorPage(QWidget):
             except Exception as e:
                 print(f"自动保存强制列宽设置失败: {e}", file=sys.stderr)
 
+    def open_settings_dialog(self):
+        """
+        [新增] 打开此模块的设置对话框，并在确认后请求刷新以应用设置。
+        """
+        # 1. 检查文件管理器插件是否可用
+        file_manager_plugin = self.parent_window.plugin_manager.get_plugin_instance("com.phonacq.file_manager")
+        is_plugin_available = file_manager_plugin is not None and hasattr(file_manager_plugin, 'move_to_trash')
+
+        # 2. 实例化对话框，并传入插件可用状态
+        dialog = SettingsDialog(self, file_manager_available=is_plugin_available)
+        
+        # 3. 如果用户点击 "OK"，则刷新整个模块
+        if dialog.exec_() == QDialog.Accepted:
+            self.parent_window.request_tab_refresh(self)
+
     def on_column_resized(self, logical_index, old_size, new_size):
         """
         当表格列大小被用户调整时，保存新的列宽到配置文件中。
@@ -623,41 +719,71 @@ class WordlistEditorPage(QWidget):
 
     def refresh_file_list(self):
         """
-        刷新左侧的词表文件列表。
-        保留当前选中项，并在文件列表中重新排序。
+        [v2.0 - 层级感知版]
+        扫描词表目录，构建层级数据结构，并使用 AnimatedListWidget 显示。
         """
         if hasattr(self, 'parent_window'):
             self.apply_layout_settings()
             self.update_icons()
 
-        current_selection = self.file_list_widget.currentItem().text() if self.file_list_widget.currentItem() else ""
+        base_dir = self.WORD_LIST_DIR
+        hierarchical_data = []
         
-        # 这里调用 clear() 方法，它已经被 AnimatedListWidget 覆盖，会安全地处理动画
-        self.file_list_widget.clear()
-        
-        if os.path.exists(self.WORD_LIST_DIR):
-            files = sorted([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
-            
-            # 调用新的动画填充方法
-            self.file_list_widget.addItemsWithAnimation(files)
-            
-            # 尝试重新选中之前的文件
-            if current_selection:
-                for i in range(self.file_list_widget.count()):
-                    if self.file_list_widget.item(i).text() == current_selection:
-                        self.file_list_widget.setCurrentRow(i)
-                        break
+        try:
+            # --- 遍历词表根目录 ---
+            for entry in os.scandir(base_dir):
+                # 1. 处理根目录下的文件夹
+                if entry.is_dir():
+                    folder_path = entry.path
+                    children = []
+                    # 扫描子文件夹内的 .json 文件
+                    for sub_entry in os.scandir(folder_path):
+                        if sub_entry.is_file() and sub_entry.name.endswith('.json'):
+                            children.append({
+                                'type': 'item',
+                                'text': sub_entry.name,
+                                'icon': self.icon_manager.get_icon("document"),
+                                'data': {'path': sub_entry.path}
+                            })
+                    
+                    if children:
+                        children.sort(key=lambda x: x['text'])
+                        hierarchical_data.append({
+                            'type': 'folder',
+                            'text': entry.name,
+                            'icon': self.icon_manager.get_icon("folder"),
+                            'children': children
+                        })
+
+                # 2. 处理根目录下的 .json 文件
+                elif entry.is_file() and entry.name.endswith('.json'):
+                    hierarchical_data.append({
+                        'type': 'item',
+                        'text': entry.name,
+                        'icon': self.icon_manager.get_icon("document"),
+                        'data': {'path': entry.path}
+                    })
+
+            # 对顶层项目进行排序
+            hierarchical_data.sort(key=lambda x: (x['type'] != 'folder', x['text']))
+
+            # 使用 AnimatedListWidget 的新API设置数据
+            self.file_list_widget.setHierarchicalData(hierarchical_data)
+
+        except Exception as e:
+            print(f"Error refreshing file list: {e}", file=sys.stderr)
+            QMessageBox.critical(self, "错误", f"扫描词表目录时发生错误: {e}")
 
     def check_dirty_state(self):
         """
-        [新增] 检查当前的“脏”状态，并相应地更新UI（保存按钮和“*”标记）。
-        这是所有状态更新的唯一入口。
+        [修改] 检查当前的“脏”状态，并相应地更新UI及自动保存定时器。
         """
         is_dirty = self.is_data_dirty()
         self.save_btn.setEnabled(is_dirty)
         
         current_item = self.file_list_widget.currentItem()
         if not current_item:
+            self.autosave_timer.stop() # 没有文件打开，停止定时器
             return
 
         current_text = current_item.text()
@@ -667,12 +793,15 @@ class WordlistEditorPage(QWidget):
             current_item.setText(f"{current_text} *")
         elif not is_dirty and has_indicator:
             current_item.setText(current_text[:-2])
+            
+        # --- [新增] 每次状态变化时，重新评估是否启动/停止定时器 ---
+        self._apply_autosave_setting()
 
     def setup_connections_and_shortcuts(self):
         """设置所有UI控件的信号槽连接和键盘快捷键。"""
         # 文件列表操作
         self.file_list_widget.currentItemChanged.connect(self.on_file_selected)
-        self.file_list_widget.itemDoubleClicked.connect(self.on_file_double_clicked)
+        self.file_list_widget.item_activated.connect(self.on_file_item_activated)
         self.file_list_widget.customContextMenuRequested.connect(self.show_file_context_menu)
         
         # 文件操作按钮
@@ -778,49 +907,52 @@ class WordlistEditorPage(QWidget):
         QMessageBox.information(self, "检测完成", f"成功检测并填充了 {detected_count} 个词条的语言。")
     # --- 文件列表的上下文菜单和操作 ---
 
-    def on_file_double_clicked(self, item):
-        """双击文件列表项，在文件浏览器中显示该文件。"""
+    def on_file_item_activated(self, item):
+        """
+        [已修复] 当一个最终的文件项目被激活时（通过双击或回车），
+        打开其元数据配置。
+        """
+        # 内部逻辑完全不变，因为 AnimatedListWidget 已经确保了
+        # 只有 'item' 类型的项目才会触发这个信号。
         self._configure_metadata(item)
 
     def show_file_context_menu(self, position):
         item = self.file_list_widget.itemAt(position)
         if not item: return
 
+        self.file_list_widget.setCurrentItem(item)
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if not item_data: return
+
+        item_type = item_data.get('type')
         menu = QMenu(self.file_list_widget)
         
-        config_action = menu.addAction(self.icon_manager.get_icon("settings"), "配置...")
-        config_action.setToolTip("编辑词表的元数据，如作者、描述等。")
-        menu.addSeparator()
-
-        show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
-        
-        # [新增] 检查钩子是否存在，如果存在则添加“发送到TTS”菜单项
-        if self.tts_utility_hook:
+        if item_type == 'item':
+            # 文件菜单
+            config_action = menu.addAction(self.icon_manager.get_icon("settings"), "配置元数据...")
             menu.addSeparator()
-            send_to_tts_action = menu.addAction(self.icon_manager.get_icon("tts"), "发送到TTS工具")
-            send_to_tts_action.setToolTip("将此词表加载到TTS工具中进行批量转换。")
-            send_to_tts_action.triggered.connect(lambda: self.send_to_tts(item))
-
-        # 检查是否有分割器插件的钩子
-        if hasattr(self, 'tts_splitter_plugin_active'):
+            show_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中显示")
+            if self.tts_utility_hook:
+                menu.addSeparator()
+                tts_action = menu.addAction(self.icon_manager.get_icon("tts"), "发送到TTS工具")
+                tts_action.triggered.connect(lambda: self.send_to_tts(item))
             menu.addSeparator()
-            splitter_action = menu.addAction(self.icon_manager.get_icon("cut"), "发送到批量分割器")
-            splitter_action.triggered.connect(lambda: self.send_to_splitter(item))
+            duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
+            delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
+            
+            action = menu.exec_(self.file_list_widget.mapToGlobal(position))
+            if action == config_action: self._configure_metadata(item)
+            elif action == show_action: self._show_in_explorer(item)
+            elif action == duplicate_action: self._duplicate_file(item)
+            elif action == delete_action: self._delete_file(item)
 
-        menu.addSeparator()
-        duplicate_action = menu.addAction(self.icon_manager.get_icon("copy"), "创建副本")
-        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), "删除")
-        
-        action = menu.exec_(self.file_list_widget.mapToGlobal(position))
+        elif item_type == 'folder':
+            # 文件夹菜单
+            expand_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "展开")
+            # ... (可以添加重命名、删除文件夹等功能) ...
+            action = menu.exec_(self.file_list_widget.mapToGlobal(position))
+            if action == expand_action: self.file_list_widget._handle_item_activation(item)
 
-        if action == config_action:
-            self._configure_metadata(item)
-        elif action == show_action:
-            self._show_in_explorer(item)
-        elif action == duplicate_action:
-            self._duplicate_file(item)
-        elif action == delete_action:
-            self._delete_file(item)
 
     def send_to_splitter(self, item):
         if not item: return
@@ -831,174 +963,151 @@ class WordlistEditorPage(QWidget):
             wordlist_path = os.path.join(self.WORD_LIST_DIR, clean_filename)
             splitter_plugin.execute(wordlist_path=wordlist_path)
 
+    def _get_path_from_item(self, item):
+        """[新增] 统一的辅助函数，从item安全地获取文件路径。"""
+        if not item: return None
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if item_data and item_data.get('type') == 'item':
+            return item_data.get('data', {}).get('path')
+        return None
+
     def _show_in_explorer(self, item):
-        if not item: return
-        
-        # [核心修复] 清理文件名
-        clean_filename = item.text().replace(" *", "")
-        filepath = os.path.join(self.WORD_LIST_DIR, clean_filename)
-        
-        if not os.path.exists(filepath):
+        filepath = self._get_path_from_item(item)
+        if not filepath or not os.path.exists(filepath):
             QMessageBox.warning(self, "文件不存在", "该文件可能已被移动或删除。")
             self.refresh_file_list()
             return
-        
         try:
-            # 根据操作系统调用不同的命令打开文件浏览器并选中文件
-            if sys.platform == 'win32':
-                subprocess.run(['explorer', '/select,', os.path.normpath(filepath)])
-            elif sys.platform == 'darwin':
-                subprocess.check_call(['open', '-R', filepath])
-            else: # Linux
-                subprocess.check_call(['xdg-open', os.path.dirname(filepath)]) # Linux 通常只能打开文件夹
+            if sys.platform == 'win32': subprocess.run(['explorer', '/select,', os.path.normpath(filepath)])
+            elif sys.platform == 'darwin': subprocess.check_call(['open', '-R', filepath])
+            else: subprocess.check_call(['xdg-open', os.path.dirname(filepath)])
         except Exception as e:
             QMessageBox.critical(self, "操作失败", f"无法打开文件所在位置: {e}")
 
     def _duplicate_file(self, item):
-        """
-        创建当前选中词表文件的副本。
-        :param item: QListWidgetItem 实例，代表要复制的文件。
-        """
-        if not item:
-            return
-        clean_filename = item.text().replace(" *", "")
-        src_path = os.path.join(self.WORD_LIST_DIR, clean_filename)
-        
-        if not os.path.exists(src_path):
+        src_path = self._get_path_from_item(item)
+        if not src_path or not os.path.exists(src_path):
             QMessageBox.warning(self, "文件不存在", "无法创建副本，源文件可能已被移动或删除。")
-            self.refresh_file_list()
-            return
-
-        # 生成新的文件名，避免与现有文件冲突
-        base, ext = os.path.splitext(clean_filename)
-        dest_path = os.path.join(self.WORD_LIST_DIR, f"{base}_copy{ext}")
+            self.refresh_file_list(); return
+        base, ext = os.path.splitext(os.path.basename(src_path))
+        dest_dir = os.path.dirname(src_path)
+        dest_path = os.path.join(dest_dir, f"{base}_copy{ext}")
         i = 1
         while os.path.exists(dest_path):
-            dest_path = os.path.join(self.WORD_LIST_DIR, f"{base}_copy_{i}{ext}")
+            dest_path = os.path.join(dest_dir, f"{base}_copy_{i}{ext}")
             i += 1
-        
         try:
-            shutil.copy2(src_path, dest_path) # 复制文件，保留元数据
-            self.refresh_file_list() # 刷新列表以显示新副本
+            shutil.copy2(src_path, dest_path)
+            self.refresh_file_list()
         except Exception as e:
             QMessageBox.critical(self, "操作失败", f"无法创建副本: {e}")
 
-    def _delete_file(self, item):
-        """
-        [vFinal] 删除当前选中词表文件，并正确处理带有“*”标记的文件名。
-        """
-        if not item:
-            return
-            
-        # [核心修复] 在构建路径前，先清理掉文件名末尾的“ *”
-        clean_filename = item.text().replace(" *", "")
-        filepath = os.path.join(self.WORD_LIST_DIR, clean_filename)
-        
-        # 使用清理后的文件名进行用户提示
-        reply = QMessageBox.question(self, "确认删除", f"您确定要永久删除文件 '{clean_filename}' 吗？\n此操作不可撤销。",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            try:
-                os.remove(filepath) # 使用正确的文件路径进行删除
-                
-                # 如果删除的是当前正在编辑的文件，则清空UI
-                if filepath == self.current_wordlist_path:
-                    self.current_wordlist_path = None
-                    self.original_data_snapshot = None
-                    self.table_widget.setRowCount(0)
-                    self._add_placeholder_row()
-                    self.undo_stack.clear()
-                    self.check_dirty_state()
-
-                # 刷新文件列表
-                self.refresh_file_list() 
-            except Exception as e:
-                QMessageBox.critical(self, "删除失败", f"无法删除文件: {e}")
 
     def _configure_metadata(self, item):
-        if not item: return
-
-        # [核心修复] 清理文件名
-        clean_filename = item.text().replace(" *", "")
-        filepath = os.path.join(self.WORD_LIST_DIR, clean_filename)
-        
+        filepath = self._get_path_from_item(item)
+        if not filepath: return
         try:
-            # 1. 读取 JSON 文件内容
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # 确保 'meta' 键存在，如果不存在则添加默认元数据
-            if 'meta' not in data:
-                data['meta'] = {"format": "standard_wordlist", "version": "1.0"}
-
-            # 2. 创建并显示元数据编辑对话框
+            with open(filepath, 'r', encoding='utf-8') as f: data = json.load(f)
+            if 'meta' not in data: data['meta'] = {"format": "standard_wordlist", "version": "1.0"}
             dialog = MetadataDialog(data['meta'], self, self.icon_manager)
             if dialog.exec_() == QDialog.Accepted:
-                # 3. 如果用户点击 "保存"，获取更新后的元数据
-                updated_meta = dialog.get_metadata()
-                data['meta'] = updated_meta
-                
-                # 4. 将更新后的完整数据结构写回文件
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=4, ensure_ascii=False)
-                
+                data['meta'] = dialog.get_metadata()
+                with open(filepath, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4, ensure_ascii=False)
                 QMessageBox.information(self, "成功", f"文件 '{item.text()}' 的元数据已更新。")
-                
-                # 如果配置的是当前打开的文件，则刷新表格以反映任何元数据变化（尽管通常不会直接影响表格内容）
                 if filepath == self.current_wordlist_path:
-                    # [核心重构] 元数据修改不影响表格内容，但保存后应更新快照以反映文件实际状态
                     self.original_data_snapshot = self._build_data_from_table()
                     self.check_dirty_state()
-
         except Exception as e:
             QMessageBox.critical(self, "操作失败", f"处理元数据时发生错误: {e}")
 
     # --- 文件加载和保存 ---
 
+    def _confirm_and_handle_dirty_state(self, previous_item):
+        """
+        [新增] 这是一个“守卫”函数。在状态切换前，检查并处理未保存的更改。
+        
+        Returns:
+            bool: True 如果可以继续进行状态切换 (已保存或已丢弃)。
+                  False 如果用户取消了操作，状态切换应被中止。
+        """
+        if not self.is_data_dirty() or not previous_item:
+            return True # 如果数据是干净的，或者没有前一个项目，则直接允许继续
+
+        # 从 item data 中安全地获取前一个文件的路径
+        prev_data = previous_item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        previous_path = prev_data.get('data', {}).get('path') if prev_data and prev_data.get('type') == 'item' else None
+
+        # 弹出对话框
+        reply = QMessageBox.question(self, "未保存的更改",
+                                     f"文件 '{previous_item.text().replace(' *', '')}' 有未保存的更改。\n\n您想先保存吗？",
+                                     QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                                     QMessageBox.Cancel)
+
+        if reply == QMessageBox.Save:
+            if previous_path:
+                self._write_to_file(previous_path)
+                # 再次检查，如果保存后数据仍然是脏的（例如保存失败），则认为操作被取消
+                if self.is_data_dirty():
+                    return False 
+                return True
+            else:
+                QMessageBox.warning(self, "保存失败", "无法确定要保存的文件路径。")
+                return False # 无法确定路径，取消操作
+
+        elif reply == QMessageBox.Discard:
+            return True # 用户选择丢弃，允许继续
+
+        elif reply == QMessageBox.Cancel:
+            return False # 用户取消，中止操作
+            
+        return False # 默认情况下，中止操作
+
     def on_file_selected(self, current, previous):
         """
-        当用户在文件列表中选择不同的文件时触发。
-        检查是否有未保存的更改，并加载新文件。
-        同时处理“脏”状态（*）标记的移除。
+        [vFinal - 非破坏性选择版]
+        - 点击空白处取消选择时，保留表格内容和编辑状态。
+        - 只有在从一个文件切换到另一个文件时，才提示保存。
+        - 点击文件夹不会触发状态更改。
         """
+        # --- 守卫 1: 如果没有选中项，则什么都不做 ---
+        if current is None:
+            # 用户取消了选择，我们保留所有UI状态和数据不变。
+            # 只需要确保“*”标记是正确的。
+            self.check_dirty_state() 
+            return
+
+        current_data = current.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        
+        # --- 守卫 2: 如果选中的不是一个'item' (文件)，则也什么都不做 ---
+        if not current_data or current_data.get('type') != 'item':
+            # 用户点击了文件夹或返回按钮，我们不改变编辑区的内容。
+            return
+
+        # --- 只有当用户确实从一个文件切换到另一个文件时，才执行以下逻辑 ---
+        if previous and previous != current:
+            # 1. 请求“守卫”函数的许可
+            can_proceed = self._confirm_and_handle_dirty_state(previous)
+
+            # 2. 如果“守卫”不允许继续
+            if not can_proceed:
+                # 恢复之前的选择并中止
+                self.file_list_widget.blockSignals(True)
+                self.file_list_widget.setCurrentItem(previous)
+                self.file_list_widget.blockSignals(False)
+                self.check_dirty_state()
+                return
+        
+        # --- 执行加载新文件的逻辑 ---
+        
+        # 清理旧项目的“*”标记（如果存在）
         if previous and previous.text().endswith(" *"):
              previous.setText(previous.text()[:-2])
 
-        # [核心重构] 使用 is_data_dirty() 进行判断
-        if self.is_data_dirty() and previous:
-            reply = QMessageBox.question(self, "未保存的更改", 
-                                         f"文件 '{previous.text()}' 有未保存的更改。\n\n您想先保存吗？",
-                                         QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                                         QMessageBox.Cancel)
-            
-            if reply == QMessageBox.Save:
-                previous_path = os.path.join(self.WORD_LIST_DIR, previous.text())
-                self._write_to_file(previous_path)
-                if self.is_data_dirty(): # 如果保存后仍然是脏的（例如保存失败）
-                    self.check_dirty_state() # 重新加上星号
-                    return
-            
-            elif reply == QMessageBox.Cancel:
-                self.file_list_widget.currentItemChanged.disconnect(self.on_file_selected)
-                self.file_list_widget.setCurrentItem(previous)
-                self.file_list_widget.currentItemChanged.connect(self.on_file_selected)
-                self.check_dirty_state() # 重新加上星号
-                return
-            
-            # 如果是Discard，则不做任何事，继续向下执行
-
-        if current:
-            clean_filename = current.text().replace(" *", "")
-            self.current_wordlist_path = os.path.join(self.WORD_LIST_DIR, clean_filename)
-            self.load_file_to_table()
-        else:
-            self.current_wordlist_path = None
-            self.original_data_snapshot = None
-            self.table_widget.setRowCount(0)
-            self._add_placeholder_row()
-            self.undo_stack.clear()
-            self.check_dirty_state()
+        # 加载新文件
+        self.current_wordlist_path = current_data.get('data', {}).get('path')
+        self.load_file_to_table()
+        self._apply_autosave_setting() # 检查是否需要为新文件启动定时器
+        self.check_dirty_state() # 加载后检查状态
 
     def load_file_to_table(self):
         """
@@ -1130,56 +1239,103 @@ class WordlistEditorPage(QWidget):
 
     def new_wordlist(self):
         """
-        [vFinal] 创建一个新的空单词表。
-        在执行前，会检查当前文件是否有未保存的更改。
+        [已修复] 创建一个新的空单词表。
+        在执行前，必须自己调用“守卫”函数检查是否有未保存的更改。
         """
-        # --- 1. 检查是否有未保存的更改 (此逻辑保持不变) ---
-        if self.is_data_dirty():
-            current_item = self.file_list_widget.currentItem()
-            filename = current_item.text().replace(" *", "") if current_item else "未命名文件"
-            
-            reply = QMessageBox.question(self, "未保存的更改", 
-                                         f"文件 '{filename}' 有未保存的更改。\n\n您想先保存吗？",
-                                         QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                                         QMessageBox.Cancel)
-            
-            if reply == QMessageBox.Save:
-                self.save_wordlist()
-                if self.is_data_dirty(): # 如果保存失败，则中止新建操作
-                    return
-            elif reply == QMessageBox.Cancel:
-                return # 用户取消，中止新建操作
-            # 如果是 Discard，则继续向下执行
+        # --- [核心修改] 在执行前调用“守卫” ---
+        can_proceed = self._confirm_and_handle_dirty_state(self.file_list_widget.currentItem())
+        if not can_proceed:
+            return # 如果用户取消，则中止新建操作
 
-        # --- 2. [核心修复] 执行新建操作 ---
-
-        # 无论之前是否有修改，都先将 undo_stack 标记为干净。
-        # 对于 Discard 的情况，这会重置状态；
-        # 对于已保存或原本就干净的情况，这没有副作用。
+        # --- 后续逻辑与之前类似，但更安全 ---
         self.undo_stack.setClean()
-
-        # 同样，移除旧文件（如果有）的 “*” 标记
         previous_item = self.file_list_widget.currentItem()
         if previous_item and previous_item.text().endswith(" *"):
              previous_item.setText(previous_item.text()[:-2])
         
-        # 现在可以安全地取消选中，而不会触发 on_file_selected 中的“脏”检查
         self.file_list_widget.setCurrentItem(None)
         
-        # 重置所有状态
         self.current_wordlist_path = None
         self.original_data_snapshot = None
         self.table_widget.setRowCount(0)
-        self.undo_stack.clear() # 彻底清空撤销历史
+        self.undo_stack.clear()
         
-        # 添加默认行
         self.add_row()
-        
-        # 将这个初始的空行状态设置为新的“干净”快照
-        self.original_data_snapshot = self._build_data_from_table() 
-        
-        # 立即检查并更新UI（此时应为干净状态）
+        self.original_data_snapshot = self._build_data_from_table()
         self.check_dirty_state()
+
+    def _delete_file(self, item):
+        """
+        [v2.0 - 重构版]
+        启动文件删除流程。首先检查未保存的更改，然后将删除请求传递给 _request_delete_wordlist 方法处理。
+        """
+        filepath = self._get_path_from_item(item)
+        if not filepath: return
+        
+        # 1. 删除前的“守卫”：检查被删除的文件是否就是当前正在编辑且有未保存更改的文件
+        if self.is_data_dirty() and filepath == self.current_wordlist_path:
+            reply = QMessageBox.question(self, "警告", 
+                                         f"文件 '{os.path.basename(filepath)}' 有未保存的更改。\n\n"
+                                         "如果继续删除，这些更改将丢失。是否继续？",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return # 用户取消删除，中止操作
+
+        # 2. [核心修改] 将实际的删除操作委托给新的请求处理方法
+        self._request_delete_wordlist(filepath)
+
+    # --- [核心新增] ---
+    # 新增一个“守衛”方法，用于统一处理文件删除请求，决定是移入回收站还是永久删除。
+    def _request_delete_wordlist(self, filepath):
+        """
+        [v2.0 - 配置感知版]
+        处理单个词表文件的删除请求。
+        根据用户设置决定是移入回收站还是永久删除。
+        """
+        if not filepath:
+            return
+
+        # 1. 从配置中读取用户首选的删除方式
+        module_states = self.config.get("module_states", {}).get("wordlist_editor", {})
+        use_recycle_bin_preference = module_states.get("use_recycle_bin", True)
+
+        # 2. 尝试获取文件管理器插件实例
+        file_manager_plugin = self.parent_window.plugin_manager.get_plugin_instance("com.phonacq.file_manager")
+        is_plugin_available = file_manager_plugin and hasattr(file_manager_plugin, 'move_to_trash')
+
+        delete_successful = False
+
+        # 3. 决策逻辑：只有在用户首选且插件可用时，才使用回收站
+        if use_recycle_bin_preference and is_plugin_available:
+            # --- 方案A: 使用插件的回收站功能 ---
+            success, message = file_manager_plugin.move_to_trash([filepath])
+            if success:
+                delete_successful = True
+            else:
+                QMessageBox.critical(self, "移至回收站失败", message)
+        else:
+            # --- 方案B: 回退到永久删除 ---
+            # (此处的永久删除逻辑保持不变)
+            reply = QMessageBox.question(self, "确认永久删除",
+                                         f"您确定要永久删除文件 '{os.path.basename(filepath)}' 吗？\n此操作不可撤销！",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                try:
+                    os.remove(filepath)
+                    delete_successful = True
+                except Exception as e:
+                    QMessageBox.critical(self, "删除失败", f"无法删除文件: {e}")
+
+        # 4. 如果删除成功，则更新UI (此部分逻辑保持不变)
+        if delete_successful:
+            if filepath == self.current_wordlist_path:
+                self.current_wordlist_path = None
+                self.original_data_snapshot = None
+                self.table_widget.setRowCount(0)
+                self._add_placeholder_row()
+                self.undo_stack.clear()
+                self.check_dirty_state()
+            self.refresh_file_list()
 
 
     def save_wordlist(self):
@@ -1207,65 +1363,54 @@ class WordlistEditorPage(QWidget):
                     self.file_list_widget.setCurrentRow(i)
                     break
 
-    def _write_to_file(self, filepath):
+    def _write_to_file(self, filepath, is_silent=False):
         """
+        [v2.0 - 静默模式版]
         将表格中的数据转换为 JSON 格式并写入文件。
         :param filepath: 目标文件路径。
+        :param is_silent: 如果为True，则不显示成功提示弹窗。
         """
-        groups_map = {} # 用于按组别ID组织数据
-        # 遍历时要排除最后一行（占位符）
+        groups_map = {}
         for row in range(self.table_widget.rowCount() - 1):
             try:
-                # 获取各个单元格内容
                 group_item = self.table_widget.item(row, 0)
                 word_item = self.table_widget.item(row, 1)
-                
-                # 确保组别ID和单词文本有效
                 if not group_item or not word_item or not group_item.text().isdigit() or not word_item.text().strip():
-                    continue # 跳过无效行
-
+                    continue
                 group_id = int(group_item.text())
                 text = word_item.text().strip()
-                
                 note_item = self.table_widget.item(row, 2)
                 note = note_item.text().strip() if note_item else ""
-                
-                lang_item = self.table_widget.item(row, 3) # 获取语言 item
-                lang = lang_item.data(Qt.UserRole) if lang_item else "" # 从 UserRole 获取语言代码
-
+                lang_item = self.table_widget.item(row, 3)
+                lang = lang_item.data(Qt.UserRole) if lang_item else ""
                 if group_id not in groups_map:
                     groups_map[group_id] = []
                 groups_map[group_id].append({"text": text, "note": note, "lang": lang})
             except (ValueError, AttributeError) as e:
                 print(f"写入文件时跳过无效行 {row}: {e}", file=sys.stderr)
-                continue # 捕获异常并跳过该行，不中断保存
+                continue
 
-        # 构建最终的 JSON 数据结构
         final_data_structure = {
-            "meta": {
-                "format": "standard_wordlist", # 词表格式
-                "version": "1.0",
-                "author": "PhonAcq Assistant",
-                "save_date": datetime.now().isoformat() # 保存时间
-            },
-            "groups": []
+            "meta": { "format": "standard_wordlist", "version": "1.0", "author": "PhonAcq Assistant", "save_date": datetime.now().isoformat() },
+            "groups": [{"id": group_id, "items": items} for group_id, items in sorted(groups_map.items())]
         }
-        # 按组别ID排序，并添加到 groups 列表中
-        for group_id, items in sorted(groups_map.items()):
-            final_data_structure["groups"].append({"id": group_id, "items": items})
         
         try:
-            # 写入 JSON 文件，使用 UTF-8 编码和4个空格缩进
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(final_data_structure, f, indent=4, ensure_ascii=False)
             
-            # [核心重构] 保存成功后，用当前表格数据更新快照
             self.original_data_snapshot = self._build_data_from_table()
-            self.undo_stack.setClean() # 标记为干净，以便下次可以撤销
-            self.check_dirty_state() # 立即更新UI状态（应为干净）
+            self.undo_stack.setClean()
+            self.check_dirty_state()
             
-            QMessageBox.information(self, "成功", f"单词表已成功保存至:\n{filepath}")
+            # --- [核心修改] ---
+            # 只有在非静默模式下才显示弹窗
+            if not is_silent:
+                QMessageBox.information(self, "成功", f"单词表已成功保存至:\n{filepath}")
+            # --- [修改结束] ---
+
         except Exception as e:
+            # 无论如何，保存失败的弹窗总是要显示的
             QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")
 
     def _build_data_from_table(self):
@@ -1569,52 +1714,54 @@ class WordlistEditorPage(QWidget):
         QApplication.clipboard().setText(table_str)
 
     def paste_selection(self):
-        """[vFinal] 将剪贴板内容粘贴到表格，并能正确处理超出范围的新行。"""
+        """[已修复] 将剪贴板内容粘贴到表格，稳健地处理新行创建。"""
         selection = self.table_widget.selectedRanges()
-        if not selection:
-            # 如果没有选中单元格，默认从 (0,0) 开始粘贴
-            start_row, start_col = 0, 0
-        else:
-            start_row, start_col = selection[0].topRow(), selection[0].leftColumn()
+        start_row = selection[0].topRow() if selection else 0
+        start_col = selection[0].leftColumn() if selection else 0
 
         text = QApplication.clipboard().text()
-        rows = text.strip('\n').split('\n')
+        rows_to_paste = text.strip('\n').split('\n')
+        if not rows_to_paste: return
 
         self.undo_stack.beginMacro("粘贴")
+
+        # 1. 预计算需要添加多少新行
+        current_data_rows = self.table_widget.rowCount() - 1 # 减去占位符行
+        required_rows = start_row + len(rows_to_paste)
+        rows_to_add = required_rows - current_data_rows
         
-        # [修改] 不再移除占位符行，因为新行是动态添加的
-        # self._remove_placeholder_row()
+        # 2. 如果需要，一次性添加所有新行
+        if rows_to_add > 0:
+            last_group_id = "1"
+            if current_data_rows > 0:
+                item = self.table_widget.item(current_data_rows - 1, 0)
+                if item and item.text().isdigit(): last_group_id = item.text()
+            
+            # 使用一个循环来推送多个 "add" 命令
+            for i in range(rows_to_add):
+                new_row_data = [[last_group_id, "", "", ""]]
+                cmd = WordlistRowOperationCommand(self, current_data_rows + i, new_row_data, 'add', description="为粘贴添加行")
+                self.undo_stack.push(cmd)
 
-        for i, row_text in enumerate(rows):
+        # 3. 逐个单元格进行粘贴
+        for i, row_text in enumerate(rows_to_paste):
             cells = row_text.split('\t')
-            target_row_abs = start_row + i
-
-            # [核心修复] 如果目标行超出当前行数，则用我们的 add_row 方法创建新行
-            if target_row_abs >= self.table_widget.rowCount() -1: # -1 是为了排除占位符
-                # 使用 add_row(at_row) 来创建，它会自动处理占位符和undo栈
-                # 注意：add_row 自己会推送undo命令，所以我们这里不需要再管
-                # 为了简单起见，我们直接插入空行
-                self._remove_placeholder_row()
-                self.table_widget.insertRow(target_row_abs)
-                self.populate_row(target_row_abs, ["1", "", "", ""]) # 用空数据填充
-                self._add_placeholder_row()
-
             for j, cell_text in enumerate(cells):
-                # ... (后续的粘贴逻辑保持不变) ...
-                target_col = start_col + j
-                if target_row_abs < self.table_widget.rowCount() -1 and target_col < self.table_widget.columnCount():
+                target_row, target_col = start_row + i, start_col + j
+                if target_col < self.table_widget.columnCount():
+                    # (粘贴单元格的逻辑保持不变)
                     if target_col == 3:
-                        lang_item = self.table_widget.item(target_row_abs, target_col)
-                        old_lang_code = lang_item.data(Qt.UserRole) if lang_item else ""
-                        new_lang_code = cell_text if cell_text in LANGUAGE_MAP.values() else ""
-                        if old_lang_code != new_lang_code:
-                            cmd = WordlistChangeLanguageCommand(self, target_row_abs, old_lang_code, new_lang_code, "粘贴语言")
+                        item = self.table_widget.item(target_row, target_col)
+                        old_code = item.data(Qt.UserRole) if item else ""
+                        new_code = cell_text if cell_text in LANGUAGE_MAP.values() else ""
+                        if old_code != new_code:
+                            cmd = WordlistChangeLanguageCommand(self, target_row, old_code, new_code, "粘贴语言")
                             self.undo_stack.push(cmd)
                     else:
-                        item = self.table_widget.item(target_row_abs, target_col)
+                        item = self.table_widget.item(target_row, target_col)
                         old_text = item.text() if item else ""
                         if old_text != cell_text:
-                            cmd = WordlistChangeCellCommand(self, target_row_abs, target_col, old_text, cell_text, "粘贴单元格")
+                            cmd = WordlistChangeCellCommand(self, target_row, target_col, old_text, cell_text, "粘贴单元格")
                             self.undo_stack.push(cmd)
                             
         self.undo_stack.endMacro()
@@ -1712,23 +1859,24 @@ class WordlistEditorPage(QWidget):
 
     def send_to_tts(self, item):
         """
-        [新增] 将选中的词表路径发送到TTS工具模块。
+        [已修复] 将选中的词表（无论层级）发送到TTS工具模块。
         """
         if not item: return
         
+        # [核心修复] 使用我们之前创建的辅助函数来安全地获取完整路径
+        wordlist_path = self._get_path_from_item(item)
+        if not wordlist_path:
+            QMessageBox.warning(self, "操作无效", "选中的项目不是一个有效的词表文件。")
+            return
+
         # 确保钩子仍然有效
         if self.tts_utility_hook and hasattr(self.tts_utility_hook, 'load_wordlist_from_file'):
-            clean_filename = item.text().replace(" *", "")
-            wordlist_path = os.path.join(self.WORD_LIST_DIR, clean_filename)
-            
-            # 1. 调用主窗口的API切换到“实用工具”主标签页
-            #    (假设TTS工具在“实用工具”下)
+            # --- 切换Tab的逻辑保持不变 ---
             main_tabs = self.parent_window.main_tabs
             for i in range(main_tabs.count()):
                 if main_tabs.tabText(i) == "实用工具":
                     main_tabs.setCurrentIndex(i)
                     sub_tabs = main_tabs.widget(i)
-                    # 2. 切换到“TTS 工具”子标签页
                     if sub_tabs and isinstance(sub_tabs, QTabWidget):
                          for j in range(sub_tabs.count()):
                             if sub_tabs.tabText(j) == "TTS 工具":
@@ -1736,5 +1884,113 @@ class WordlistEditorPage(QWidget):
                                 break
                     break
             
-            # 3. 延时调用TTS工具的加载方法，确保UI已切换完成
+            # 使用正确的、完整的路径调用TTS工具
             QTimer.singleShot(50, lambda: self.tts_utility_hook.load_wordlist_from_file(wordlist_path))
+        else:
+            QMessageBox.warning(self, "TTS工具不可用", "无法找到TTS工具或其加载功能。")
+# --- [核心新增] ---
+# 为“通用词表编辑器”模块定制的设置对话框
+class SettingsDialog(QDialog):
+    """
+    一个专门用于配置“通用词表编辑器”模块的对话框。
+    """
+    def __init__(self, parent_page, file_manager_available):
+        super().__init__(parent_page)
+        
+        self.parent_page = parent_page
+        self.setWindowTitle("通用词表编辑器设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(450)
+        
+        # 主布局
+        layout = QVBoxLayout(self)
+        
+        # --- 组1: 自动保存 ---
+        autosave_group = QGroupBox("自动保存")
+        autosave_form_layout = QFormLayout(autosave_group)
+        
+        self.autosave_checkbox = QCheckBox("启用自动保存")
+        self.autosave_checkbox.setToolTip("勾选后，编辑器将在指定的时间间隔内自动保存当前打开的文件。")
+        
+        autosave_interval_layout = QHBoxLayout()
+        self.interval_slider = QSlider(Qt.Horizontal)
+        self.interval_slider.setRange(1, 30) # 1到30分钟
+        self.interval_slider.setToolTip("设置自动保存的时间间隔（分钟）。")
+        self.interval_label = QLabel("15 分钟")
+        self.interval_label.setFixedWidth(60)
+        autosave_interval_layout.addWidget(self.interval_slider)
+        autosave_interval_layout.addWidget(self.interval_label)
+        
+        autosave_form_layout.addRow(self.autosave_checkbox)
+        autosave_form_layout.addRow("保存间隔:", autosave_interval_layout)
+        
+        layout.addWidget(autosave_group)
+
+        # --- 组2: 文件操作 ---
+        file_op_group = QGroupBox("文件操作")
+        file_op_form_layout = QFormLayout(file_op_group)
+        
+        self.recycle_bin_checkbox = QCheckBox("删除时移至回收站")
+        self.recycle_bin_checkbox.setToolTip("勾选后，删除的文件将进入回收站（如果可用）。\n取消勾选则会直接永久删除。")
+        self.recycle_bin_checkbox.setEnabled(file_manager_available)
+        if not file_manager_available:
+            self.recycle_bin_checkbox.setToolTip("此选项需要 '文件管理器' 插件被启用。")
+
+        file_op_form_layout.addRow(self.recycle_bin_checkbox)
+        layout.addWidget(file_op_group)
+
+        # --- 组3: 快捷键 (占位符) ---
+        shortcut_group = QGroupBox("快捷键")
+        shortcut_layout = QVBoxLayout(shortcut_group)
+        shortcut_label = QLabel("自定义快捷键功能将在未来的版本中通过一个统一的“快捷键管理器”插件提供。")
+        shortcut_label.setWordWrap(True)
+        shortcut_layout.addWidget(shortcut_label)
+        layout.addWidget(shortcut_group)
+        
+        # OK 和 Cancel 按钮
+        from PyQt5.QtWidgets import QDialogButtonBox
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        
+        layout.addWidget(self.button_box)
+        
+        # 连接信号
+        self.autosave_checkbox.toggled.connect(self.interval_slider.setEnabled)
+        self.interval_slider.valueChanged.connect(lambda v: self.interval_label.setText(f"{v} 分钟"))
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        
+        self.load_settings()
+
+    def load_settings(self):
+        """从主配置加载所有设置并更新UI。"""
+        module_states = self.parent_page.config.get("module_states", {}).get("wordlist_editor", {})
+        
+        # 加载自动保存设置
+        autosave_enabled = module_states.get("autosave_enabled", False)
+        self.autosave_checkbox.setChecked(autosave_enabled)
+        self.interval_slider.setValue(module_states.get("autosave_interval_minutes", 15))
+        self.interval_slider.setEnabled(autosave_enabled)
+        self.interval_label.setText(f"{self.interval_slider.value()} 分钟")
+        
+        # 加载删除方式设置
+        self.recycle_bin_checkbox.setChecked(module_states.get("use_recycle_bin", True))
+
+    def save_settings(self):
+        """将UI上的所有设置保存回主配置。"""
+        main_window = self.parent_page.parent_window
+        
+        settings_to_save = {
+            "autosave_enabled": self.autosave_checkbox.isChecked(),
+            "autosave_interval_minutes": self.interval_slider.value(),
+            "use_recycle_bin": self.recycle_bin_checkbox.isChecked(),
+        }
+        
+        current_settings = main_window.config.get("module_states", {}).get("wordlist_editor", {})
+        current_settings.update(settings_to_save)
+        main_window.update_and_save_module_state('wordlist_editor', current_settings)
+
+    def accept(self):
+        """重写 accept 方法，在关闭对话框前先保存设置。"""
+        self.save_settings()
+        super().accept()

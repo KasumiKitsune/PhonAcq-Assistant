@@ -15,10 +15,10 @@ from collections import deque
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QHeaderView, QAbstractItemView,
-                             QLineEdit) # [新增] 导入 QLineEdit
+                             QLineEdit, QDialog, QSlider, QDialogButtonBox, QCheckBox) # [新增] 导入 QLineEdit
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtProperty
 from PyQt5.QtGui import QIcon, QPainter, QPen, QPalette, QColor
-
+from modules.custom_widgets_module import WordlistSelectionDialog
 try:
     import sounddevice as sd
     import soundfile as sf
@@ -98,7 +98,13 @@ class VoicebankRecorderPage(QWidget):
         self.icon_manager = icon_manager
         self.resolve_device_func = resolve_device_func
         self.config = self.parent_window.config
-        self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1; self.logger = None
+        self.session_active = False; self.is_recording = False
+        # [核心修改] 新增或修改以下属性
+        self.current_word_list = []
+        self.current_word_index = -1
+        self.current_wordlist_name = "" # 用于存储当前选中的词表相对路径
+        self.pinned_wordlists = []      # 用于支持固定功能
+        self.logger = None
         self.audio_folder = None # [新增] 用于存储当前会话的动态文件夹路径
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
         self.volume_history = deque(maxlen=5)
@@ -130,20 +136,33 @@ class VoicebankRecorderPage(QWidget):
         self.status_label = QLabel("状态：请选择一个单词表开始录制。")
         left_layout.addWidget(QLabel("待录制词语列表:")); left_layout.addWidget(self.list_widget); left_layout.addWidget(self.status_label)
         
-        control_group = QGroupBox("控制面板"); self.control_layout = QFormLayout(control_group) 
-        self.word_list_combo = QComboBox(); self.word_list_combo.setToolTip("选择一个用于录制提示音的单词表。")
+        control_group = QGroupBox("控制面板")
+        # [核心修改] 使用 QVBoxLayout 替换 QFormLayout
+        self.control_layout = QVBoxLayout(control_group) 
+        self.control_layout.setSpacing(10) # 增加控件间的垂直间距
+
+        # 创建所有控件...
+        wordlist_label = QLabel("选择单词表:") # 创建标签
+        self.word_list_select_btn = QPushButton("请选择单词表...")
+        self.word_list_select_btn.setToolTip("点击选择一个用于录制提示音的单词表。")
         
-        # [核心修改] 新增批次名称输入框
+        session_name_label = QLabel("录音批次名称:") # 创建标签
         self.session_name_input = QLineEdit()
-        self.session_name_input.setToolTip("为本次录制指定一个批次名称。\n如果名称已存在，程序会自动在后面添加数字后缀 (如 _1, _2)。\n留空则默认使用词表名。")
+        self.session_name_input.setToolTip("为本次录制指定一个批次名称...")
         
-        self.start_btn = QPushButton("加载词表并开始"); self.start_btn.setObjectName("AccentButton"); self.start_btn.setToolTip("加载选中的单词表，并开始一个新的录制会话。")
-        self.end_session_btn = QPushButton("结束当前会话"); self.end_session_btn.setObjectName("ActionButton_Delete"); self.end_session_btn.setToolTip("提前结束当前的录制会话。")
+        self.start_btn = QPushButton("加载词表并开始")
+        self.start_btn.setObjectName("AccentButton")
+        self.end_session_btn = QPushButton("结束当前会话")
+        self.end_session_btn.setObjectName("ActionButton_Delete")
         
-        self.control_layout.addRow("选择单词表:", self.word_list_combo)
-        self.control_layout.addRow("录音批次名称:", self.session_name_input) # 新增的行
-        self.control_layout.addRow(self.start_btn)
-        self.control_layout.addRow(self.end_session_btn)
+        # [核心修改] 按顺序将标签和控件逐个添加到 QVBoxLayout 中
+        self.control_layout.addWidget(wordlist_label)
+        self.control_layout.addWidget(self.word_list_select_btn)
+        self.control_layout.addWidget(session_name_label)
+        self.control_layout.addWidget(self.session_name_input)
+        self.control_layout.addStretch() # 添加弹簧将按钮推向底部
+        self.control_layout.addWidget(self.start_btn)
+        self.control_layout.addWidget(self.end_session_btn)
 
         self.end_session_btn.hide()
         self.recording_status_panel = QGroupBox("录音状态"); status_panel_layout = QVBoxLayout(self.recording_status_panel)
@@ -158,20 +177,29 @@ class VoicebankRecorderPage(QWidget):
         main_layout.addLayout(left_layout, 2); main_layout.addWidget(self.right_panel, 1)
 
     def _connect_signals(self):
+        self.word_list_select_btn.clicked.connect(self.open_wordlist_selector)
         self.start_btn.clicked.connect(self.start_session)
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.pressed.connect(self.start_recording)
         self.record_btn.released.connect(self.stop_recording)
         self.recording_device_error_signal.connect(self.show_recording_device_error)
-        self.word_list_combo.currentIndexChanged.connect(self.on_wordlist_selection_changed) # 新增连接
         self.list_widget.cellDoubleClicked.connect(self.on_cell_double_clicked) # 新增连接
 
-    def on_wordlist_selection_changed(self, index):
-        """当用户选择新词表时，自动填充批次名称。"""
-        wordlist_filename = self.word_list_combo.itemText(index)
-        if wordlist_filename:
-            base_name, _ = os.path.splitext(wordlist_filename)
-            self.session_name_input.setText(base_name)
+    def open_wordlist_selector(self):
+        dialog = WordlistSelectionDialog(self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+            selected_file = dialog.selected_file_relpath
+            self.current_wordlist_name = selected_file
+            
+            base_name = os.path.basename(selected_file)
+            display_name, _ = os.path.splitext(base_name)
+            
+            # 更新按钮文本
+            self.word_list_select_btn.setText(display_name)
+            self.word_list_select_btn.setToolTip(f"当前选择: {selected_file}")
+            
+            # [差异点实现] 自动填充批次名称
+            self.session_name_input.setText(display_name)
 
     def on_cell_double_clicked(self, row, column):
         """处理双击事件，用于试听。"""
@@ -244,7 +272,7 @@ class VoicebankRecorderPage(QWidget):
             print(f"播放音频 '{path}' 失败: {e}")
 
     def start_session(self):
-        wordlist_file = self.word_list_combo.currentText()
+        wordlist_file = self.current_wordlist_name
         if not wordlist_file:
             QMessageBox.warning(self, "错误", "请先选择一个单词表。")
             return
@@ -286,10 +314,11 @@ class VoicebankRecorderPage(QWidget):
             self.session_stop_event.clear()
             self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
             self.recording_thread.start()
-            self.update_timer.start(16)
+            self.update_timer.start()
             
-            self.word_list_combo.hide()
-            self.session_name_input.hide() # 隐藏批次名称输入框
+            # [核心修复] 隐藏新的按钮，而不是旧的下拉框
+            self.word_list_select_btn.hide()
+            self.session_name_input.hide()
             self.start_btn.hide()
             self.end_session_btn.show()
 
@@ -306,19 +335,20 @@ class VoicebankRecorderPage(QWidget):
                 os.rmdir(self.audio_folder)
 
     def reset_ui(self):
-        self.word_list_combo.show()
-        self.session_name_input.show() # 显示批次名称输入框
+        # [核心修复] 将 self.word_list_combo.show() 改为 self.word_list_select_btn.show()
+        self.word_list_select_btn.show()
+        self.session_name_input.show()
         self.start_btn.show()
         self.end_session_btn.hide()
         
         self.list_widget.setRowCount(0)
         self.record_btn.setEnabled(False)
         self.log("请选择一个单词表开始录制。")
-        # 触发一次默认值填充
-        self.on_wordlist_selection_changed(self.word_list_combo.currentIndex())
+        
+        # [核心修复] populate_word_lists 会处理按钮的文本，
+        # 但我们仍然需要手动重置批次名称输入框
+        self.populate_word_lists()
 
-    # --- 其他方法保持不变，但需要确保它们使用了 self.audio_folder ---
-    # ... (resizeEvent, update_icons, apply_layout_settings, etc. - 无需修改) ...
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self.list_widget.width() > 0:
@@ -337,8 +367,60 @@ class VoicebankRecorderPage(QWidget):
     def apply_layout_settings(self):
         self.right_panel.setFixedWidth(self.config.get("ui_settings", {}).get("collector_sidebar_width", 320))
     def load_config_and_prepare(self):
-        self.config = self.parent_window.config; self.apply_layout_settings()
-        if not self.session_active: self.populate_word_lists()
+        self.config = self.parent_window.config
+        self.apply_layout_settings()
+
+        # [核心新增] 从 accent_collection 的模块状态中加载共享的固定列表
+        # 这提供了一致的用户体验
+        shared_states = self.config.get("module_states", {}).get("accent_collection", {})
+        self.pinned_wordlists = shared_states.get("pinned_wordlists", [])
+
+        # [核心新增] 加载本模块的专属设置并应用
+        module_states = self.config.get("module_states", {}).get("voicebank_recorder", {})
+        interval = module_states.get("volume_meter_interval", 16)
+        if self.update_timer:
+            self.update_timer.setInterval(interval)
+        # [核心新增] 应用波形图显隐设置
+        show_waveform = module_states.get("show_waveform", True)
+        # 索引为 2 的列是 "波形预览"
+        self.list_widget.setColumnHidden(2, not show_waveform)
+        
+        if not self.session_active:
+            self.populate_word_lists()
+
+    def open_settings_dialog(self):
+        """
+        打开此模块的设置对话框，并在确认后请求主窗口进行彻底刷新。
+        """
+        dialog = SettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 请求主窗口进行一次彻底的销毁重建，以确保所有设置（特别是定时器间隔）被应用
+            self.parent_window.request_tab_refresh(self)
+
+    # [核心新增] 添加这三个方法以支持 WordlistSelectionDialog 的固定功能
+    def is_wordlist_pinned(self, rel_path):
+        """检查一个词表是否已被固定。"""
+        return rel_path in self.pinned_wordlists
+
+    def toggle_pin_wordlist(self, rel_path):
+        """固定或取消固定一个词表，并保存状态。"""
+        if self.is_wordlist_pinned(rel_path):
+            self.pinned_wordlists.remove(rel_path)
+        else:
+            if len(self.pinned_wordlists) >= 3:
+                QMessageBox.warning(self, "固定已达上限", "最多只能固定3个单词表。")
+                return
+            self.pinned_wordlists.append(rel_path)
+        
+        self._save_pinned_wordlists()
+
+    def _save_pinned_wordlists(self):
+        """将共享的固定列表保存回 accent_collection 的模块状态中。"""
+        self.parent_window.update_and_save_module_state(
+            'accent_collection', 
+            'pinned_wordlists', 
+            self.pinned_wordlists
+        )
     def _audio_callback(self, indata, frames, time, status):
         if status:
             current_time = time.monotonic()
@@ -416,16 +498,78 @@ class VoicebankRecorderPage(QWidget):
         self.is_recording = False; self.recording_indicator.setText("● 未在录音"); self.recording_indicator.setStyleSheet("color: grey;"); self.record_btn.setText("按住录音"); self.record_btn.setStyleSheet(""); self.log("正在保存..."); self.run_task_in_thread(self.save_recording_task)
     def log(self, msg): self.status_label.setText(f"状态: {msg}")
     def populate_word_lists(self):
-        self.word_list_combo.clear();
-        if os.path.exists(self.WORD_LIST_DIR): self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
-        self.on_wordlist_selection_changed(self.word_list_combo.currentIndex())
+        """
+        [v2.0 重构版] 此方法不再填充列表，而是根据配置设置默认的单词表。
+        """
+        self.current_wordlist_name = ""
+        # 注意：这里我们继续使用 accent_collection 的 file_settings 来获取默认值，以保持体验一致
+        default_list = self.config['file_settings'].get('word_list_file', '')
+        
+        if default_list:
+            full_path = os.path.join(self.WORD_LIST_DIR, default_list)
+            if os.path.exists(full_path):
+                self.current_wordlist_name = default_list
+                base_name = os.path.basename(default_list)
+                display_name, _ = os.path.splitext(base_name)
+                
+                self.word_list_select_btn.setText(display_name)
+                self.word_list_select_btn.setToolTip(f"当前选择: {default_list}")
+                # 同时更新批次名称输入框
+                self.session_name_input.setText(display_name)
+            else:
+                self.word_list_select_btn.setText("请选择单词表...")
+                self.session_name_input.setText("")
+        else:
+            self.word_list_select_btn.setText("请选择单词表...")
+            self.session_name_input.setText("")
     def end_session(self, force=False):
         if not force:
             if QMessageBox.question(self, '结束会话', '您确定要结束当前的语音包录制会话吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
         if self.logger: self.logger.log("[SESSION_END] Session ended by user.")
         self.update_timer.stop(); self.volume_meter.setValue(0); self.session_stop_event.set()
         if self.recording_thread and self.recording_thread.is_alive(): self.recording_thread.join(timeout=1.0)
+        self._cleanup_empty_session_folder()
         self.recording_thread = None; self.session_active = False; self.current_word_list = []; self.current_word_index = -1; self.logger = None; self.audio_folder = None; self.reset_ui()
+    # [核心新增] 添加清理方法
+    def _cleanup_empty_session_folder(self):
+        """
+        在会话结束时，根据设置检查并清理空的录音批次文件夹。
+        """
+        # 1. 从配置中读取是否启用此功能
+        module_states = self.config.get("module_states", {}).get("voicebank_recorder", {})
+        is_cleanup_enabled = module_states.get("cleanup_empty_folder", True)
+        
+        if not is_cleanup_enabled:
+            return
+
+        # 2. 安全检查：确保文件夹路径存在且是一个目录
+        if not self.audio_folder or not os.path.isdir(self.audio_folder):
+            return
+
+        try:
+            # 3. 检查文件夹内是否有音频文件
+            items_in_folder = os.listdir(self.audio_folder)
+            audio_extensions = ('.wav', '.mp3', '.flac', '.ogg', '.m4a')
+            has_audio_files = any(item.lower().endswith(audio_extensions) for item in items_in_folder)
+            
+            # 如果有音频文件，则不做任何操作
+            if has_audio_files:
+                return
+
+            # 4. 如果没有音频文件，则删除文件夹
+            # （我们假设如果只剩下log.txt，也应该删除，因为这是提示音录制，核心是音频）
+            folder_to_delete = self.audio_folder
+            self.log("会话结束。已自动清理空的结果文件夹。")
+            if self.logger:
+                self.logger.log(f"[CLEANUP] Session folder '{os.path.basename(folder_to_delete)}' contains no audio. Deleting.")
+            
+            import shutil
+            shutil.rmtree(folder_to_delete)
+            print(f"[INFO] Cleaned up empty session folder: {folder_to_delete}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to cleanup empty session folder '{self.audio_folder}': {e}")
+
     def _find_existing_audio(self, word):
         if not self.audio_folder: return None
         for ext in ['.wav', '.mp3', '.flac', '.ogg']:
@@ -445,33 +589,80 @@ class VoicebankRecorderPage(QWidget):
         self.list_widget.resizeRowsToContents()
         if self.current_word_list and 0 <= current_row < len(self.current_word_list): self.list_widget.setCurrentCell(current_row, 0)
     def on_recording_saved(self, result):
-        if result == "save_failed_mp3_encoder": QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式..."); self.log("MP3保存失败！"); return
-        self.log("录音已保存.")
-        item = self.list_widget.item(self.current_word_index, 0);
-        filepath = self._find_existing_audio(self.current_word_list[self.current_word_index]['word'])
+        """
+        槽函数：当后台保存录音任务完成后被调用。
         
+        Args:
+            result (str or None): 保存任务的结果字符串。
+        """
+        # --- 1. 处理保存失败的情况 ---
+        if result == "save_failed_mp3_encoder":
+            QMessageBox.critical(self, "MP3 编码器缺失", "无法将录音保存为 MP3 格式。请确保已安装 LAME MP3 编码器。")
+            self.log("MP3保存失败！")
+            return
+        
+        # --- 2. 更新UI状态和数据 ---
+        self.log("录音已保存.")
+        
+        # 获取当前录制的词条信息
+        word_data = self.current_word_list[self.current_word_index]
+        word_text = word_data['word']
+        
+        # 查找刚刚保存的文件路径
+        filepath = self._find_existing_audio(word_text)
+        
+        # 更新表格中的图标和波形图
+        list_item = self.list_widget.item(self.current_word_index, 0)
         waveform_widget = self.list_widget.cellWidget(self.current_word_index, 2)
-        if isinstance(waveform_widget, WaveformWidget):
-            if filepath: waveform_widget.set_waveform_data(filepath)
+        
+        if isinstance(waveform_widget, WaveformWidget) and filepath:
+            waveform_widget.set_waveform_data(filepath)
 
-        # 确保这里调用了质量分析插件的回调
+        # --- 3. 调用质量分析插件钩子 (如果存在) ---
         analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
         if analyzer_plugin and filepath:
+            # 请求插件异步分析音频并更新UI
             analyzer_plugin.analyze_and_update_ui('voicebank_recorder', filepath, self.current_word_index)
         else:
-            # 如果插件不存在或文件路径无效，仍然需要更新为成功图标
-            if item: item.setIcon(self.icon_manager.get_icon("success"))
-            item.setToolTip(self.current_word_list[self.current_word_index]['word']) # 确保Tooltip也被重置为原始词语
-        waveform_widget = self.list_widget.cellWidget(self.current_word_index, 2)
-        if isinstance(waveform_widget, WaveformWidget) and filepath: waveform_widget.set_waveform_data(filepath)
-        analyzer_plugin = getattr(self, 'quality_analyzer_plugin', None)
-        if analyzer_plugin and filepath: analyzer_plugin.analyze_and_update_ui('voicebank_recorder', filepath, self.current_word_index)
-        if self.current_word_index + 1 < len(self.current_word_list): self.list_widget.setCurrentCell(self.current_word_index + 1, 0)
-        else:
-            all_done = all(self._find_existing_audio(item['word']) for item in self.current_word_list)
-            if all_done:
-                if self.logger: self.logger.log("[INFO] All items in the list have been recorded."); QMessageBox.information(self,"完成","所有词条已录制完毕！");
-                if self.session_active: self.end_session()
+            # 如果插件不存在，也要确保显示正确的成功图标和工具提示
+            if list_item:
+                list_item.setIcon(self.icon_manager.get_icon("success"))
+                list_item.setToolTip(word_text)
+
+        # --- 4. 决定下一步操作 (核心逻辑) ---
+        
+        # 从配置中读取“自动前进”设置
+        module_states = self.config.get("module_states", {}).get("voicebank_recorder", {})
+        auto_advance = module_states.get("auto_advance", True) # 默认启用
+
+        # 检查是否所有词条都已录制
+        all_done = all(self._find_existing_audio(item['word']) for item in self.current_word_list)
+
+        if all_done:
+            # 如果所有条目都已完成，则结束会话
+            if self.logger:
+                self.logger.log("[INFO] All items in the list have been recorded.")
+            QMessageBox.information(self, "完成", "所有词条已录制完毕！")
+            if self.session_active:
+                self.end_session()
+        elif auto_advance:
+            # 如果启用了自动前进，并且尚未全部完成，则跳转到下一个未录制的词条
+            # 这是一个更健壮的查找下一个未录制项的逻辑
+            next_unrecorded_index = -1
+            # 从当前位置向后查找
+            for i in range(self.current_word_index + 1, len(self.current_word_list)):
+                if not self._find_existing_audio(self.current_word_list[i]['word']):
+                    next_unrecorded_index = i
+                    break
+            # 如果向后没找到，再从头开始查找
+            if next_unrecorded_index == -1:
+                for i in range(self.current_word_index):
+                     if not self._find_existing_audio(self.current_word_list[i]['word']):
+                        next_unrecorded_index = i
+                        break
+            
+            if next_unrecorded_index != -1:
+                self.list_widget.setCurrentCell(next_unrecorded_index, 0)
     def _persistent_recorder_task(self):
         try:
             device_index = self.resolve_device_func(self.config)
@@ -504,11 +695,126 @@ class VoicebankRecorderPage(QWidget):
             with open(filepath, 'r', encoding='utf-8') as f: data = json.load(f)
         except json.JSONDecodeError as e: raise ValueError(f"词表文件 '{filename}' 不是有效的JSON格式: {e}")
         if "meta" not in data or data.get("meta", {}).get("format") != "standard_wordlist" or "groups" not in data: raise ValueError(f"词表文件 '{filename}' 格式不正确或不受支持。")
+        # [核心修改] 应用“默认备注”设置
+        module_states = self.config.get("module_states", {}).get("voicebank_recorder", {})
+        default_note = module_states.get("default_note", "")
+
         word_groups = []
         for group_data in data.get("groups", []):
             group_dict = {}
             for item in group_data.get("items", []):
                 text = item.get("text")
-                if text: note = item.get("note", ""); lang = item.get("lang", ""); group_dict[text] = (note, lang)
-            if group_dict: word_groups.append(group_dict)
+                if text:
+                    note = item.get("note", "")
+                    # 如果备注为空，则使用设置中的默认备注
+                    if not note and default_note:
+                        note = default_note
+                    lang = item.get("lang", "")
+                    group_dict[text] = (note, lang)
+            if group_dict:
+                word_groups.append(group_dict)
         return word_groups
+# ==============================================================================
+#   SettingsDialog - 提示音录制模块专属设置对话框
+# ==============================================================================
+class SettingsDialog(QDialog):
+    """
+    一个专门用于配置“提示音录制”模块的对话框。
+    """
+    def __init__(self, parent_page):
+        super().__init__(parent_page)
+        
+        self.parent_page = parent_page
+        self.setWindowTitle("提示音录制设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(400)
+        
+        # --- UI 构建 ---
+        layout = QVBoxLayout(self)
+        
+        # --- 组1: 录制流程 ---
+        flow_group = QGroupBox("录制流程")
+        form_layout = QFormLayout(flow_group)
+        
+        self.auto_advance_checkbox = QCheckBox("录制后自动前进到下一个")
+        self.auto_advance_checkbox.setToolTip("勾选后，成功录制一个词条后会自动选中下一个未录制的词条。")
+        
+        form_layout.addRow(self.auto_advance_checkbox)
+        layout.addWidget(flow_group)
+        
+        # --- 组2: 界面与性能 ---
+        ui_perf_group = QGroupBox("界面与性能")
+        ui_perf_form_layout = QFormLayout(ui_perf_group)
+        self.show_waveform_checkbox = QCheckBox("显示波形预览列")
+        self.show_waveform_checkbox.setToolTip("取消勾选可隐藏波形图列，有助于在词表非常大时提升性能。")
+        ui_perf_form_layout.addRow(self.show_waveform_checkbox)
+        
+        volume_slider_layout = QHBoxLayout()
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(10, 100)
+        self.volume_slider.setTickInterval(10)
+        self.volume_slider.setTickPosition(QSlider.TicksBelow)
+        self.volume_slider_label = QLabel("16 ms")
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_slider_label.setText(f"{v} ms"))
+        
+        volume_slider_layout.addWidget(self.volume_slider)
+        volume_slider_layout.addWidget(self.volume_slider_label)
+        
+        ui_perf_form_layout.addRow("音量计刷新间隔:", volume_slider_layout)
+        layout.addWidget(ui_perf_group)
+
+        # --- 组3: 数据选项 ---
+        data_group = QGroupBox("数据选项")
+        data_form_layout = QFormLayout(data_group)
+        
+        self.default_note_input = QLineEdit()
+        self.default_note_input.setPlaceholderText("例如: 清晰、快速")
+        self.default_note_input.setToolTip("在这里输入的文本将作为词表中“备注”为空时的默认值。")
+        
+        self.cleanup_empty_folder_checkbox = QCheckBox("自动清理未录音的会话文件夹")
+        self.cleanup_empty_folder_checkbox.setToolTip("勾选后，如果一个录音批次下没有任何音频文件，\n其对应的文件夹将在会话结束时被自动删除。")        
+        
+        data_form_layout.addRow("默认备注内容:", self.default_note_input)
+        
+        # --- 核心修复点 ---
+        # 将新创建的 CheckBox 添加到布局中
+        data_form_layout.addRow(self.cleanup_empty_folder_checkbox)
+        
+        layout.addWidget(data_group)
+        
+        # --- OK 和 Cancel 按钮 ---
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+        
+        self.load_settings()
+
+    def load_settings(self):
+        """从主配置加载设置并更新UI。"""
+        # 使用一个独立的键 'voicebank_recorder' 来存储此模块的设置
+        module_states = self.parent_page.config.get("module_states", {}).get("voicebank_recorder", {})
+        
+        self.auto_advance_checkbox.setChecked(module_states.get("auto_advance", True))
+        self.show_waveform_checkbox.setChecked(module_states.get("show_waveform", True))
+        self.volume_slider.setValue(module_states.get("volume_meter_interval", 16))
+        self.volume_slider_label.setText(f"{self.volume_slider.value()} ms")
+        self.default_note_input.setText(module_states.get("default_note", ""))
+        self.cleanup_empty_folder_checkbox.setChecked(module_states.get("cleanup_empty_folder", True))
+    def save_settings(self):
+        """将UI上的设置保存回主配置。"""
+        main_window = self.parent_page.parent_window
+        settings_to_save = {
+            "auto_advance": self.auto_advance_checkbox.isChecked(),
+            "show_waveform": self.show_waveform_checkbox.isChecked(),
+            "volume_meter_interval": self.volume_slider.value(),
+            "default_note": self.default_note_input.text().strip(),
+            "cleanup_empty_folder": self.cleanup_empty_folder_checkbox.isChecked(),
+        }
+        main_window.update_and_save_module_state('voicebank_recorder', settings_to_save)
+
+    def accept(self):
+        """重写 accept 方法，在关闭对话框前先保存设置。"""
+        self.save_settings()
+        super().accept()

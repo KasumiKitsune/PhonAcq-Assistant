@@ -112,9 +112,7 @@ class SettingsPage(QWidget):
         results_dir_layout = QHBoxLayout(); results_dir_layout.addWidget(self.results_dir_input); results_dir_layout.addWidget(self.results_dir_btn)
         file_layout.addRow("结果文件夹:", results_dir_layout)
         
-        self.word_list_combo = QComboBox()
-        self.word_list_combo.setToolTip("在'标准朗读采集'模块中，会话开始时将默认加载此单词表。")
-        file_layout.addRow("默认单词表:", self.word_list_combo)
+
         
         self.participant_name_input = QLineEdit()
         self.participant_name_input.setToolTip("设置每次采集会话（口音采集）的默认被试者名称前缀。")
@@ -242,7 +240,6 @@ class SettingsPage(QWidget):
         self.results_dir_btn.clicked.connect(self.select_results_dir) 
         self.results_dir_input.textChanged.connect(self._on_setting_changed)
 
-        self.word_list_combo.currentIndexChanged.connect(self._on_setting_changed)
         self.participant_name_input.textChanged.connect(self._on_setting_changed)
         self.enable_logging_switch.stateChanged.connect(self._on_setting_changed)
         
@@ -274,7 +271,6 @@ class SettingsPage(QWidget):
 
     def populate_all(self):
         self.populate_themes()
-        self.populate_word_lists()
         self.populate_input_devices()
 
     def _update_compact_switch_state(self, index):
@@ -336,13 +332,6 @@ class SettingsPage(QWidget):
             self.results_dir_input.setText(directory)
             self._on_setting_changed()
 
-    def populate_word_lists(self):
-        self.word_list_combo.clear()
-        if os.path.exists(self.WORD_LIST_DIR):
-            try:
-                self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
-            except Exception as e:
-                print(f"无法读取单词表目录: {e}")
 
     def populate_themes(self):
         """
@@ -455,12 +444,6 @@ class SettingsPage(QWidget):
         self.compact_mode_switch.sync_visual_state_to_checked_state()
         file_settings = config.get("file_settings", {}); gtts_settings = config.get("gtts_settings", {}); app_settings = config.get("app_settings", {})
         
-        default_wordlist = file_settings.get('word_list_file', '')
-        if default_wordlist.endswith('.py'): # 兼容旧的.py词表
-            json_equivalent = os.path.splitext(default_wordlist)[0] + '.json'
-            if self.word_list_combo.findText(json_equivalent) != -1: self.word_list_combo.setCurrentText(json_equivalent)
-            else: self.word_list_combo.setCurrentText(default_wordlist)
-        else: self.word_list_combo.setCurrentText(default_wordlist)
 
         self.participant_name_input.setText(file_settings.get('participant_base_name', ''))        
         self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True))
@@ -522,7 +505,7 @@ class SettingsPage(QWidget):
             config['theme'] = "默认.qss" # 回退到默认值
             
         config['file_settings'] = {
-            "word_list_file": self.word_list_combo.currentText(), 
+            "word_list_file": "", # 保留空值以确保兼容性
             "participant_base_name": self.participant_name_input.text(), 
             "results_dir": self.results_dir_input.text()
         }

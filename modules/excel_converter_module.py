@@ -7,7 +7,7 @@ import json
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFileDialog, QMessageBox, QComboBox, QGroupBox,
                              QPlainTextEdit, QSplitter, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QApplication, QFormLayout)
+                             QHeaderView, QApplication, QFormLayout, QDialogButtonBox, QDialog, QCheckBox)
 from PyQt5.QtCore import Qt, QMimeData, QSize
 from PyQt5.QtGui import QIcon
 
@@ -82,6 +82,7 @@ class ConverterPage(QWidget):
     def __init__(self, parent_window, WORD_LIST_DIR, icon_manager):
         super().__init__()
         self.parent_window = parent_window
+        self.config = self.parent_window.config
         self.WORD_LIST_DIR = WORD_LIST_DIR
         self.BASE_PATH = get_base_path()
         self.icon_manager = icon_manager
@@ -253,12 +254,24 @@ class ConverterPage(QWidget):
         if not template_type:
             QMessageBox.information(self, "提示", "请先从下拉列表中选择一个要生成的模板。")
             return
+        
         success, msg = generate_template(self.WORD_LIST_DIR, template_type=template_type)
         self.log(msg)
+        
         if not success:
             QMessageBox.warning(self, "生成失败", msg)
         else:
             QMessageBox.information(self, "生成成功", msg)
+            
+            # --- [核心修改] ---
+            # 检查是否需要自动打开文件
+            module_states = self.config.get("module_states", {}).get("excel_converter", {})
+            if module_states.get("auto_open_after_generate", True):
+                template_info = templates[template_type]
+                generated_path = os.path.join(self.WORD_LIST_DIR, template_info['filename'])
+                if os.path.exists(generated_path):
+                    self._open_path_in_explorer(generated_path)
+            # --- [修改结束] ---
 
     def select_file_dialog(self):
         filters = "支持的词表文件 (*.json *.xlsx *.xls *.csv);;JSON 文件 (*.json);;Excel 文件 (*.xlsx *.xls);;CSV 文件 (*.csv)" # 移除 .py
@@ -322,9 +335,10 @@ class ConverterPage(QWidget):
             QMessageBox.warning(self, "操作失败", "没有可用于转换的数据。请先选择一个文件或模板。")
             return
         
+        # 1. 确定默认输出文件名
         if self.source_path:
             source_basename = os.path.splitext(os.path.basename(self.source_path))[0]
-        else:
+        else: # 如果是基于模板的
             template_key = self.template_combo.currentData()
             template_info = templates.get(template_key, {})
             template_filename = template_info.get('filename', 'template')
@@ -332,8 +346,30 @@ class ConverterPage(QWidget):
 
         default_filename = f"{source_basename}_converted"
         
-        filters = "JSON 词表 (*.json);;Excel 文件 (*.xlsx);;CSV 文件 (*.csv)" # 移除 .py
-        output_path, selected_filter = QFileDialog.getSaveFileName(self, "保存为", default_filename, filters)
+        # 2. 根据配置智能地设置文件保存对话框的默认过滤器
+        module_states = self.config.get("module_states", {}).get("excel_converter", {})
+        default_filter_index = module_states.get("default_output_format_index", 0)
+
+        all_filters = "JSON 词表 (*.json);;Excel 文件 (*.xlsx);;CSV 文件 (*.csv)"
+        filters_list = all_filters.split(';;')
+        
+        default_filter = ""
+        # "智能选择" 逻辑
+        if default_filter_index == 0:
+            if self.detected_format and "json" in self.detected_format.lower():
+                # 如果输入是JSON，默认输出Excel
+                default_filter = filters_list[1]
+            else: # 如果输入是Excel/CSV/模板，默认输出JSON
+                default_filter = filters_list[0]
+        else:
+            # 用户指定了默认格式 (索引需要-1，因为我们的选项是从1开始的)
+            if 0 < default_filter_index <= len(filters_list):
+                 default_filter = filters_list[default_filter_index - 1]
+        
+        # 重新组合过滤器字符串，把计算出的默认格式放在最前面，以便对话框默认选中它
+        final_filters = default_filter + ";;" + ";;".join(f for f in filters_list if f != default_filter)
+
+        output_path, selected_filter = QFileDialog.getSaveFileName(self, "保存为", default_filename, final_filters)
         
         if not output_path:
             self.log("保存操作已取消。")
@@ -343,14 +379,27 @@ class ConverterPage(QWidget):
         QApplication.processEvents()
         success, msg = False, ""
         try:
+            # 3. 根据用户选择的过滤器执行相应的转换操作
             if "(*.json)" in selected_filter:
+                # 确保保存时加上 .json 后缀
+                if not output_path.lower().endswith('.json'):
+                    output_path += '.json'
                 json_str = _dataframe_to_json(self.preview_df, self.detected_format)
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(json_str)
             elif "(*.xlsx)" in selected_filter:
+                # 确保保存时加上 .xlsx 后缀
+                if not output_path.lower().endswith('.xlsx'):
+                    output_path += '.xlsx'
                 self.preview_df.to_excel(output_path, index=False)
             elif "(*.csv)" in selected_filter:
-                self.preview_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+                # 确保保存时加上 .csv 后缀
+                if not output_path.lower().endswith('.csv'):
+                    output_path += '.csv'
+                # 根据配置选择CSV编码
+                csv_encoding_index = module_states.get("csv_encoding_index", 0)
+                encoding = 'utf-8-sig' if csv_encoding_index == 0 else 'utf-8'
+                self.preview_df.to_csv(output_path, index=False, encoding=encoding)
             else:
                 raise ValueError("未知的保存格式。")
                 
@@ -363,6 +412,35 @@ class ConverterPage(QWidget):
             QMessageBox.critical(self, "错误", msg)
         else:
             QMessageBox.information(self, "成功", msg)
+            
+            # 4. 根据配置决定是否在转换成功后自动打开文件
+            if module_states.get("auto_open_after_convert", True):
+                if os.path.exists(output_path):
+                    self._open_path_in_explorer(output_path)
+    def _open_path_in_explorer(self, path):
+        """
+        [新增] 跨平台地在文件浏览器中打开指定路径（文件或文件夹）。
+        """
+        try:
+            if sys.platform == 'win32':
+                os.startfile(os.path.realpath(path))
+            elif sys.platform == 'darwin':
+                subprocess.check_call(['open', path])
+            else: # Linux
+                subprocess.check_call(['xdg-open', path])
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法打开路径: {path}\n错误: {e}")
+
+    def open_settings_dialog(self):
+        """
+        [新增] 打开此模块的设置对话框。
+        """
+        dialog = SettingsDialog(self)
+        # 这个模块的设置不影响核心渲染，所以刷新不是必须的，
+        # 但为了保持一致性，我们依然可以在OK后刷新。
+        if dialog.exec_() == QDialog.Accepted:
+            # 刷新可以确保主配置 self.config 对象是最新的
+            self.parent_window.request_tab_refresh(self)
 # --- 内部辅助函数 ---
 def _detect_excel_format(columns):
     cols = set(columns);
@@ -452,3 +530,96 @@ def generate_template(output_dir, template_type='simple'):
         df = pd.DataFrame(template_info['data']); df.to_excel(template_path, index=False)
         return True, f"成功！模板 '{template_info['filename']}' 已生成至: {output_dir}"
     except Exception as e: return False, f"生成模板文件时出错: {e}"
+# --- [核心新增] ---
+# 为 Excel 转换器模块定制的设置对话框
+class SettingsDialog(QDialog):
+    """
+    一个专门用于配置“Excel转换器”模块的对话框。
+    """
+    def __init__(self, parent_page):
+        super().__init__(parent_page)
+        
+        self.parent_page = parent_page
+        self.setWindowTitle("Excel转换器设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(500)
+        
+        # 主布局
+        layout = QVBoxLayout(self)
+        
+        # --- 组1: 转换设置 ---
+        conversion_group = QGroupBox("转换设置")
+        conversion_form = QFormLayout(conversion_group)
+        
+        self.default_output_combo = QComboBox()
+        self.default_output_combo.addItems([
+            "智能选择 (Excel -> JSON, JSON -> Excel)",
+            "JSON (标准或图文)",
+            "Excel (.xlsx)",
+            "CSV"
+        ])
+        self.default_output_combo.setToolTip("预设点击“转换为...”按钮时，文件保存对话框默认选中的格式。")
+
+        self.csv_encoding_combo = QComboBox()
+        self.csv_encoding_combo.addItems([
+            "UTF-8 with BOM (推荐，兼容Excel)",
+            "UTF-8 (标准，无BOM)"
+        ])
+        self.csv_encoding_combo.setToolTip("选择导出为.csv文件时的编码格式，以解决中文乱码问题。")
+        
+        self.auto_open_after_convert_check = QCheckBox("转换成功后自动打开文件")
+        
+        conversion_form.addRow("默认输出格式:", self.default_output_combo)
+        conversion_form.addRow("CSV 文件编码:", self.csv_encoding_combo)
+        conversion_form.addRow(self.auto_open_after_convert_check)
+        layout.addWidget(conversion_group)
+
+        # --- 组2: 模板设置 ---
+        template_group = QGroupBox("模板设置")
+        template_form = QFormLayout(template_group)
+
+        self.auto_open_after_generate_check = QCheckBox("生成模板后自动打开")
+
+        template_form.addRow(self.auto_open_after_generate_check)
+        layout.addWidget(template_group)
+        
+        # OK 和 Cancel 按钮
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addStretch()
+        layout.addWidget(self.button_box)
+        
+        # 连接信号
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        
+        self.load_settings()
+
+    def load_settings(self):
+        """从主配置加载所有设置并更新UI。"""
+        module_states = self.parent_page.config.get("module_states", {}).get("excel_converter", {})
+        
+        self.default_output_combo.setCurrentIndex(module_states.get("default_output_format_index", 0))
+        self.csv_encoding_combo.setCurrentIndex(module_states.get("csv_encoding_index", 0))
+        self.auto_open_after_convert_check.setChecked(module_states.get("auto_open_after_convert", True))
+        self.auto_open_after_generate_check.setChecked(module_states.get("auto_open_after_generate", True))
+
+    def save_settings(self):
+        """将UI上的所有设置保存回主配置。"""
+        main_window = self.parent_page.parent_window
+        
+        settings_to_save = {
+            "default_output_format_index": self.default_output_combo.currentIndex(),
+            "csv_encoding_index": self.csv_encoding_combo.currentIndex(),
+            "auto_open_after_convert": self.auto_open_after_convert_check.isChecked(),
+            "auto_open_after_generate": self.auto_open_after_generate_check.isChecked(),
+        }
+        
+        current_settings = main_window.config.get("module_states", {}).get("excel_converter", {})
+        current_settings.update(settings_to_save)
+        main_window.update_and_save_module_state('excel_converter', settings_to_save)
+
+    def accept(self):
+        """重写 accept 方法，在关闭对话框前先保存设置。"""
+        self.save_settings()
+        super().accept()

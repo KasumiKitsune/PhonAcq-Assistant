@@ -738,6 +738,29 @@ class MainWindow(QMainWindow):
                 sub_widget.tabBar().setContextMenuPolicy(Qt.CustomContextMenu)
                 sub_widget.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
 
+    def request_tab_refresh(self, page_instance):
+        """
+        [新增] 公共API，供子模块页面调用以请求刷新自身。
+        """
+        # 1. 遍历所有标签页，找到发出请求的页面实例在哪个位置
+        for i in range(self.main_tabs.count()):
+            main_widget = self.main_tabs.widget(i)
+            if main_widget == page_instance:
+                # 请求来自一个没有子标签的主页面 (不太可能，但做个兼容)
+                self._refresh_tab(self.main_tabs, i)
+                return
+
+            if isinstance(main_widget, QTabWidget):
+                for j in range(main_widget.count()):
+                    sub_widget = main_widget.widget(j)
+                    if sub_widget == page_instance:
+                        # 找到了！调用底层的刷新方法
+                        self._refresh_tab(main_widget, j)
+                        return
+        
+        # 如果找不到，可能是一个独立窗口，或者代码逻辑有误
+        print(f"警告: 页面 {page_instance} 请求刷新，但在标签页中未找到它。")
+
     def _show_tab_context_menu(self, position):
 
         # --- 1. 动态导入依赖 ---
@@ -793,8 +816,14 @@ class MainWindow(QMainWindow):
         can_monitor = psutil_available and attr_name is not None
         can_set_startup = attr_name is not None
 
+
+        # --- [核心修改] ---
+        # 检查页面是否有自己的设置对话框
+        can_configure = hasattr(page_widget, 'open_settings_dialog') and attr_name != 'settings_page'
+
         # 如果所有功能都不可用，则不显示菜单
-        if not (can_refresh or can_open_new or can_monitor or can_set_startup):
+        # [修改] 将 can_configure 添加到检查中
+        if not (can_refresh or can_open_new or can_monitor or can_set_startup or can_configure):
             return
 
         # --- 5. 构建菜单 ---
@@ -810,24 +839,32 @@ class MainWindow(QMainWindow):
             new_window_icon = self.icon_manager.get_icon("new_window")
             new_window_action = menu.addAction(new_window_icon, "在新窗口中打开")
             new_window_action.triggered.connect(lambda: self._open_tab_in_new_window(tab_widget, tab_index))
+        
+        # [核心修改] 将 "模块设置" 和 "性能监视" 放在同一个功能块中
+        
+        # 只有当这个功能块有内容时，才在它之前添加分割线
+        if (can_configure or can_monitor) and not menu.isEmpty():
+            menu.addSeparator()
 
-        # 功能块: 调试与分析
+        # 功能块: 模块设置与分析
+        if can_configure:
+            settings_icon = self.icon_manager.get_icon("settings")
+            settings_action = menu.addAction(settings_icon, "模块设置")
+            settings_action.setToolTip("打开此模块专属的设置面板")
+            settings_action.triggered.connect(page_widget.open_settings_dialog)
+
         if can_monitor:
-            if not menu.isEmpty():
-                menu.addSeparator()
-            
             monitor_icon = self.icon_manager.get_icon("monitor")
             monitor_action = menu.addAction(monitor_icon, "性能监视")
             monitor_action.triggered.connect(lambda: self.open_performance_monitor(page_widget))
         elif not can_monitor and not psutil_available:
-             if not menu.isEmpty():
-                menu.addSeparator()
              monitor_action = menu.addAction("性能监视 (不可用)")
              monitor_action.setToolTip("请安装 psutil 库以启用此功能 (pip install psutil)")
              monitor_action.setEnabled(False)
 
         # 功能块: 个性化设置
         if can_set_startup:
+            # [核心修改] 将分割线移到这里
             if not menu.isEmpty():
                 menu.addSeparator()
 
@@ -1039,28 +1076,22 @@ class MainWindow(QMainWindow):
     # [新增] 用于模块间通信的槽函数
     def go_to_audio_analysis(self, filepath):
         """
-        切换到音频分析模块并加载指定的文件。
-        这是一个公共API，供其他模块调用。
+        [v2.0 - 导航优化版]
+        切换到音频分析模块。此版本只负责导航和返回页面实例，
+        不再负责加载文件，将加载的责任交还给调用者。
         """
         if not hasattr(self, 'audio_analysis_page'):
             QMessageBox.warning(self, "功能缺失", "音频分析模块未成功加载。")
-            return
+            return None # 返回 None 表示失败
 
-        # 1. 找到“资源管理”主标签页并切换过去
-        for i in range(self.main_tabs.count()):
-            if self.main_tabs.tabText(i) == "资源管理":
-                self.main_tabs.setCurrentIndex(i)
-                # 2. 找到“音频分析”子标签页并切换过去
-                sub_tab_widget = self.main_tabs.widget(i)
-                if isinstance(sub_tab_widget, QTabWidget):
-                    for j in range(sub_tab_widget.count()):
-                        if sub_tab_widget.tabText(j) == "音频分析":
-                            sub_tab_widget.setCurrentIndex(j)
-                            # 确保UI更新
-                            QApplication.processEvents()
-                            # 3. 调用加载方法
-                            self.audio_analysis_page.load_audio_file(filepath)
-                            return
+        target_page = self._navigate_to_tab("资源管理", "音频分析")
+        
+        if target_page:
+            # [修改] 移除文件加载的调用
+            # target_page.load_audio_file(filepath)
+            return target_page # 返回页面实例
+        
+        return None
 
     def setup_and_load_config_external(self):
         """外部模块可调用的配置加载器"""
@@ -1173,22 +1204,43 @@ class MainWindow(QMainWindow):
                 print(f"创建模块 '{name}' 页面时出错: {e}", file=sys.stderr)
                 page = None
         
-        # 如果模块加载失败或创建失败，则创建一个占位符页面
+        # --- [核心修改] 优化后的占位符创建逻辑 ---
         if page is None:
             from PyQt5.QtWidgets import QLabel, QVBoxLayout
+            from PyQt5.QtCore import QSize
+            
             page = QWidget()
             layout = QVBoxLayout(page)
             layout.setAlignment(Qt.AlignCenter)
-            
+            layout.setSpacing(20) # 增加图片和文字之间的间距
+
+            # 1. 创建并添加图片标签
+            image_label = QLabel()
+            # 从 IconManager 获取图标，如果不存在会优雅地回退
+            # 建议在 assets/icons/ 中添加一个名为 module_missing.svg 的图片
+            icon = self.icon_manager.get_icon("module_missing") 
+            pixmap = icon.pixmap(QSize(512, 512))
+            image_label.setPixmap(pixmap)
+            image_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(image_label)
+
+            # 2. 创建并添加文本标签
+            # 确定要显示的文本
             if module_key == 'settings_module':
-                label_text = f"设置模块 ('{name}') 加载失败。\n请检查 'modules/settings_module.py' 文件是否存在且无误。"
+                label_text = f"<b>核心模块加载失败</b><br><br>设置模块 ('{name}') 未能加载。<br>请检查 'modules/settings_module.py' 文件是否存在且无误。"
             else:
-                label_text = f"模块 '{name}' 未加载或创建失败。\n请检查 'modules/{module_key}.py' 文件以及相关依赖。"
+                label_text = f"<b>模块 '{name}' 未能加载</b><br><br>请检查 'modules/{module_key}.py' 文件及其相关依赖是否正确。"
             
-            label = QLabel(label_text)
-            label.setWordWrap(True)
-            label.setStyleSheet("color: #D32F2F; font-size: 24px;")
-            layout.addWidget(label)
+            text_label = QLabel(label_text)
+            text_label.setWordWrap(True)
+            text_label.setAlignment(Qt.AlignCenter)
+            # 为标签设置对象名，以便主题可以对其进行样式化
+            text_label.setObjectName("ModuleMissingTextLabel") 
+            
+            # 移除硬编码的样式表！让颜色和字体完全由当前主题决定。
+            # text_label.setStyleSheet("color: #D32F2F; font-size: 24px;") # <-- 已移除
+            
+            layout.addWidget(text_label)
             
         # [核心修复] 为最终创建的页面（无论是真实模块还是占位符）注入“未来”的重建配方。
         if page:
@@ -1605,34 +1657,37 @@ class MainWindow(QMainWindow):
     
         # 对话框关闭后，可以根据需要刷新UI，但目前菜单是动态生成的，所以无需操作。
 
-    def update_and_save_module_state(self, module_key, key_or_value, value=object()):
+    def update_and_save_module_state(self, module_key, key_or_value, value=None):
         """
-        [v1.2 - 哨兵模式健壮版]
+        [v1.3 - None模式健壮版]
         更新并立即保存一个特定模块的状态到 settings.json。
-        此版本使用哨兵对象来完美区分双参数和三参数调用模式。
+        此版本使用 None 作为哨兵来区分双参数和三参数调用模式。
         """
-        # [核心修复] 使用一个独特的哨兵对象来判断 'value' 是否被传递
-        SENTINEL = object()
-
-        if value is not SENTINEL:
+        # [核心修复] 使用一个稳定的 None 值来判断 'value' 是否被传递
+        if value is not None:
             # --- 模式1：传入了三个参数 (module_key, setting_key, value) ---
-            # 即使 value 是 None, 这个分支也能被正确执行
-            
+            # 即使 value 是 False 或 0，这个分支也能被正确执行
+
             # 确保 module_states 字典存在
             if "module_states" not in self.config:
                 self.config["module_states"] = {}
-            
+
             # 确保目标模块的状态是一个字典
             if not isinstance(self.config["module_states"].get(module_key), dict):
                 self.config["module_states"][module_key] = {}
-            
+
             setting_key = key_or_value
             self.config["module_states"][module_key][setting_key] = value
         else:
             # --- 模式2：只传入了两个参数 (module_key, settings_dict) ---
-            # 这种模式下，settings_dict 必须是一个字典
+            # 这种模式下，settings_dict 应该是一个字典
             settings_dict = key_or_value
             if isinstance(settings_dict, dict):
+                # 确保 module_states 字典存在
+                if "module_states" not in self.config:
+                    self.config["module_states"] = {}
+                
+                # 直接用新的字典替换旧的
                 self.config["module_states"][module_key] = settings_dict
             else:
                 # 警告逻辑保持不变

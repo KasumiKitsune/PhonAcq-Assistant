@@ -18,7 +18,7 @@ import shutil
 import hashlib # 用于为没有 deck_id 的 .fdeck 文件生成哈希ID
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
-                             QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,
+                             QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,QInputDialog,
                              QListWidgetItem, QSizePolicy, QShortcut, QScrollArea, QGridLayout, QButtonGroup, QFrame, QCheckBox, QSpacerItem, QStyle, QStyleOptionButton, QMenu) 
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QRect
 from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QTextDocument, QColor, QFontMetrics, QKeySequence, QPainter, QDesktopServices
@@ -135,14 +135,13 @@ class FlashcardPage(QWidget):
         left_panel.setFixedWidth(280)
 
         left_layout.addWidget(QLabel("可用词表:"))
-        self.wordlist_list = AnimatedListWidget()
+        self.wordlist_list = AnimatedListWidget(icon_manager=self.icon_manager)
         self.wordlist_list.setToolTip("从 'flashcards' 文件夹中选择一个卡组文件 (.fdeck 或 .json)。\n右键可查看更多操作。")
         self.wordlist_list.setContextMenuPolicy(Qt.CustomContextMenu)
         left_layout.addWidget(self.wordlist_list, 1)
 
         self.start_reset_btn = QPushButton("加载词表并开始学习")
         self.start_reset_btn.setObjectName("AccentButton")
-        self.start_reset_btn.setFixedHeight(40)
         self.start_reset_btn.setToolTip("加载选中的词表和模式，开始一个新的学习会话。\n在会话开始后，此按钮将变为“结束学习会话”。")
         left_layout.addWidget(self.start_reset_btn)
 
@@ -156,7 +155,7 @@ class FlashcardPage(QWidget):
         left_layout.addWidget(QLabel("会话卡片顺序:"))
         self.list_widget = AnimatedListWidget()
         self.list_widget.setToolTip("当前学习会话中的所有卡片列表。\n- 单击可跳转到指定卡片。\n- 已掌握的卡片会有绿色对勾标记。")
-        left_layout.addWidget(self.list_widget, 2)
+        left_layout.addWidget(self.list_widget, 1)
 
         self.mark_mastered_btn = QPushButton("标记/取消掌握")
         self.mark_mastered_btn.setToolTip("将当前卡片标记为“已掌握”或取消标记 (快捷键: Ctrl+G)。\n已掌握的卡片在“智能随机”模式下出现的频率会大大降低。")
@@ -489,44 +488,123 @@ class FlashcardPage(QWidget):
 
     def _show_wordlist_context_menu(self, position):
         """
-        [v1.1 - 主题感知版]
-        在词表列表上显示一个完全遵循主题样式和动画的右键菜单。
+        [v2.1 - 带重命名功能版]
+        根据被右键点击的项目类型（文件或文件夹），动态构建并显示不同的菜单。
         """
         item = self.wordlist_list.itemAt(position)
-        if not item:
-            return
-
-        # 检查 AnimationManager 是否可用
-        if not hasattr(self.parent_window, 'animation_manager'):
-            # 简单回退，不做任何事
-            return
-
+        if not item: return
+        
         self.wordlist_list.setCurrentItem(item)
-    
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if not item_data: return
+
+        item_type = item_data.get('type')
         menu = QMenu(self.wordlist_list)
-        menu.setEnabled(not self.session_active)
+        im = self.icon_manager
 
-        im = self.icon_manager # 此模块已有 icon_manager 的引用
+        if item_type == 'item':
+            menu.setEnabled(not self.session_active)
+            start_action = menu.addAction(im.get_icon("play"), "开始学习")
+            menu.addSeparator()
+            open_dir_action = menu.addAction(im.get_icon("show_in_explorer"), "打开所在目录")
+            clear_progress_action = menu.addAction(im.get_icon("delete"), "清空学习记录")
+            start_action.triggered.connect(self.handle_start_reset)
+            open_dir_action.triggered.connect(self._open_wordlist_directory)
+            clear_progress_action.triggered.connect(self.clear_current_progress)
 
-        start_action = menu.addAction(im.get_icon("play"), "开始学习")
-        menu.addSeparator()
-        open_dir_action = menu.addAction(im.get_icon("show_in_explorer"), "打开所在目录")
-        clear_progress_action = menu.addAction(im.get_icon("delete"), "清空学习记录")
-    
-        # 直接连接信号到槽函数
-        start_action.triggered.connect(self.handle_start_reset)
-        open_dir_action.triggered.connect(self._open_wordlist_directory)
-        clear_progress_action.triggered.connect(self.clear_current_progress)
+        elif item_type == 'folder':
+            # 文件夹菜单在会话期间也可用，但重命名会被禁用
+            expand_action = menu.addAction(im.get_icon("arrow_right"), "展开")
+            menu.addSeparator()
+            
+            # [核心修改] 启用重命名功能
+            rename_action = menu.addAction(im.get_icon("rename"), "重命名")
+            rename_action.setEnabled(not self.session_active) # 仅在会话未开始时启用
+            if self.session_active:
+                rename_action.setToolTip("请先结束当前学习会话再进行重命名。")
 
-        # 将显示委托给 AnimationManager
-        global_pos = self.wordlist_list.mapToGlobal(position)
-        self.parent_window.animation_manager.animate_menu(menu, global_pos)
+            open_folder_action = menu.addAction(im.get_icon("show_in_explorer"), "打开目录")
+
+            # [核心修改] 连接信号到新的处理函数
+            expand_action.triggered.connect(lambda: self.wordlist_list._handle_item_activation(item))
+            rename_action.triggered.connect(lambda: self._rename_folder(item)) # 连接到重命名函数
+            open_folder_action.triggered.connect(lambda: self._open_folder_directory(item))
+        
+        else:
+            return
+
+        if hasattr(self.parent_window, 'animation_manager') and not menu.isEmpty():
+            global_pos = self.wordlist_list.mapToGlobal(position)
+            self.parent_window.animation_manager.animate_menu(menu, global_pos)
+
+    def _rename_folder(self, item):
+        """
+        [新增] 处理文件夹的重命名逻辑。
+        """
+        if not item: return
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if not item_data or item_data.get('type') != 'folder': return
+
+        old_name = item_data.get('text')
+        old_path = os.path.join(self.BASE_FLASHCARD_DIR, old_name)
+
+        if not os.path.isdir(old_path):
+            QMessageBox.warning(self, "错误", f"文件夹 '{old_name}' 已不存在。")
+            self.populate_wordlists() # 刷新列表以移除不存在的项
+            return
+            
+        # 1. 弹出输入对话框
+        new_name, ok = QInputDialog.getText(self, "重命名文件夹", 
+                                            f"请输入 '{old_name}' 的新名称:", 
+                                            QLineEdit.Normal, old_name)
+
+        # 2. 验证用户输入
+        if ok and new_name:
+            new_name = new_name.strip()
+            if new_name == old_name:
+                return # 名称未改变
+
+            # 检查非法字符
+            if any(char in new_name for char in "/\\:*?\"<>|"):
+                QMessageBox.warning(self, "名称无效", "文件夹名称不能包含以下任何字符:\n / \\ : * ? \" < > |")
+                return
+
+            new_path = os.path.join(self.BASE_FLASHCARD_DIR, new_name)
+            
+            # 检查新名称是否已存在
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "名称已存在", f"名为 '{new_name}' 的文件或文件夹已存在。")
+                return
+            
+            # 3. 执行重命名
+            try:
+                os.rename(old_path, new_path)
+                QMessageBox.information(self, "成功", f"文件夹已成功重命名为 '{new_name}'。")
+                # 4. 刷新整个列表以反映更改
+                self.populate_wordlists()
+            except Exception as e:
+                QMessageBox.critical(self, "重命名失败", f"无法重命名文件夹：\n{e}")
+
+    def _open_folder_directory(self, item):
+        """[新增] 打开右键点击的文件夹在文件系统中的位置。"""
+        if not item: return
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if not item_data or item_data.get('type') != 'folder': return
+        
+        # 文件夹的路径是相对于 BASE_FLASHCARD_DIR 的
+        folder_name = item_data.get('text')
+        folder_path = os.path.join(self.BASE_FLASHCARD_DIR, folder_name)
+
+        if os.path.isdir(folder_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder_path))
+        else:
+            QMessageBox.warning(self, "错误", f"目录不存在: {folder_path}")
 
     def _open_wordlist_directory(self):
-        """[新增] 打开当前选中词表所在的文件目录。"""
+        """[修改] 打开当前选中卡组文件所在的目录。"""
         user_data = self._get_current_wordlist_data()
         if user_data:
-            _, full_path = user_data
+            _, full_path = user_data # user_data 是 ('fdeck', 'C:/.../file.fdeck')
             directory = os.path.dirname(full_path)
             if os.path.isdir(directory):
                 QDesktopServices.openUrl(QUrl.fromLocalFile(directory))
@@ -548,71 +626,83 @@ class FlashcardPage(QWidget):
         self.clear_progress_btn.setIcon(self.icon_manager.get_icon("delete"))
         self.answer_submit_btn.setIcon(self.icon_manager.get_icon("submit"))
 
-        # 刷新列表中的图标（主要是已掌握的对勾）
-        if self.session_active:
-            for i, card in enumerate(self.cards):
-                card_id = card.get('id')
-                is_mastered = False
-                if card_id: 
-                    is_mastered = self.progress_data.get(card_id, {}).get("mastered", False)
-                self.update_list_item_icon(i, is_mastered)
 
 
     def populate_wordlists(self):
         """
-        [v1.5 - AnimatedList版]
-        - 递归扫描词表目录。
-        - 构建显示文本列表和数据映射字典。
-        - 使用 addItemsWithAnimation 动画化地填充列表。
+        [v2.0 - 层级感知版]
+        - 扫描 'flashcards' 目录，并构建一个反映文件和文件夹结构的层级数据。
+        - 直接在根目录的文件显示为顶层项目。
+        - 子目录显示为可点击的文件夹。
+        - 使用 setHierarchicalData 动画化地填充列表。
         """
         self.wordlist_list.clear()
-        self.wordlist_data_map.clear()
-    
-        base_flashcard_dir = self.BASE_FLASHCARD_DIR
-        found_files = []
-        # ... (扫描文件的 os.walk 逻辑保持不变) ...
-        for root, _, files in os.walk(base_flashcard_dir):
-            if any(internal_dir in root for internal_dir in ["progress", "cache", "audio_tts"]):
-                continue
-            for file in files:
-                if file.endswith('.json') or file.endswith('.fdeck'):
-                    full_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(full_path, base_flashcard_dir).replace("\\", "/")
-                    found_files.append((relative_path, full_path))
-        found_files.sort()
+        self.wordlist_data_map.clear()  # 这个映射现在主要用于通过路径反向查找数据，但仍需保留
 
-        display_texts = []
-        for display_name, full_path in found_files:
-            final_display_text = ""
-            data_tuple = None
+        base_dir = self.BASE_FLASHCARD_DIR
+        hierarchical_data = []
         
-            if full_path.endswith('.json'):
-                prefix = "[旧]" # 简洁前缀
-                final_display_text = f"{prefix} {display_name}"
-                data_tuple = ("json", full_path)
-            elif full_path.endswith('.fdeck'):
-                prefix = "[卡组]"
-                final_display_text = f"{prefix} {display_name}"
-                data_tuple = ("fdeck", full_path)
-        
-            if final_display_text:
-                display_texts.append(final_display_text)
-                self.wordlist_data_map[final_display_text] = data_tuple
+        # 忽略的内部目录
+        ignored_dirs = {"progress", "cache", "audio_tts"}
 
-        self.wordlist_list.addItemsWithAnimation(display_texts)
+        try:
+            for entry in os.scandir(base_dir):
+                if entry.is_dir() and entry.name not in ignored_dirs:
+                    folder_path = entry.path
+                    children = []
+                    for sub_entry in os.scandir(folder_path):
+                        if sub_entry.is_file() and sub_entry.name.endswith(('.json', '.fdeck')):
+                            file_type = 'fdeck' if sub_entry.name.endswith('.fdeck') else 'json'
+                            children.append({
+                                'type': 'item',
+                                'text': sub_entry.name,
+                                'icon': self.icon_manager.get_icon("flashcard" if file_type == 'fdeck' else "document"),
+                                'data': (file_type, sub_entry.path)
+                            })
+                    
+                    if children:
+                        children.sort(key=lambda x: x['text'])
+                        hierarchical_data.append({
+                            'type': 'folder',
+                            'text': entry.name,
+                            # [核心修改] 明确使用 'folder' 图标
+                            'icon': self.icon_manager.get_icon("folder"), 
+                            'children': children
+                        })
 
-        # 填充后，选中第一项（如果存在）
-        if self.wordlist_list.count() > 0:
-            self.wordlist_list.setCurrentRow(0)
-        else:
-            self._update_ui_for_selection()
+                elif entry.is_file() and entry.name.endswith(('.json', '.fdeck')):
+                    file_type = 'fdeck' if entry.name.endswith('.fdeck') else 'json'
+                    hierarchical_data.append({
+                        'type': 'item',
+                        'text': entry.name,
+                        'icon': self.icon_manager.get_icon("flashcard" if file_type == 'fdeck' else "document"),
+                        'data': (file_type, entry.path)
+                    })
+
+            hierarchical_data.sort(key=lambda x: (x['type'] != 'folder', x['text']))
+            self.wordlist_list.setHierarchicalData(hierarchical_data)
+
+            if self.wordlist_list.count() > 0:
+                self.wordlist_list.setCurrentRow(0)
+            else:
+                self._update_ui_for_selection()
+
+        except Exception as e:
+            print(f"Error populating wordlists: {e}", file=sys.stderr)
+            QMessageBox.critical(self, "错误", f"扫描卡组目录时发生错误: {e}")
 
     def _get_current_wordlist_data(self):
-        """[v1.1 - Map版] 通过映射字典获取当前选中词表的数据。"""
+        """
+        [v2.0 - 层级感知版] 
+        从当前选中的 QListWidgetItem 中提取卡组的核心数据。
+        """
         current_item = self.wordlist_list.currentItem()
         if current_item:
-            display_text = current_item.text()
-            return self.wordlist_data_map.get(display_text)
+            # 从自定义数据角色中获取完整的层级数据字典
+            item_data = current_item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+            if item_data and item_data.get('type') == 'item':
+                # 只对最终的 'item' 类型的项目返回数据
+                return item_data.get('data')
         return None
 
     def _update_ui_for_selection(self, current_item=None, previous_item=None):
@@ -648,6 +738,7 @@ class FlashcardPage(QWidget):
         is_test_mode = self.test_radio.isChecked()
         self.prompt_group.setVisible(is_test_mode)
         self.test_type_group.setVisible(is_test_mode)
+        self.test_type_group.setEnabled(is_test_mode) 
     
         # 3. 根据卡组能力，启用/禁用提示物复选框
         self.prompt_group.setEnabled(is_test_mode) # 只有在考核模式下才启用
@@ -1146,106 +1237,114 @@ class FlashcardPage(QWidget):
 
     def update_card_display(self):
         """
-        [v1.6 - 最终修复版]
-        根据当前会话配置和卡片索引更新UI显示。这是模块中核心的UI调度函数。
+        [v1.7 - 动态字体版]
+        根据当前会话配置和卡片索引更新UI显示。
+        现在能根据题目文本的长度动态调整字体大小和对齐方式。
         """
         if not self.session_active or self.current_card_index < 0 or self.current_card_index >= len(self.cards):
             return
             
         card = self.cards[self.current_card_index]
-        self.is_answer_shown = False # 切换卡片时，总是重置为答案隐藏状态
+        self.is_answer_shown = False
         
-        # --- 1. 重置所有动态显示区域 ---
-        self._stop_autoplay_sequence() # 停止任何可能正在进行的播放或自动播放
+        self._stop_autoplay_sequence()
         
-        # 清空并隐藏所有问答相关的UI元素
-        self.card_question_area.hide()
-        self.card_question_area.set_pixmap(None)
-        
-        self.card_question_text_label.hide()
-        self.card_question_text_label.setText("")
-        
-        self.card_answer_area.hide()
-        self.card_answer_area.set_pixmap(None)
-        self.card_answer_area.setText("")
+        self.card_question_area.hide(); self.card_question_area.set_pixmap(None)
+        self.card_question_text_label.hide(); self.card_question_text_label.setText("")
+        self.card_answer_area.hide(); self.card_answer_area.set_pixmap(None); self.card_answer_area.setText("")
+        self.answer_input_widget.hide(); self.multiple_choice_widget.hide()
+        self._clear_multiple_choice_options()
 
-        self.answer_input_widget.hide()
-        self.multiple_choice_widget.hide()
-        self._clear_multiple_choice_options() # 确保清除旧的四选一按钮
-
-        # --- 2. 根据学习范式决定显示逻辑 ---
+        # --- 根据学习范式决定显示逻辑 ---
         if self.session_config.get('paradigm') == 'memory':
-            # --- 记忆模式 ---
-            # 在记忆模式下，答案按钮总是可见的，并重置其文本
-            self.show_answer_btn.show()
-            self.show_answer_btn.setText("显示答案")
-
-            # a. 显示题目文字和图片
-            question_text = card.get('question', '')
-            if question_text:
-                self.card_question_text_label.setText(question_text)
-                self.card_question_text_label.show()
+            self.show_answer_btn.show(); self.show_answer_btn.setText("显示答案")
             
-            image_path = card.get('image_path', '')
-            if image_path and "image" in self.current_deck_capabilities:
-                self.display_content(self.card_question_area, image_path)
-                self.card_question_area.show()
-            else:
-                # 如果没有图片，可以显示一个占位符，但仅在没有文字提示时
-                if not self.card_question_text_label.text():
-                    self.card_question_area.setText("...")
-                    self.card_question_area.show()
+            # [核心修改] 调用新的辅助函数来处理题目显示
+            self._display_question_content(card)
 
-            # b. 根据“自动显示答案”开关决定答案区域的初始状态
             if self.auto_show_answer_switch.isChecked():
-                # 如果开启了自动显示，则立即调用 toggle_answer 来显示答案
                 QTimer.singleShot(0, self.toggle_answer)
             else:
-                # 否则，确保答案区域是隐藏的
                 self.card_answer_area.hide()
-
-            # c. 自动播放音频
             if self.autoplay_audio_switch.isChecked():
                 self.play_current_audio()
-
         else: # --- 考核模式 ---
-            # 在考核模式下，答案按钮总是隐藏的
             self.show_answer_btn.hide()
             
-            # 根据 prompt 组合题目
-            if 'text' in self.session_config.get('prompt', []):
-                question_text = card.get('question', '')
-                if question_text:
-                    self.card_question_text_label.setText(question_text)
-                    self.card_question_text_label.show()
-            
-            if 'image' in self.session_config.get('prompt', []) and card.get('image_path'):
-                self.display_content(self.card_question_area, card.get('image_path'))
-                self.card_question_area.show()
-            
+            # [核心修改] 调用新的辅助函数来处理题目显示
+            self._display_question_content(card, use_prompt_config=True)
+
             if 'audio' in self.session_config.get('prompt', []):
                 self.play_current_audio()
 
-            # 根据 test_type 准备回答区域
             test_type = self.session_config.get('test_type')
             if test_type == 'input':
-                self.answer_input_widget.show()
-                self.answer_input.clear()
-                self.answer_input.setFocus()
+                self.answer_input_widget.show(); self.answer_input.clear(); self.answer_input.setFocus()
             elif test_type in ['mc_image', 'mc_audio', 'mc_text']:
                 self.multiple_choice_widget.show()
                 self._prepare_multiple_choice_options(card, test_type)
-                
-                # 如果是音频四选一，则启动自动播放序列
                 if test_type == 'mc_audio':
                     self.audio_mc_queue = [btn.card_id for btn in self.mc_buttons]
                     self.audio_mc_button_map = {btn.card_id: btn.play_button for btn in self.mc_buttons}
                     self.is_in_autoplay_sequence = True
                     QTimer.singleShot(200, self._play_next_in_mc_queue)
             
-        # --- 3. 更新通用UI元素 ---
         self.progress_label.setText(f"卡片: {self.current_card_index + 1} / {len(self.cards)}")
         self.update_progress_on_view(card.get('id'))
+
+    def _display_question_content(self, card, use_prompt_config=False):
+        """
+        [v1.1 - 修复对齐问题] 辅助函数，负责显示卡片的题目部分。
+        
+        Args:
+            card (dict): 当前卡片的数据。
+            use_prompt_config (bool): 是否根据考核模式的 prompt 设置来决定显示内容。
+        """
+        question_text = card.get('question', '')
+        image_path = card.get('image_path', '')
+
+        show_text = True
+        show_image = True
+
+        if use_prompt_config:
+            prompt = self.session_config.get('prompt', [])
+            show_text = 'text' in prompt
+            show_image = 'image' in prompt
+
+        # --- 动态调整题目文字的样式 ---
+        if show_text and question_text:
+            LENGTH_THRESHOLD = 30 
+            
+            font_size = "16pt"
+            # [核心修复] 使用 setAlignment 来控制整个控件的对齐
+            alignment = Qt.AlignCenter 
+            
+            if len(question_text) >= LENGTH_THRESHOLD:
+                font_size = "12pt"
+                # 对于长文本，设置为左对齐和垂直居中
+                alignment = Qt.AlignLeft | Qt.AlignVCenter
+
+            # 1. 设置控件本身的对齐属性
+            self.card_question_text_label.setAlignment(alignment)
+
+            # 2. 生成并应用动态样式表（只控制字体大小和内边距）
+            style_sheet = (
+                f"QLabel#FlashcardQuestionTextLabel {{"
+                f"  font-size: {font_size};"
+                f"  padding: 10px;"
+                f"}}"
+            )
+            self.card_question_text_label.setStyleSheet(style_sheet)
+            self.card_question_text_label.setText(question_text)
+            self.card_question_text_label.show()
+
+        # --- 显示图片 ---
+        if show_image and image_path and "image" in self.current_deck_capabilities:
+            self.display_content(self.card_question_area, image_path)
+            self.card_question_area.show()
+        elif not self.card_question_text_label.isVisible():
+            self.card_question_area.setText("...")
+            self.card_question_area.show()
         
     def _prepare_multiple_choice_options(self, current_card, test_type):
         """[vFinal] 为四选一模式准备选项按钮。"""
@@ -1838,30 +1937,51 @@ class FlashcardPage(QWidget):
 
     def update_list_widget(self):
         """
-        [v1.1 - AnimatedList版]
-        使用动画更新左侧的会话卡片列表。
+        [v2.0 - 图标感知版]
+        使用动画更新左侧的会话卡片列表，并根据掌握状态添加图标。
         """
-        card_ids = [card.get('id', '未知ID') for card in self.cards]
-        self.list_widget.addItemsWithAnimation(card_ids)
-
-        # 由于 addItemsWithAnimation 是异步的，我们延迟更新图标
-        QTimer.singleShot(250, self._update_all_list_item_icons)
-
-    def _update_all_list_item_icons(self):
-        """[新增] 在列表项动画完成后，遍历并更新所有图标。"""
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if not item: continue
-        
-            card_id = item.text()
+        items_data = []
+        for card in self.cards:
+            card_id = card.get('id', '未知ID')
+            
+            # 检查此卡片的掌握状态
             is_mastered = self.progress_data.get(card_id, {}).get("mastered", False)
-            self.update_list_item_icon(i, is_mastered)
+            
+            # 如果已掌握，则获取success图标，否则创建一个空的QIcon
+            icon = self.icon_manager.get_icon("success") if is_mastered else QIcon()
+            
+            # 构建符合 AnimatedListWidget 要求的字典结构
+            items_data.append({
+                'type': 'item',
+                'text': card_id,
+                'icon': icon
+            })
+
+        # 使用 addItemsWithAnimation 并传入我们构建好的、包含图标的数据
+        self.list_widget.addItemsWithAnimation(items_data)
+
 
     def update_list_item_icon(self, row, is_mastered):
-        """更新指定行号的列表项的掌握图标。"""
+        """
+        [重构版] 更新指定行号列表项的图标，通过修改其底层数据。
+        """
         item = self.list_widget.item(row)
         if item:
-            item.setIcon(self.icon_manager.get_icon("success") if is_mastered else QIcon()) 
+            # 1. 获取该项的完整数据字典
+            item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+            if not item_data:
+                # 如果没有数据，创建一个基础的
+                item_data = {'type': 'item', 'text': item.text()}
+
+            # 2. 根据掌握状态更新 'icon' 键
+            item_data['icon'] = self.icon_manager.get_icon("success") if is_mastered else QIcon()
+            
+            # 3. 将修改后的数据写回 item
+            item.setData(AnimatedListWidget.HIERARCHY_DATA_ROLE, item_data)
+            
+            # 4. 请求重绘该项 (可选，但推荐)
+            # self.list_widget.update(self.list_widget.indexFromItem(item))
+            # 注意：由于 itemClicked 信号会触发 _on_selection_changed，它会重绘所有项，所以这行可以省略。
 
     def load_progress(self):
         """

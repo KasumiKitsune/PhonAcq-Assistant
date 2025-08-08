@@ -17,9 +17,10 @@ from collections import deque
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
                              QTableWidgetItem, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QStyle, QLineEdit, QHeaderView,
-                             QAbstractItemView, QMenu, QToolButton, QWidgetAction)
+                             QAbstractItemView, QMenu, QToolButton, QWidgetAction, QDialogButtonBox, QDialog, QCheckBox, QSlider)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtProperty, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
+from modules.custom_widgets_module import WordlistSelectionDialog
 
 # 模块级别的依赖检查
 try:
@@ -32,7 +33,6 @@ except ImportError as e:
     print(f"CRITICAL: accent_collection_module.py - Missing dependencies: {e}")
     DEPENDENCIES_MISSING = True
     MISSING_ERROR_MESSAGE = str(e)
-
 # --- [新增] 本地化的波形可视化控件 ---
 class WaveformWidget(QWidget):
     def __init__(self, parent=None):
@@ -147,12 +147,15 @@ class AccentCollectionPage(QWidget):
         self.resolve_device_func = resolve_device_func # [新增] 保存解析函数
         self.WORD_LIST_DIR = WORD_LIST_DIR; self.AUDIO_RECORD_DIR = AUDIO_RECORD_DIR; self.AUDIO_TTS_DIR = AUDIO_TTS_DIR; self.BASE_PATH = BASE_PATH
         self.session_active = False; self.is_recording = False; self.current_word_list = []; self.current_word_index = -1
+        self.current_wordlist_name = "" 
+        self.settings_dialog = None
         self.audio_queue = queue.Queue(); self.volume_meter_queue = queue.Queue(maxsize=2)
         self.volume_history = deque(maxlen=5)
         self.recording_thread = None
         self.session_stop_event = threading.Event(); self.logger = None
+        self.update_timer = None 
         self.prompt_mode = 'tts' # 默认提示音模式
-        
+        self.pinned_wordlists = []
         self._init_ui(); self._connect_signals(); self.update_icons(); self.reset_ui(); self.apply_layout_settings()
         self.load_config_and_prepare()
 
@@ -202,18 +205,33 @@ class AccentCollectionPage(QWidget):
         self.right_layout_container = QVBoxLayout(right_panel_group)
 
         self.pre_session_widget = QWidget()
-        pre_session_layout = QFormLayout(self.pre_session_widget)
+        # [核心修改] 不再使用 QFormLayout，改用更灵活的 QVBoxLayout
+        pre_session_layout = QVBoxLayout(self.pre_session_widget)
         pre_session_layout.setContentsMargins(11, 0, 11, 0)
-        self.word_list_combo = QComboBox()
-        self.word_list_combo.setToolTip("选择一个用于本次采集任务的单词表文件。")
+        pre_session_layout.setSpacing(10) # 增加垂直间距
+
+        # --- 词表选择部分 ---
+        wordlist_label = QLabel("选择单词表:")
+        self.word_list_select_btn = QPushButton("请选择单词表...")
+        self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
+        
+        # --- 被试者名称部分 ---
+        participant_label = QLabel("被试者名称:")
         self.participant_input = QLineEdit()
         self.participant_input.setToolTip("输入被试者的唯一标识符。\n此名称将用于创建结果文件夹，例如 'participant_1'。")
+        
+        # --- 开始会话按钮 ---
         self.start_session_btn = QPushButton("开始新会话")
         self.start_session_btn.setObjectName("AccentButton")
         self.start_session_btn.setToolTip("加载选定的单词表，检查/生成提示音，并开始一个新的采集会话。")
-        pre_session_layout.addRow("选择单词表:", self.word_list_combo)
-        pre_session_layout.addRow("被试者名称:", self.participant_input)
-        pre_session_layout.addRow(self.start_session_btn)
+        
+        # [核心修改] 将控件按新的布局方式添加到 QVBoxLayout 中
+        pre_session_layout.addWidget(wordlist_label)
+        pre_session_layout.addWidget(self.word_list_select_btn)
+        pre_session_layout.addWidget(participant_label)
+        pre_session_layout.addWidget(self.participant_input)
+        pre_session_layout.addStretch() # 添加一个弹簧，将开始按钮推到底部
+        pre_session_layout.addWidget(self.start_session_btn)
 
         self.in_session_widget = QWidget()
         in_session_layout = QVBoxLayout(self.in_session_widget)
@@ -277,7 +295,8 @@ class AccentCollectionPage(QWidget):
             self.list_widget.setColumnWidth(2, width3)
 
     def _connect_signals(self):
-        self.start_session_btn.clicked.connect(self.show_start_session_menu)
+        self.word_list_select_btn.clicked.connect(self.open_wordlist_selector)
+        self.start_session_btn.clicked.connect(self.handle_start_session_click)
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.clicked.connect(self.handle_record_button)
         self.replay_btn.clicked.connect(self.replay_audio)
@@ -287,14 +306,20 @@ class AccentCollectionPage(QWidget):
         # [修改] 将原始连接重定向到新的持久化槽函数
         # self.random_switch.stateChanged.connect(self.on_session_mode_changed) # 旧连接
         # self.full_list_switch.stateChanged.connect(self.on_session_mode_changed) # 旧连接
-        self.random_switch.stateChanged.connect(
-            lambda state: self._on_persistent_setting_changed('is_random', bool(state))
-        )
-        self.full_list_switch.stateChanged.connect(
-            lambda state: self._on_persistent_setting_changed('is_full_list', bool(state))
-        )
-        
+        self.random_switch.stateChanged.connect(self.on_session_mode_changed)
+        self.full_list_switch.stateChanged.connect(self.on_session_mode_changed)
         self.recording_device_error_signal.connect(self.show_recording_device_error)
+
+    # [核心新增] 打开词表选择对话框的槽函数
+    def open_wordlist_selector(self):
+        dialog = WordlistSelectionDialog(self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+            selected_file = dialog.selected_file_relpath
+            self.current_wordlist_name = selected_file
+            base_name = os.path.basename(selected_file)
+            display_name, _ = os.path.splitext(base_name)
+            self.word_list_select_btn.setText(display_name)
+            self.word_list_select_btn.setToolTip(f"当前选择: {selected_file}")
 
     def on_cell_double_clicked(self, row, column):
         # 无论双击哪一列，都视为重听
@@ -318,22 +343,33 @@ class AccentCollectionPage(QWidget):
         self.config = self.parent_window.config
         self.apply_layout_settings()
 
-        # [新增] 加载并应用已保存的模块状态
-        # 'accent_collection' 必须与步骤3中使用的键一致
         module_states = self.config.get("module_states", {}).get("accent_collection", {})
-
-        # 在设置初始状态时阻塞信号，避免触发不必要的保存操作
+        self.pinned_wordlists = module_states.get("pinned_wordlists", [])
+        # 在设置初始状态时阻塞信号
         self.random_switch.blockSignals(True)
         self.full_list_switch.blockSignals(True)
-
-        # 从配置中读取值，如果找不到，则使用默认值 False
         self.random_switch.setChecked(module_states.get("is_random", False))
-        self.full_list_switch.setChecked(module_states.get("is_full_list", False))
-
-        # 恢复信号连接
+        
+        # --- 再次确认修复此处的笔误 ---
+        self.full_list_switch.setChecked(module_states.get("is_full_list", False)) 
+        
         self.random_switch.blockSignals(False)
         self.full_list_switch.blockSignals(False)
         
+        # [新增] 应用波形图显隐设置
+        show_waveform = module_states.get("show_waveform", True)
+        self.list_widget.setColumnHidden(2, not show_waveform) # Column 2 is the waveform
+        
+        # [新增] 应用音量计刷新率
+        interval = module_states.get("volume_meter_interval", 16)
+        # 如果 QTimer 存在，则更新它的间隔；如果不存在，则创建它
+        if self.update_timer:
+            self.update_timer.setInterval(interval)
+        else:
+            self.update_timer = QTimer()
+            self.update_timer.setInterval(interval)
+            self.update_timer.timeout.connect(self.update_volume_meter)
+
         if not self.session_active:
             self.populate_word_lists()
             self.participant_input.setText(self.config['file_settings'].get('participant_base_name', 'participant'))
@@ -341,6 +377,32 @@ class AccentCollectionPage(QWidget):
     def show_recording_device_error(self, error_message):
         QMessageBox.critical(self, "录音设备错误", error_message); self.status_label.setText("状态：录音设备错误，请检查设置。"); self.record_btn.setEnabled(False)
         if self.session_active: self.end_session(force=True)
+
+    def is_wordlist_pinned(self, rel_path):
+        """检查一个词表是否已被固定。"""
+        return rel_path in self.pinned_wordlists
+
+    def toggle_pin_wordlist(self, rel_path):
+        """固定或取消固定一个词表。"""
+        if self.is_wordlist_pinned(rel_path):
+            self.pinned_wordlists.remove(rel_path)
+        else:
+            # 限制最多只能固定3个
+            if len(self.pinned_wordlists) >= 3:
+                QMessageBox.warning(self, "固定已达上限", "最多只能固定3个单词表。")
+                return
+            self.pinned_wordlists.append(rel_path)
+        
+        # 保存更改到配置文件
+        self._save_pinned_wordlists()
+
+    def _save_pinned_wordlists(self):
+        """将当前的固定列表保存到 settings.json。"""
+        self.parent_window.update_and_save_module_state(
+            'accent_collection', 
+            'pinned_wordlists', 
+            self.pinned_wordlists
+        )
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
@@ -386,31 +448,77 @@ class AccentCollectionPage(QWidget):
         self.run_task_in_thread(self.save_recording_task)
 
     def populate_word_lists(self):
-        self.word_list_combo.clear()
-        if os.path.exists(self.WORD_LIST_DIR):
-            try:
-                # [修改] 只查找 .json 文件
-                self.word_list_combo.addItems([f for f in os.listdir(self.WORD_LIST_DIR) if f.endswith('.json')])
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"无法读取单词表目录: {e}")
-        
+        """
+        [v2.1 - 省略后缀版]
+        此方法不再填充列表，而是根据配置设置默认的单词表，
+        并在按钮上显示不带'.json'后缀的名称。
+        """
+        self.current_wordlist_name = ""
         default_list = self.config['file_settings'].get('word_list_file', '')
+        
         if default_list:
-            # 确保在查找时也匹配 .json
+            # 兼容旧配置可能存在的 .py 后缀
             if not default_list.endswith('.json') and default_list.endswith('.py'):
                  default_list = os.path.splitext(default_list)[0] + '.json'
             
-            index = self.word_list_combo.findText(default_list, Qt.MatchFixedString)
-            if index >= 0:
-                self.word_list_combo.setCurrentIndex(index)
+            full_path = os.path.join(self.WORD_LIST_DIR, default_list)
+            if os.path.exists(full_path):
+                self.current_wordlist_name = default_list
+                
+                # [核心修改] 从完整路径中提取不带后缀的文件名用于显示
+                base_name = os.path.basename(default_list)
+                display_name, _ = os.path.splitext(base_name)
+                
+                self.word_list_select_btn.setText(display_name)
+                self.word_list_select_btn.setToolTip(f"当前选择: {default_list}")
+            else:
+                self.word_list_select_btn.setText("请选择单词表...")
+                self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
+        else:
+            self.word_list_select_btn.setText("请选择单词表...")
+            self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
 
     def on_session_mode_changed(self):
+        # [修改] 此方法现在只在会话激活时刷新列表，不再保存任何东西
         if not self.session_active: return
         self.prepare_word_list()
         if self.current_word_list: 
             recorded_count = sum(1 for item in self.current_word_list if item['recorded'])
             self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
+    # 修改 open_settings_dialog 方法，实现设置后自动刷新
+    def open_settings_dialog(self):
+        """
+        [v2.0] 打开此模块的设置对话框，并在确认后请求主窗口进行彻底刷新。
+        """
+        if self.settings_dialog and self.settings_dialog.isVisible():
+            self.settings_dialog.activateWindow()
+            self.settings_dialog.raise_()
+            return
+            
+        self.settings_dialog = SettingsDialog(self)
         
+        # 对话框关闭后，如果用户点击了"OK"
+        if self.settings_dialog.exec_() == QDialog.Accepted:
+            # --- 核心修改 ---
+            # 直接调用主窗口提供的公共API来刷新自己
+            self.parent_window.request_tab_refresh(self)
+
+
+    # [新增] 新的“开始会话”按钮点击处理器
+    def handle_start_session_click(self):
+        """
+        根据配置决定是显示菜单还是直接开始。
+        """
+        module_states = self.config.get("module_states", {}).get("accent_collection", {})
+        action = module_states.get("start_button_action", "popup")
+
+        if action == "popup":
+            self.show_start_session_menu()
+        else: # action == "default"
+            # 直接使用 TTS 模式开始，这是最安全的默认行为
+            self.start_session(prompt_mode='tts')
+
+
     def reset_ui(self):
         self.pre_session_widget.show(); self.in_session_widget.hide(); self.record_btn.setEnabled(False); self.replay_btn.setEnabled(False); self.record_btn.setText("开始录制下一个")
         self.list_widget.setRowCount(0); self.status_label.setText("状态：准备就绪"); self.progress_bar.setVisible(False); self.progress_bar.setValue(0)
@@ -449,10 +557,19 @@ class AccentCollectionPage(QWidget):
         self.reset_ui()
         self.load_config_and_prepare()
 
+    # 修改 _cleanup_empty_session_folder 方法，使其受配置控制
     def _cleanup_empty_session_folder(self):
         """
-        [vNext 新增] 在会话结束时，检查并清理只包含日志文件的空会话文件夹。
+        [v2.0 - Configurable] 在会话结束时，根据设置检查并清理空会话文件夹。
         """
+        # [新增] 从配置中读取是否启用此功能
+        module_states = self.config.get("module_states", {}).get("accent_collection", {})
+        is_cleanup_enabled = module_states.get("cleanup_empty_folder", True) # 默认启用
+        
+        # 如果功能被禁用，则直接返回
+        if not is_cleanup_enabled:
+            return
+
         # 安全检查：确保文件夹路径存在且是一个目录
         if not hasattr(self, 'recordings_folder') or not os.path.isdir(self.recordings_folder):
             return
@@ -504,7 +621,7 @@ class AccentCollectionPage(QWidget):
         [v2.4 修复] 菜单项在点击后立即自动关闭。
         """
         # 1. 前置检查 (不变)
-        wordlist_file = self.word_list_combo.currentText()
+        wordlist_file = self.current_wordlist_name
         if not wordlist_file:
             QMessageBox.warning(self, "选择错误", "请先选择一个单词表。")
             return
@@ -582,7 +699,7 @@ class AccentCollectionPage(QWidget):
         """
         self.prompt_mode = prompt_mode
 
-        wordlist_file = self.word_list_combo.currentText()
+        wordlist_file = self.current_wordlist_name
         base_name = self.participant_input.text().strip()
         
         results_dir = self.config['file_settings'].get("results_dir", os.path.join(self.BASE_PATH, "Results"))
@@ -746,49 +863,85 @@ class AccentCollectionPage(QWidget):
         return None
 
     def prepare_word_list(self):
-        word_groups = self.load_word_list_logic(); is_random = self.random_switch.isChecked(); is_full = self.full_list_switch.isChecked(); temp_list = []
+        """
+        [v3.0 - Config-Aware]
+        根据会话模式（随机/顺序，完整/部分）和模块设置（默认备注）来准备要录制的词语列表，
+        并填充UI表格。
+        """
+        word_groups = self.load_word_list_logic()
+        is_random = self.random_switch.isChecked()
+        is_full = self.full_list_switch.isChecked()
+        temp_list = []
+        
+        # [新增] 从主配置中获取此模块的特定设置
+        module_states = self.config.get("module_states", {}).get("accent_collection", {})
+        default_note = module_states.get("default_note", "")
+
+        # 根据“完整/部分”模式筛选词条
         if not is_full:
             for group in word_groups:
-                if group: temp_list.append(random.choice(list(group.items())))
+                if group:
+                    temp_list.append(random.choice(list(group.items())))
         else:
-            for group in word_groups: temp_list.extend(group.items())
-        if is_random: random.shuffle(temp_list)
+            for group in word_groups:
+                temp_list.extend(group.items())
+        
+        # 根据“随机/顺序”模式打乱列表
+        if is_random:
+            random.shuffle(temp_list)
+            
+        # 构建最终的内部数据结构 (self.current_word_list)
         self.current_word_list = []
         for word, value in temp_list:
-            ipa = value[0] if isinstance(value, tuple) else str(value); self.current_word_list.append({'word': word, 'ipa': ipa, 'recorded': False})
+            # 提取备注，并应用默认备注逻辑
+            ipa_or_note = value[0] if isinstance(value, tuple) else str(value)
+            if not ipa_or_note and default_note:
+                ipa_or_note = default_note
+            
+            self.current_word_list.append({'word': word, 'ipa': ipa_or_note, 'recorded': False})
         
-        # [修改] 使用新的表格填充逻辑
-        self.list_widget.setRowCount(0) # Clear table
+        # --- UI 更新部分 ---
+        
+        # 在更新前禁用排序，可以提高填充大量数据时的性能
+        self.list_widget.setSortingEnabled(False)
+        self.list_widget.setRowCount(0) # 清空表格
+
         for i, item_data in enumerate(self.current_word_list):
             self.list_widget.insertRow(i)
             
-            # --- Column 0: Word ---
+            # --- 第0列: 词语 ---
             word_text = item_data['word']
             word_item = QTableWidgetItem(word_text)
-            # [新增] 为“词语”列设置工具提示
-            word_item.setToolTip(word_text)
+            word_item.setToolTip(word_text) # 设置工具提示
             self.list_widget.setItem(i, 0, word_item)
             
-            # --- Column 1: IPA/备注 ---
+            # --- 第1列: IPA/备注 ---
             ipa_text = item_data['ipa']
             ipa_item = QTableWidgetItem(ipa_text)
-            # [新增] 为“IPA/备注”列设置工具提示
-            ipa_item.setToolTip(ipa_text)
+            ipa_item.setToolTip(ipa_text) # 设置工具提示
             self.list_widget.setItem(i, 1, ipa_item)
 
-            # --- Column 2: Waveform Widget ---
+            # --- 第2列: 波形图控件 ---
+            # 即使列被隐藏，也创建控件，以保持数据结构一致性
             waveform_widget = WaveformWidget(self)
             self.list_widget.setCellWidget(i, 2, waveform_widget)
             
-            # --- 检查和更新已录制状态 ---
+            # --- 检查并更新已录制状态 ---
             filepath = self._find_existing_audio(item_data['word'])
             if filepath:
                 item_data['recorded'] = True
                 word_item.setIcon(self.icon_manager.get_icon("success"))
                 waveform_widget.set_waveform_data(filepath)
 
+        # 调整行高以适应内容
         self.list_widget.resizeRowsToContents()
-        if self.current_word_list: self.list_widget.setCurrentCell(0, 0)
+        
+        # 重新启用排序
+        self.list_widget.setSortingEnabled(True)
+
+        # 如果列表不为空，则默认选中第一行
+        if self.current_word_list:
+            self.list_widget.setCurrentCell(0, 0)
         
     def handle_record_button(self):
         if not self.is_recording:
@@ -1054,7 +1207,7 @@ class AccentCollectionPage(QWidget):
         self.session_stop_event.clear()
         self.recording_thread = threading.Thread(target=self._persistent_recorder_task, daemon=True)
         self.recording_thread.start()
-        self.update_timer.start(16)
+        self.update_timer.start()
         
         self.status_label.setText("状态：音频准备就绪。")
         self.pre_session_widget.hide()
@@ -1154,17 +1307,142 @@ class AccentCollectionPage(QWidget):
     
         return result
 
-    def _on_persistent_setting_changed(self, key, value):
-        """
-        当用户更改需要记忆的设置时调用此方法。
-        1. 调用主窗口API将状态保存到 settings.json。
-        2. 调用原有的响应函数以确保UI实时更新。
-        """
-        # 步骤1：调用全局API保存状态
-        # 'accent_collection' 是此模块在配置文件中的唯一标识符
-        self.parent_window.update_and_save_module_state('accent_collection', key, value)
+class SettingsDialog(QDialog):
+    """
+    [v2.0] 一个专门用于配置“标准朗读采集”模块的对话框。
+    包含多种控件类型作为未来模块的参考。
+    """
+    def __init__(self, parent_page):
+        # parent_page 是 AccentCollectionPage 的实例
+        super().__init__(parent_page)
         
-        # 步骤2：调用原有逻辑以更新UI（如果会话已激活）
-        # 这一步至关重要，确保了在不破坏现有功能的前提下增加新功能
-        if self.session_active:
-            self.on_session_mode_changed()
+        self.parent_page = parent_page
+        self.setWindowTitle("标准朗读采集设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(400) # 稍微加宽以容纳更多内容
+        
+        # 主布局
+        layout = QVBoxLayout(self)
+        
+        # --- 组1: 会话默认行为 ---
+        session_group = QGroupBox("会话默认行为")
+        session_form_layout = QFormLayout(session_group)
+        
+        self.random_checkbox = QCheckBox("默认以随机顺序开始会话")
+        self.random_checkbox.setToolTip("勾选后，新会使话用默认会打乱词表顺序。")
+        
+        self.full_list_checkbox = QCheckBox("默认使用完整词表")
+        self.full_list_checkbox.setToolTip("勾选后，新会话默认会使用词表中的所有词条。")
+        
+        # [新增] ToggleSwitch 用于配置启动按钮行为
+        start_button_behavior_layout = QHBoxLayout()
+        self.start_button_toggle = self.parent_page.ToggleSwitch()
+        start_button_behavior_layout.addWidget(QLabel("默认"))
+        start_button_behavior_layout.addWidget(self.start_button_toggle)
+        start_button_behavior_layout.addWidget(QLabel("弹窗"))
+        
+        session_form_layout.addRow(self.random_checkbox)
+        session_form_layout.addRow(self.full_list_checkbox)
+        session_form_layout.addRow("开始按钮行为:", start_button_behavior_layout)
+        
+        layout.addWidget(session_group)
+        
+        # --- 组2: 界面与性能 ---
+        ui_perf_group = QGroupBox("界面与性能")
+        ui_perf_form_layout = QFormLayout(ui_perf_group)
+        
+        # [新增] 波形图显隐 Checkbox
+        self.show_waveform_checkbox = QCheckBox("显示波形预览列")
+        self.show_waveform_checkbox.setToolTip("取消勾选可隐藏波形图列，有助于在词表非常大时提升性能。")
+        # [新增] 单击/双击选择模式的 Checkbox
+        self.single_click_select_checkbox = QCheckBox("单击选择词表 (默认为双击)")
+        self.single_click_select_checkbox.setToolTip("勾选后，在词表选择对话框中单击即可选定文件。")
+        
+        # [新增] 音量计刷新率 Slider
+        volume_slider_layout = QHBoxLayout()
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(10, 100) # 10ms - 100ms
+        self.volume_slider.setTickInterval(10)
+        self.volume_slider.setTickPosition(QSlider.TicksBelow)
+        self.volume_slider_label = QLabel("16 ms") # 默认值
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_slider_label.setText(f"{v} ms"))
+        
+        volume_slider_layout.addWidget(self.volume_slider)
+        volume_slider_layout.addWidget(self.volume_slider_label)
+        
+        ui_perf_form_layout.addRow(self.show_waveform_checkbox)
+        ui_perf_form_layout.addRow("音量计刷新间隔:", volume_slider_layout)
+        
+        layout.addWidget(ui_perf_group)
+
+        # --- 组3: 高级选项 ---
+        advanced_group = QGroupBox("高级选项")
+        advanced_form_layout = QFormLayout(advanced_group)
+        
+        self.default_note_input = QLineEdit()
+        self.default_note_input.setPlaceholderText("例如: 清晰、快速")
+        self.default_note_input.setToolTip("在这里输入的文本将作为词表中“备注”为空时的默认值。")
+        
+        # [新增] 自动清理空文件夹的 Checkbox
+        self.cleanup_empty_folder_checkbox = QCheckBox("自动清理未录音的会话文件夹")
+        self.cleanup_empty_folder_checkbox.setToolTip("勾选后，如果一个会话结束时没有录制任何音频，\n其对应的结果文件夹将被自动删除。")
+        
+        advanced_form_layout.addRow("默认备注内容:", self.default_note_input)
+        advanced_form_layout.addRow(self.cleanup_empty_folder_checkbox) # 添加到布局中
+
+        layout.addWidget(advanced_group)
+        
+        # OK 和 Cancel 按钮
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        
+        layout.addWidget(self.button_box)
+        
+        self.load_settings()
+
+    def load_settings(self):
+        """从主配置加载所有设置并更新UI。"""
+        # 使用父页面的 config 对象来获取状态
+        module_states = self.parent_page.config.get("module_states", {}).get("accent_collection", {})
+        
+        # 会话设置
+        self.random_checkbox.setChecked(module_states.get("is_random", False))
+        self.full_list_checkbox.setChecked(module_states.get("is_full_list", False))
+        # start_button_action: "popup" (弹窗) 或 "default" (默认TTS)
+        self.start_button_toggle.setChecked(module_states.get("start_button_action", "popup") == "popup")
+        
+        # 界面与性能设置
+        self.show_waveform_checkbox.setChecked(module_states.get("show_waveform", True))
+        self.volume_slider.setValue(module_states.get("volume_meter_interval", 16))
+        self.volume_slider_label.setText(f"{self.volume_slider.value()} ms")
+        
+        # 高级设置
+        self.default_note_input.setText(module_states.get("default_note", ""))
+        self.cleanup_empty_folder_checkbox.setChecked(module_states.get("cleanup_empty_folder", True)) # 默认启用
+
+
+    def save_settings(self):
+        """将UI上的所有设置保存回主配置。"""
+        # 使用父页面的主窗口引用来调用保存API
+        main_window = self.parent_page.parent_window
+        
+        # 准备要保存的设置字典
+        settings_to_save = {
+            "is_random": self.random_checkbox.isChecked(),
+            "is_full_list": self.full_list_checkbox.isChecked(),
+            "start_button_action": "popup" if self.start_button_toggle.isChecked() else "default",
+            "show_waveform": self.show_waveform_checkbox.isChecked(),
+            "volume_meter_interval": self.volume_slider.value(),
+            "default_note": self.default_note_input.text().strip(),
+            "cleanup_empty_folder": self.cleanup_empty_folder_checkbox.isChecked(),
+        }
+        
+        # 调用主窗口的API来更新并保存
+        main_window.update_and_save_module_state('accent_collection', settings_to_save)
+
+    def accept(self):
+        """重写 accept 方法，在关闭对话框前先保存设置。"""
+        self.save_settings()
+        super().accept()

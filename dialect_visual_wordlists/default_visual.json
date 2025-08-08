@@ -3,15 +3,9 @@
         "format": "visual_wordlist",
         "version": "1.0",
         "author": "PhonAcq Assistant",
-        "save_date": "2025-07-16T17:05:49.305078"
+        "save_date": "2025-08-08T11:55:11.144482"
     },
     "items": [
-        {
-            "id": "person_laughing",
-            "image_path": "default_visual/person_laughing.png",
-            "prompt_text": "请用您的语言描述一下图片里这个人的表情和心情。",
-            "notes": "目标：诱导描述情感状态的词汇（如：笑、开心、高兴），以及相关的面部表情描述。"
-        },
         {
             "id": "cat_sleeping",
             "image_path": "default_visual/cat_sleeping.png",

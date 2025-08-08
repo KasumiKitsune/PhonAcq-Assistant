@@ -967,7 +967,7 @@ class ColorButton(QLabel):
                 self._popup_instance.show_animated(target_pos)
         super().mouseReleaseEvent(event)
 # ==============================================================================
-# 6. 自定义动画列表控件 (AnimatedListWidget) - v1.5 [文档完善版]
+# 6. 自定义动画列表控件 (AnimatedListWidget) - v2.1 [兼容与层级导航版]
 # ==============================================================================
 
 # ==============================================================================
@@ -976,26 +976,31 @@ class ColorButton(QLabel):
 class _ItemAnimationHolder(QObject):
     """
     一个继承自 QObject 的内部动画代理类。
-    [v1.1] 增加了主动失效机制，以防止在访问已删除的 QListWidgetItem 时发生崩溃。
+    它作为 QPropertyAnimation 的目标，将动画值存储在 QListWidgetItem 的
+    自定义数据角色中，并负责在值改变时请求UI重绘。
+    v1.1: 增加了主动失效机制，以防止在访问已删除的 QListWidgetItem 时发生崩溃。
     """
     def __init__(self, item, parent=None):
         super().__init__(parent)
         self.item = item
-        self._is_valid = True # [新增] 有效性标志
+        self._is_valid = True # 有效性标志
 
+        # 初始化动画属性
         self._opacity = 0.0
         self._y_offset = 0
         self._bg_brush = QBrush(Qt.transparent)
         
+        # 将初始值同步到 QListWidgetItem
         self.sync_to_item()
 
     def invalidate(self):
-        """[新增] 一个公开的方法，用于在 item 即将被删除前调用。"""
+        """一个公开的方法，用于在 item 即将被删除前调用，以断开引用。"""
         self._is_valid = False
-        self.item = None # 立即断开对 item 的引用
+        self.item = None
 
     def sync_to_item(self):
-        if not self._is_valid: return # [新增] 安全检查
+        """将当前 holder 中的动画属性值写入到 QListWidgetItem 的数据角色中。"""
+        if not self._is_valid: return
         self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, self._opacity)
         self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, self._y_offset)
         self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
@@ -1006,7 +1011,7 @@ class _ItemAnimationHolder(QObject):
         return self._opacity
     @opacity.setter
     def opacity(self, value): 
-        if not self._is_valid: return # [新增] 安全检查
+        if not self._is_valid: return
         self._opacity = value
         self.item.setData(AnimatedListWidget.ANIM_OPACITY_ROLE, value)
 
@@ -1015,7 +1020,7 @@ class _ItemAnimationHolder(QObject):
         return self._y_offset
     @y_offset.setter
     def y_offset(self, value): 
-        if not self._is_valid: return # [新增] 安全检查
+        if not self._is_valid: return
         self._y_offset = value
         self.item.setData(AnimatedListWidget.ANIM_Y_OFFSET_ROLE, value)
 
@@ -1024,13 +1029,13 @@ class _ItemAnimationHolder(QObject):
         return self._bg_brush.color()
     @bg_color.setter
     def bg_color(self, color): 
-        if not self._is_valid: return # [新增] 安全检查
+        if not self._is_valid: return
         self._bg_brush = QBrush(color)
         self.item.setData(AnimatedListWidget.ANIM_BG_BRUSH_ROLE, self._bg_brush)
         
     def update_view(self):
         """一个槽函数，当任何动画属性改变时被调用，用于请求UI重绘。"""
-        if not self._is_valid or self.item is None: return # [新增] 安全检查
+        if not self._is_valid or self.item is None: return
         
         list_widget = self.item.listWidget()
         if list_widget:
@@ -1043,27 +1048,23 @@ class _ItemAnimationHolder(QObject):
 # ==============================================================================
 class AnimatedItemDelegate(QStyledItemDelegate):
     """
+    [v2.1 - 层级感知版]
     一个自定义的项目委托，负责所有列表项的绘制 (paint) 和尺寸计算 (sizeHint)。
-
-    [核心使命]
-    将 QListWidgetItem 中存储的动画数据（透明度、位移、背景色）
-    可视化地应用到每个项目的绘制过程中。同时，它还负责计算文本溢出
-    时的省略号显示和项目的动态高度。
+    现在能够绘制图标，并为层级列表提供支持。
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.list_widget = parent
 
     def paint(self, painter, option, index):
-        """
-        绘制单个列表项。此方法会在每次需要重绘项目时被调用。
-        """
         painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
 
-        # 1. 从 QListWidgetItem 的数据角色中获取当前动画状态值
+        # 1. 从数据角色中获取当前动画状态值和层级数据
         opacity = index.data(AnimatedListWidget.ANIM_OPACITY_ROLE) or 0.0
         y_offset = index.data(AnimatedListWidget.ANIM_Y_OFFSET_ROLE) or 0
         bg_brush = index.data(AnimatedListWidget.ANIM_BG_BRUSH_ROLE) or self.list_widget.itemBrush
+        item_data = index.data(AnimatedListWidget.HIERARCHY_DATA_ROLE) or {}
 
         # 2. 应用动画变换
         painter.setOpacity(opacity)
@@ -1074,94 +1075,103 @@ class AnimatedItemDelegate(QStyledItemDelegate):
         padding = self.list_widget.itemPadding
         bg_rect = rect.adjusted(padding, padding, -padding, -padding)
         
-        # 根据项目是否被选中，决定使用哪个背景画刷
         final_brush = self.list_widget.itemSelectedBrush if option.state & QStyle.State_Selected else bg_brush
         painter.setPen(Qt.NoPen)
         painter.setBrush(final_brush)
         painter.drawRoundedRect(bg_rect, self.list_widget.itemRadius, self.list_widget.itemRadius)
         
-        # 4. 绘制文本
+        # 4. 准备绘制内容区域
+        content_rect = bg_rect.adjusted(self.list_widget.itemTextPadding, 0, -self.list_widget.itemTextPadding, 0)
+        
+        # 5. 绘制图标（如果存在）
+        icon = item_data.get('icon')
+        if icon and isinstance(icon, QIcon) and not icon.isNull():
+            icon_size = self.list_widget.fontMetrics().height() # 图标大小与文字高度一致
+            icon_rect = QRect(content_rect.left(), 0, icon_size, icon_size)
+            # 垂直居中
+            icon_rect.moveCenter(QPoint(content_rect.left() + icon_size // 2, content_rect.center().y()))
+            
+            icon.paint(painter, icon_rect)
+            
+            # 将文本绘制区域向右移动，留出图标空间和间距
+            content_rect.setLeft(content_rect.left() + icon_size + self.list_widget.itemTextPadding // 2)
+
+        # 6. 绘制文本
         text_color = self.list_widget.itemSelectedTextColor if option.state & QStyle.State_Selected else self.list_widget.itemTextColor
         painter.setPen(text_color)
         
         text = index.data(Qt.DisplayRole)
-        text_rect = bg_rect.adjusted(self.list_widget.itemTextPadding, self.list_widget.itemTextPadding, -self.list_widget.itemTextPadding, -self.list_widget.itemTextPadding)
-        
         font = self.list_widget.font()
         fm = QFontMetrics(font)
         
         # 如果文本宽度超过可用空间，生成带省略号的文本
-        elided_text = fm.elidedText(text, Qt.ElideRight, text_rect.width())
+        elided_text = fm.elidedText(text, Qt.ElideRight, content_rect.width())
         
-        # 绘制单行文本，并使其垂直居中
+        # 绘制单行、左对齐、垂直居中的文本
         flags = Qt.AlignLeft | Qt.AlignVCenter | Qt.TextSingleLine
-        painter.drawText(text_rect, flags, elided_text)
+        painter.drawText(content_rect, flags, elided_text)
 
         painter.restore()
 
     def sizeHint(self, option, index):
-        """
-        计算并返回单个项目应有的大小。
-        这里我们只关心高度，宽度会自动拉伸。
-        """
-        # 计算总的垂直内边距
         padding_v = self.list_widget.itemPadding * 2
         text_padding_v = self.list_widget.itemTextPadding * 2
-        
         font = self.list_widget.font()
         fm = QFontMetrics(font)
         
-        # 高度由字体高度和所有垂直内边距决定
         height = fm.height() + padding_v + text_padding_v
-        
-        # 确保高度不小于QSS中定义的最小高度
         min_h = self.list_widget.minimumItemHeight
-        if height < min_h:
-            height = min_h
-            
-        return QSize(20, int(height)) # 宽度值不重要
+        
+        return QSize(20, max(height, min_h))
 
 # ==============================================================================
 #   主控件类：AnimatedListWidget
 # ==============================================================================
 class AnimatedListWidget(QListWidget):
     """
-    一个功能齐全的列表控件，支持项目进入动画、状态过渡动画和完全的QSS主题化。
-    它旨在作为 QListWidget 的一个直接、功能增强的替代品。
+    [v2.2 - 双击导航版]
+    一个支持层级目录、向后兼容旧API、图标显示、进入动画和完全QSS主题化的列表控件。
+    导航现在由双击或回车键触发，“返回”按钮则响应单击。
     """
-    # 定义用于在 QListWidgetItem 中存储动画数据的自定义数据角色
+    # 定义自定义数据角色
     ANIM_OPACITY_ROLE = Qt.UserRole + 1
     ANIM_Y_OFFSET_ROLE = Qt.UserRole + 2
     ANIM_BG_BRUSH_ROLE = Qt.UserRole + 3
-    ANIM_HOLDER_ROLE = Qt.UserRole + 4 # 存储指向 _ItemAnimationHolder 实例的引用
+    ANIM_HOLDER_ROLE = Qt.UserRole + 4
+    HIERARCHY_DATA_ROLE = Qt.UserRole + 5
 
-    def __init__(self, parent=None):
+    # 定义新的信号，用于最终项目（非文件夹、非返回按钮）的激活
+    item_activated = pyqtSignal(QListWidgetItem)
+
+    def __init__(self, parent=None, icon_manager=None):
         super().__init__(parent)
+        self.icon_manager = icon_manager
         
         # --- 核心设置 ---
         self.setItemDelegate(AnimatedItemDelegate(self))
         self.setMouseTracking(True)
-        self.setUniformItemSizes(False) # 允许项目有不同高度
-        self.setVerticalScrollMode(QListWidget.ScrollPerPixel) # 平滑滚动
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # 禁用横向滚动条
-        self.setWordWrap(False) # 禁用原生换行，交由 delegate 处理省略号
+        self.setUniformItemSizes(False)
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWordWrap(False)
+
+        # --- 导航与动画系统 ---
+        self._navigation_stack = []
+        self._animation_queue = []
+        self._animation_timer = QTimer(self)
+        self._animation_timer.setInterval(25) # 较快的交错延迟
+        self._animation_timer.timeout.connect(self._process_animation_queue)
+        self._animations_enabled = True
 
         # --- 内部状态变量 ---
         self._hovered_item_id = None
         self._pressed_item_id = None
-        self._current_animations = {} # {item_id: QPropertyAnimation}
-        # [新增] 中央动画调度系统
-        self._animation_queue = []
-        self._animation_timer = QTimer(self)
-        self._animation_timer.setInterval(40) # 默认交错延迟
-        self._animation_timer.timeout.connect(self._process_animation_queue)
-        self._animations_enabled = True
+        self._current_animations = {}
 
-        # --- 默认QSS属性 ---
-        # 这些值可以在主题QSS文件中通过 qproperty- 语法覆盖
+        # --- QSS可配置属性 ---
         self._itemBrush = QBrush(Qt.transparent)
         self._itemHoverBrush = QBrush(QColor("#F0F2F4"))
-        self._itemPressedBrush = QBrush(QColor("#F0F2F4"))
+        self._itemPressedBrush = QBrush(QColor("#E0E2E4"))
         self._itemSelectedBrush = QBrush(QColor("#3B97E3"))
         self._itemTextColor = QColor("#2c3e50")
         self._itemSelectedTextColor = QColor("#FFFFFF")
@@ -1172,164 +1182,176 @@ class AnimatedListWidget(QListWidget):
         
         # --- 核心信号连接 ---
         self.itemSelectionChanged.connect(self._on_selection_changed)
+        # 单击现在只处理“返回”按钮的特殊情况
+        self.itemClicked.connect(self._on_item_single_clicked)
+        # 双击用于激活项目和进入文件夹
+        self.itemDoubleClicked.connect(self._handle_item_activation)
 
-    # --- QSS 可定义属性 ---
-    # 这些 pyqtProperty 使得控件的所有视觉参数都可以通过主题QSS文件进行配置
-    
+    # --- QSS 可定义属性 (getter/setter) ---
     @pyqtProperty(int)
     def itemPadding(self): return self._itemPadding
     @itemPadding.setter
     def itemPadding(self, padding): self._itemPadding = padding; self.update()
-    
     @pyqtProperty(int)
     def itemTextPadding(self): return self._itemTextPadding
     @itemTextPadding.setter
     def itemTextPadding(self, padding): self._itemTextPadding = padding; self.update()
-    
     @pyqtProperty(QBrush)
     def itemBrush(self): return self._itemBrush
     @itemBrush.setter
     def itemBrush(self, brush): self._itemBrush = brush; self.update()
-    
     @pyqtProperty(QBrush)
     def itemHoverBrush(self): return self._itemHoverBrush
     @itemHoverBrush.setter
     def itemHoverBrush(self, brush): self._itemHoverBrush = brush; self.update()
-    
     @pyqtProperty(QBrush)
     def itemPressedBrush(self): return self._itemPressedBrush
     @itemPressedBrush.setter
     def itemPressedBrush(self, brush): self._itemPressedBrush = brush; self.update()
-    
     @pyqtProperty(QBrush)
     def itemSelectedBrush(self): return self._itemSelectedBrush
     @itemSelectedBrush.setter
     def itemSelectedBrush(self, brush): self._itemSelectedBrush = brush; self.update()
-    
     @pyqtProperty(QColor)
     def itemTextColor(self): return self._itemTextColor
     @itemTextColor.setter
     def itemTextColor(self, color): self._itemTextColor = color; self.update()
-    
     @pyqtProperty(QColor)
     def itemSelectedTextColor(self): return self._itemSelectedTextColor
     @itemSelectedTextColor.setter
     def itemSelectedTextColor(self, color): self._itemSelectedTextColor = color; self.update()
-    
     @pyqtProperty(int)
     def itemRadius(self): return self._itemRadius
     @itemRadius.setter
     def itemRadius(self, radius): self._itemRadius = radius; self.update()
-    
     @pyqtProperty(int)
     def minimumItemHeight(self): return self._minimumItemHeight
     @minimumItemHeight.setter
     def minimumItemHeight(self, height): self._minimumItemHeight = height; self.update()
     
-    # --- 动画与事件处理 ---
-    
-    def _animate_item_bg(self, item, end_brush):
-        """启动单个项目背景色的过渡动画，或在动画禁用时立即设置。"""
-        if not item: return
-        holder = item.data(self.ANIM_HOLDER_ROLE)
-        if not holder: return
+    # --- 公共 API ---
+    def addItemsWithAnimation(self, items_data):
+        """
+        [v2.1 智能版] 用动画添加一批项目。
+        此方法兼容两种数据格式：list[str] (旧版) 和 list[dict] (新版)。
+        """
+        if not items_data or not isinstance(items_data, list):
+            hierarchical_data = []
+        elif all(isinstance(x, str) for x in items_data):
+            hierarchical_data = [{'type': 'item', 'text': text} for text in items_data]
+        else:
+            hierarchical_data = items_data
         
-        # [核心修改] 检查动画是否启用
-        if not self._animations_enabled:
-            # 如果动画被禁用，立即设置颜色并请求重绘
-            holder.bg_color = end_brush.color()
-            holder.update_view()
+        self.setHierarchicalData(hierarchical_data)
+
+    def setHierarchicalData(self, data):
+        """
+        设置层级数据并显示顶层列表。这是新的核心入口。
+        """
+        if not isinstance(data, list):
+            print("AnimatedListWidget Error: Data must be a list of dictionaries.")
             return
+        self._navigation_stack = [data]
+        self._populate_list_with_animation(data)
 
-        # --- 如果动画启用，则执行原始的动画逻辑 ---
-        item_id = id(item)
-        try:
-            existing_anim = self._current_animations.get(item_id)
-            if existing_anim:
-                if existing_anim.endValue() == end_brush.color(): return
-                existing_anim.stop()
-        except RuntimeError: pass
-
-        anim = QPropertyAnimation(holder, b"bg_color", holder)
-        anim.setDuration(150)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.setStartValue(holder.bg_color)
-        anim.setEndValue(end_brush.color())
-        anim.valueChanged.connect(holder.update_view)
+    def clear(self):
+        """覆盖原生 clear 方法，以安全地停止动画和清理资源。"""
+        self._animation_timer.stop()
+        self._animation_queue.clear()
         
-        self._current_animations[item_id] = anim
-        anim.start(QPropertyAnimation.DeleteWhenStopped)
-
-    def mouseMoveEvent(self, event):
-        """处理鼠标移动事件，用于更新悬停状态。"""
-        super().mouseMoveEvent(event)
-        
-        old_hovered_id = self._hovered_item_id
-        current_item = self.itemAt(event.pos())
-        self._hovered_item_id = id(current_item) if current_item else None
-        
-        # 仅当悬停的项目发生变化时才更新状态
-        if self._hovered_item_id != old_hovered_id:
-            if old_hovered_id: self._update_item_visual_state(self._item_from_id(old_hovered_id))
-            if self._hovered_item_id: self._update_item_visual_state(current_item)
-
-    def leaveEvent(self, event):
-        """当鼠标离开控件时，取消所有悬停状态。"""
-        super().leaveEvent(event)
-        
-        old_hovered_id = self._hovered_item_id
+        for anim in list(self._current_animations.values()):
+            try:
+                if anim: anim.stop()
+            except RuntimeError: pass
+        self._current_animations.clear()
+            
+        for i in range(self.count()):
+            item = self.item(i)
+            if item:
+                holder = item.data(self.ANIM_HOLDER_ROLE)
+                if holder: holder.invalidate()
+            
         self._hovered_item_id = None
-        if old_hovered_id:
-            self._update_item_visual_state(self._item_from_id(old_hovered_id))
-
-    def mousePressEvent(self, event):
-        """处理鼠标按下事件，用于更新按下状态和取消选择。"""
-        item = self.itemAt(event.pos())
-        
-        # 如果点击空白处，取消选择
-        if item is None:
-            self.setCurrentItem(None)
-            super().mousePressEvent(event)
-            return
-
-        # 如果点击了有效的项目
-        if event.button() == Qt.LeftButton:
-            self._pressed_item_id = id(item)
-            self._update_item_visual_state(item)
-        
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        """处理鼠标释放事件，恢复按下状态。"""
-        super().mouseReleaseEvent(event)
-        
-        pressed_id = self._pressed_item_id
         self._pressed_item_id = None
-        if pressed_id:
-            # 延迟调用以确保选择状态已更新
-            QTimer.singleShot(0, lambda: self._update_item_visual_state(self._item_from_id(pressed_id)))
-    
-    def _on_selection_changed(self):
-        """当选择变化时，这是一个权威事件。强制所有项目更新到其正确状态。"""
-        # 使用 QTimer.singleShot 延迟执行，确保在所有鼠标事件处理完毕后才更新视觉状态，
-        # 避免状态竞争。
-        QTimer.singleShot(0, lambda: [self._update_item_visual_state(self.item(i)) for i in range(self.count())])
+        super().clear()
 
-    def _get_target_brush_for_item(self, item):
-        """根据项目的当前状态（选中、按下、悬停），决定其目标背景颜色。"""
-        item_id = id(item)
-        if item.isSelected(): return self.itemSelectedBrush
-        if item_id == self._pressed_item_id: return self.itemPressedBrush
-        if item_id == self._hovered_item_id: return self.itemHoverBrush
-        return self.itemBrush
+    # --- 键盘与导航事件 ---
+    def keyPressEvent(self, event):
+        """重写键盘事件，以处理回车键激活。"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            current_item = self.currentItem()
+            if current_item:
+                self._handle_item_activation(current_item)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
-    def _update_item_visual_state(self, item):
-        """
-        状态驱动的核心：检查一个项目的目标状态，并启动动画使其过渡。
-        """
+    def _on_item_single_clicked(self, item):
+        """此方法现在只处理“返回”按钮的单击事件。"""
         if not item: return
-        target_brush = self._get_target_brush_for_item(item)
-        self._animate_item_bg(item, target_brush)
+        data = item.data(self.HIERARCHY_DATA_ROLE)
+        if data and data.get('type') == 'back':
+            if len(self._navigation_stack) > 1:
+                self._navigation_stack.pop()
+                parent_items = self._navigation_stack[-1]
+                self._populate_list_with_animation(parent_items)
+
+    def _handle_item_activation(self, item):
+        """统一的激活处理函数，由双击或回车键调用。"""
+        if not item: return
+        data = item.data(self.HIERARCHY_DATA_ROLE)
+        if not data: return
+
+        item_type = data.get('type')
+
+        if item_type == 'folder':
+            children = data.get('children', []).copy()
+            back_icon = self.icon_manager.get_icon("prev") if self.icon_manager else QIcon()
+            children.insert(0, {'type': 'back', 'text': ' 返回上一级', 'icon': back_icon})
+            self._navigation_stack.append(children)
+            self._populate_list_with_animation(children)
+        
+        elif item_type == 'item':
+            self.item_activated.emit(item)
+            
+    # --- 内部核心方法 ---
+    def _populate_list_with_animation(self, items_data):
+        """内部核心方法，用给定的数据(list[dict])填充列表并启动动画。"""
+        self.clear()
+        
+        self._animations_enabled = not (len(items_data) > 20)
+        main_window = self.window()
+        if hasattr(main_window, 'animations_enabled') and not main_window.animations_enabled:
+            self._animations_enabled = False
+
+        if self._animations_enabled:
+            for data in items_data:
+                item = self._create_item_from_data(data)
+                self._animation_queue.append(item.data(self.ANIM_HOLDER_ROLE))
+                super().addItem(item)
+            if self._animation_queue: self._animation_timer.start()
+        else:
+            self.blockSignals(True)
+            for data in items_data:
+                item = self._create_item_from_data(data, animated=False)
+                super().addItem(item)
+            self.blockSignals(False)
+            self._on_selection_changed()
+
+    def _create_item_from_data(self, data, animated=True):
+        """从数据字典创建一个 QListWidgetItem 并设置其所有属性。"""
+        text = data.get('text', 'Unnamed Item')
+        item = QListWidgetItem(text)
+        item.setToolTip(text)
+        item.setData(self.HIERARCHY_DATA_ROLE, data)
+        
+        holder = _ItemAnimationHolder(item, self)
+        if not animated:
+            holder.opacity = 1.0
+            holder.y_offset = 0
+            holder.sync_to_item()
+        item.setData(self.ANIM_HOLDER_ROLE, holder)
+        return item
 
     def _process_animation_queue(self):
         """从队列中取出一个项目并启动其进入动画。"""
@@ -1337,122 +1359,82 @@ class AnimatedListWidget(QListWidget):
             self._animation_timer.stop()
             return
 
-        holder_ref = self._animation_queue.pop(0)
+        holder = self._animation_queue.pop(0)
+        if not holder or not holder.parent(): return
 
-        # [核心安全检查] 确保在动画启动前，holder 仍然有效
-        if not holder_ref or not holder_ref.parent(): 
-            return # 如果 holder 已被删除，则静默地跳过
-
-        parallel_anim = QParallelAnimationGroup(holder_ref)
-        
-        opacity_anim = QPropertyAnimation(holder_ref, b"opacity", holder_ref)
-        opacity_anim.setDuration(200) # 动画持续时间
-        opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
-        opacity_anim.setStartValue(0.0)
-        opacity_anim.setEndValue(1.0)
-
-        offset_anim = QPropertyAnimation(holder_ref, b"y_offset", holder_ref)
-        offset_anim.setDuration(200) # 动画持续时间
-        offset_anim.setEasingCurve(QEasingCurve.OutCubic)
-        offset_anim.setStartValue(20) # 从下方20像素处开始
-        offset_anim.setEndValue(0)
-
-        opacity_anim.valueChanged.connect(holder_ref.update_view)
-        offset_anim.valueChanged.connect(holder_ref.update_view)
-
-        parallel_anim.addAnimation(opacity_anim)
-        parallel_anim.addAnimation(offset_anim)
+        parallel_anim = QParallelAnimationGroup(holder)
+        opacity_anim = QPropertyAnimation(holder, b"opacity"); opacity_anim.setDuration(200); opacity_anim.setEasingCurve(QEasingCurve.OutCubic); opacity_anim.setStartValue(0.0); opacity_anim.setEndValue(1.0)
+        offset_anim = QPropertyAnimation(holder, b"y_offset"); offset_anim.setDuration(200); offset_anim.setEasingCurve(QEasingCurve.OutCubic); offset_anim.setStartValue(15); offset_anim.setEndValue(0)
+        opacity_anim.valueChanged.connect(holder.update_view); offset_anim.valueChanged.connect(holder.update_view)
+        parallel_anim.addAnimation(opacity_anim); parallel_anim.addAnimation(offset_anim)
         parallel_anim.start(QPropertyAnimation.DeleteWhenStopped)
     
-    # --- 核心功能：项目进入动画与清空 ---
-    
-    def addItemsWithAnimation(self, items_text):
-        """
-        [v1.6 - 性能优化版]
-        用动画添加一批项目。如果项目数量过多或主题禁用了动画，则回退到无动画的快速添加模式。
-        """
-        self.clear()
+    def _animate_item_bg(self, item, end_brush):
+        """启动单个项目背景色的过渡动画。"""
+        if not item: return
+        holder = item.data(self.ANIM_HOLDER_ROLE)
+        if not holder: return
         
-        # --- [核心修改] 检查是否应禁用动画 ---
-        self._animations_enabled = True # 每次调用都重置
-        
-        # 1. 数量检查
-        if len(items_text) > 20:
-            self._animations_enabled = False
-            
-        # 2. 主题检查 (向上查找主窗口的动画设置)
-        if self._animations_enabled:
-            main_window = self.window()
-            if hasattr(main_window, 'animations_enabled') and not main_window.animations_enabled:
-                self._animations_enabled = False
-        
-        # --- 根据动画启用状态执行不同逻辑 ---
-        if self._animations_enabled:
-            # --- 动画模式 ---
-            STAGGER_DELAY = 20
-            self._animation_timer.setInterval(STAGGER_DELAY)
+        if not self._animations_enabled:
+            holder.bg_color = end_brush.color(); holder.update_view(); return
 
-            for text in items_text:
-                item = QListWidgetItem(text)
-                item.setToolTip(text)
-                
-                holder = _ItemAnimationHolder(item, self)
-                item.setData(self.ANIM_HOLDER_ROLE, holder)
-                
-                self._animation_queue.append(holder)
-                
-                super().addItem(item)
-                
-            if self._animation_queue:
-                self._animation_timer.start()
-        else:
-            # --- 快速无动画模式 ---
-            # 使用 blockSignals 进一步优化大批量添加的性能
-            self.blockSignals(True)
-            for text in items_text:
-                item = QListWidgetItem(text)
-                item.setToolTip(text)
-                
-                # 仍然需要 holder 来管理背景色，但状态是立即设置的
-                holder = _ItemAnimationHolder(item, self)
-                holder.opacity = 1.0 # 直接设置为不透明
-                holder.y_offset = 0   # 无位移
-                holder.sync_to_item() # 同步数据
-                item.setData(self.ANIM_HOLDER_ROLE, holder)
-                
-                super().addItem(item)
-            self.blockSignals(False)
-            
-            # 手动触发一次选择更新，因为 blockSignals 会阻止它
-            self._on_selection_changed()
+        item_id = id(item)
+        try:
+            if self._current_animations.get(item_id): self._current_animations[item_id].stop()
+        except RuntimeError: pass
 
-    def clear(self):
-        """[重构 v1.1] 覆盖原生 clear 方法，以安全地停止动画和清理资源。"""
-        # 1. 立即停止新的动画调度
-        self._animation_timer.stop()
-        self._animation_queue.clear()
-        
-        # 2. 停止所有正在运行的背景色过渡动画
-        for anim_id in list(self._current_animations.keys()):
-            anim = self._current_animations.pop(anim_id, None)
-            try:
-                if anim: anim.stop()
-            except RuntimeError: pass
-            
-        # 3. [核心修复] 在删除 item 之前，遍历所有 item 并使其 holder 失效
-        for i in range(self.count()):
-            item = self.item(i)
-            if item:
-                holder = item.data(self.ANIM_HOLDER_ROLE)
-                if holder:
-                    holder.invalidate() # 通知 holder 不要再访问 item
-            
-        # 4. 清理内部状态
+        anim = QPropertyAnimation(holder, b"bg_color", holder); anim.setDuration(120); anim.setEasingCurve(QEasingCurve.OutCubic); anim.setStartValue(holder.bg_color); anim.setEndValue(end_brush.color()); anim.valueChanged.connect(holder.update_view)
+        self._current_animations[item_id] = anim; anim.start(QPropertyAnimation.DeleteWhenStopped)
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        old_hovered_id = self._hovered_item_id
+        current_item = self.itemAt(event.pos())
+        self._hovered_item_id = id(current_item) if current_item else None
+        if self._hovered_item_id != old_hovered_id:
+            if old_hovered_id: self._update_item_visual_state(self._item_from_id(old_hovered_id))
+            if self._hovered_item_id: self._update_item_visual_state(current_item)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        old_hovered_id = self._hovered_item_id
         self._hovered_item_id = None
-        self._pressed_item_id = None
+        if old_hovered_id:
+            self._update_item_visual_state(self._item_from_id(old_hovered_id))
 
-        # 5. 最后，安全地调用父类的 clear 方法来删除所有 QListWidgetItem
-        super().clear()
+    def mousePressEvent(self, event):
+        item = self.itemAt(event.pos())
+        if item is None:
+            self.setCurrentItem(None)
+        elif event.button() == Qt.LeftButton:
+            self._pressed_item_id = id(item)
+            self._update_item_visual_state(item)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        pressed_id = self._pressed_item_id
+        self._pressed_item_id = None
+        if pressed_id:
+            QTimer.singleShot(0, lambda: self._update_item_visual_state(self._item_from_id(pressed_id)))
+    
+    def _on_selection_changed(self):
+        """当选择变化时，强制所有项目更新到其正确状态。"""
+        QTimer.singleShot(0, lambda: [self._update_item_visual_state(self.item(i)) for i in range(self.count())])
+
+    def _get_target_brush_for_item(self, item):
+        """根据项目的当前状态，决定其目标背景颜色。"""
+        item_id = id(item)
+        if item.isSelected(): return self.itemSelectedBrush
+        if item_id == self._pressed_item_id: return self.itemPressedBrush
+        if item_id == self._hovered_item_id: return self.itemHoverBrush
+        return self.itemBrush
+
+    def _update_item_visual_state(self, item):
+        """检查一个项目的目标状态，并启动动画使其过渡。"""
+        if not item: return
+        target_brush = self._get_target_brush_for_item(item)
+        self._animate_item_bg(item, target_brush)
         
     def _item_from_id(self, item_id):
         """辅助函数：通过内存ID查找 QListWidgetItem。"""
@@ -1994,3 +1976,189 @@ class AnimatedIconButton(QPushButton):
         if event.button() == Qt.LeftButton:
             self.scale_anim.stop(); self.scale_anim.setEndValue(1.0); self.scale_anim.start()
         super().mouseReleaseEvent(event)
+
+import os
+import sys
+import subprocess
+from PyQt5.QtWidgets import (QMenu, QMessageBox,QGroupBox)
+class WordlistSelectionDialog(QDialog):
+    """
+    一个可复用的、弹出式的对话框，使用 AnimatedListWidget 来提供层级式词表选择。
+    
+    特性:
+    - 支持无限层级的文件夹导航。
+    - 顶置搜索栏，可对所有层级的词表进行实时、不区分大小写的模糊搜索。
+    - 列表和搜索结果中不显示 '.json' 文件后缀，界面更简洁。
+    - 支持右键菜单，提供“固定/取消固定”、“打开文件”、“打开目录”等功能。
+    - 界面元素被包裹在 QGroupBox 中，以获得更佳的视觉分组和边距。
+    """
+    
+    def __init__(self, parent_page):
+        """
+        构造函数。
+        
+        Args:
+            parent_page: 对父页面（调用此对话框的模块主类实例）的引用。
+                         父页面必须提供以下属性和方法：
+                         - .WORD_LIST_DIR (str): 词表根目录路径。
+                         - .icon_manager: 一个IconManager实例。
+                         - .is_wordlist_pinned(rel_path): 检查词表是否固定的方法。
+                         - .toggle_pin_wordlist(rel_path): 切换词表固定状态的方法。
+        """
+        super().__init__(parent_page)
+        self.parent_page = parent_page
+        self.selected_file_relpath = None 
+        self._all_items_cache = []
+
+        self.setWindowTitle("选择单词表")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumSize(400, 500)
+        
+        self._init_ui()
+        self._connect_signals()
+        self.populate_list()
+
+    def _init_ui(self):
+        """构建对话框的用户界面。"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+        container_groupbox = QGroupBox("可用的单词表")
+        container_layout = QVBoxLayout(container_groupbox)
+        container_layout.setContentsMargins(10, 15, 10, 10)
+        container_layout.setSpacing(8)
+        
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("搜索词表 (例如: animals)...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setObjectName("WordlistSearchInput")
+
+        self.list_widget = AnimatedListWidget(icon_manager=self.parent_page.icon_manager)
+        self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        
+        container_layout.addWidget(self.search_input)
+        container_layout.addWidget(self.list_widget)
+        main_layout.addWidget(container_groupbox)
+
+    def _connect_signals(self):
+        """连接所有UI控件的信号到对应的槽函数。"""
+        self.list_widget.item_activated.connect(self.on_item_selected)
+        self.search_input.textChanged.connect(self._filter_list)
+        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
+
+    def on_item_selected(self, item):
+        """当用户选择一个文件后，存储其相对路径并关闭对话框。"""
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        full_path = item_data.get('data', {}).get('path')
+        if full_path:
+            rel_path = os.path.relpath(full_path, self.parent_page.WORD_LIST_DIR)
+            self.selected_file_relpath = rel_path.replace("\\", "/")
+            self.accept()
+
+    def _filter_list(self, text):
+        """根据搜索框的文本实时过滤列表显示内容。"""
+        search_term = text.strip().lower()
+        if not search_term:
+            if self.list_widget._navigation_stack:
+                 top_level_data = self.list_widget._navigation_stack[0]
+                 self.list_widget._populate_list_with_animation(top_level_data)
+            return
+        matching_items = [item for item in self._all_items_cache if search_term in item['search_text']]
+        for item in matching_items:
+            item['text'] = item['search_text'].replace("/", " / ")
+        self.list_widget._populate_list_with_animation(matching_items)
+
+    def show_context_menu(self, position):
+        """当用户在列表上右键单击时，显示上下文菜单。"""
+        item = self.list_widget.itemAt(position)
+        if not item: return
+        item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
+        if not item_data: return
+
+        item_type = item_data.get('type')
+        full_path = item_data.get('data', {}).get('path')
+        icon_manager = self.parent_page.icon_manager
+        menu = QMenu(self.list_widget)
+
+        if item_type == 'item':
+            rel_path = os.path.relpath(full_path, self.parent_page.WORD_LIST_DIR).replace("\\", "/")
+            is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
+            pin_action = menu.addAction(icon_manager.get_icon("unpin" if is_pinned else "pin"), "取消固定" if is_pinned else "固定到顶部")
+            menu.addSeparator()
+            open_file_action = menu.addAction(icon_manager.get_icon("open_external"), "用默认程序打开")
+            open_folder_action = menu.addAction(icon_manager.get_icon("show_in_explorer"), "打开所在目录")
+            
+            action = menu.exec_(self.list_widget.mapToGlobal(position))
+            if action == pin_action:
+                self.parent_page.toggle_pin_wordlist(rel_path)
+                self.populate_list()
+            elif action == open_file_action: self._open_system_default(full_path)
+            elif action == open_folder_action: self._open_system_default(os.path.dirname(full_path))
+        elif item_type == 'folder':
+            first_child_path = item_data.get('children', [{}])[0].get('data', {}).get('path')
+            if not first_child_path: return
+            folder_path = os.path.dirname(first_child_path)
+            open_folder_action = menu.addAction(icon_manager.get_icon("open_folder"), "打开目录")
+            action = menu.exec_(self.list_widget.mapToGlobal(position))
+            if action == open_folder_action: self._open_system_default(folder_path)
+
+    def _open_system_default(self, path):
+        """跨平台地使用系统默认程序打开文件或文件夹。"""
+        try:
+            if sys.platform == 'win32': os.startfile(os.path.realpath(path))
+            elif sys.platform == 'darwin': subprocess.check_call(['open', path])
+            else: subprocess.check_call(['xdg-open', path])
+        except Exception as e:
+            QMessageBox.critical(self, "操作失败", f"无法打开路径: {path}\n错误: {e}")
+            
+    def populate_list(self):
+        """扫描词表目录，构建一个包含固定项快捷方式和层级浏览区的列表。"""
+        base_dir = self.parent_page.WORD_LIST_DIR
+        icon_manager = self.parent_page.icon_manager
+        
+        pinned_shortcuts, regular_items = [], []
+        self._all_items_cache.clear()
+        folder_map = {}
+
+        try:
+            for root, _, files in os.walk(base_dir):
+                for filename in files:
+                    if not filename.endswith('.json'): continue
+                    
+                    full_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(full_path, base_dir).replace("\\", "/")
+                    display_name, _ = os.path.splitext(filename)
+                    is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
+                    
+                    item_data = {'type': 'item', 'icon': icon_manager.get_icon("document"), 'data': {'path': full_path}}
+                    
+                    if is_pinned:
+                        shortcut = item_data.copy()
+                        shortcut['icon'] = icon_manager.get_icon("pin")
+                        shortcut['text'] = f"{os.path.basename(root)} / {display_name}" if root != base_dir else display_name
+                        pinned_shortcuts.append(shortcut)
+                    else:
+                        item_data['text'] = display_name
+                        if root not in folder_map: folder_map[root] = []
+                        folder_map[root].append(item_data)
+                    
+                    search_item = item_data.copy()
+                    search_item['search_text'] = f"{os.path.basename(root)}/{display_name}".lower() if root != base_dir else display_name.lower()
+                    self._all_items_cache.append(search_item)
+            
+            if base_dir in folder_map:
+                root_files = sorted(folder_map[base_dir], key=lambda x: x['text'])
+                regular_items.extend(root_files)
+                del folder_map[base_dir]
+            
+            for folder_path in sorted(folder_map.keys()):
+                children = sorted(folder_map[folder_path], key=lambda x: x['text'])
+                regular_items.append({'type': 'folder', 'text': os.path.basename(folder_path), 'icon': icon_manager.get_icon("folder"), 'children': children})
+            
+            regular_items.sort(key=lambda x: (x['type'] != 'folder', x['text']))
+            pinned_shortcuts.sort(key=lambda x: x['text'])
+            
+            self.list_widget.setHierarchicalData(pinned_shortcuts + regular_items)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"扫描并构建词表列表时发生错误: {e}")
