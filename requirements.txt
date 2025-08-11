@@ -1,48 +1,16 @@
-# ==========================================================
-# PhonAcq Assistant - Python Dependencies
-# ==========================================================
-
-# --- Core GUI Framework ---
-PyQt5
-PyQt5-sip
-PyQt5-stubs
-
-# --- Core Audio & Data Processing ---
-sounddevice
-soundfile
-numpy
-pandas
-openpyxl
-
-# --- Text & Language Processing ---
-pypinyin
-markdown
-gtts
-thefuzz[speedup]  # a.k.a 'python-Levenshtein' will be installed
-librosa
-
-# --- Plugin: Praat Exporter & Vowel Plotter ---
-praat-parselmouth  # This is the library that provides 'textgrid'
+gTTS==2.5.4
+librosa==0.10.1
+Markdown==3.5.2
 matplotlib
-Pillow             # a.k.a 'PIL', required by Matplotlib
-cycler             # Required by Matplotlib
-kiwisolver         # Required by Matplotlib
-pyparsing          # Required by Matplotlib
-
-# --- Plugin: Cloud Sync (WebDAV) ---
-requests
-webdavclient3      # Provides 'webdav3'
-
-# --- Plugin: Cloud Sync (XML Parsing for some servers) ---
-lxml
-
-# --- Scientific Computing & Performance ---
-scipy
-numba
-joblib
-scikit-learn       # Provides 'sklearn'
-
-# --- Packaging Tool ---
-# Although not a runtime dependency, it's essential for building the project.
-pyinstaller
-pyinstaller-hooks-contrib # Recommended for easier packaging of libs like matplotlib
+numpy
+openpyxl==3.1.5
+pandas==2.3.1
+psutil==7.0.0
+pypinyin==0.54.0
+PyQt5==5.15.11
+PyQt5_sip==12.17.0
+Requests==2.32.4
+sounddevice==0.5.2
+soundfile==0.13.1
+textgrid==1.6.1
+thefuzz==0.22.1

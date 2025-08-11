@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QShortcut, QUndoStack, QUndoCommand,
-    QApplication, QMenu, QDialog, QGroupBox, QCheckBox, QFormLayout, QSlider, QDialogButtonBox, QToolTip
+    QApplication, QMenu, QDialog, QGroupBox, QCheckBox, QFormLayout, QSlider, QDialogButtonBox, QToolTip, QStackedWidget, QListWidget, QLineEdit, QFrame
 )
 from modules.custom_widgets_module import AnimatedListWidget # [核心重构] 导入 AnimatedListWidget
 from PyQt5.QtCore import Qt, QTimer, QRect, QSize, QEvent, QBuffer, QByteArray # [核心重构] 导入 QTimer, QRect, QSize
@@ -1401,6 +1401,14 @@ class DialectVisualEditorPage(QWidget):
 
     def setup_connections_and_shortcuts(self):
         """设置所有UI控件的信号槽连接和键盘快捷键。"""
+        # --- [核心修改] 在方法开头加载快捷键配置 ---
+        module_states = self.config.get("module_states", {}).get("dialect_visual_editor", {})
+        shortcuts = module_states.get("shortcuts", {})
+        
+        def get_shortcut(action_name, default):
+            return shortcuts.get(action_name, default)
+        # --- [修改结束] ---
+
         # 文件列表操作
         self.file_list_widget.item_activated.connect(self.on_file_double_clicked)
         self.file_list_widget.customContextMenuRequested.connect(self.show_file_context_menu)
@@ -1417,56 +1425,46 @@ class DialectVisualEditorPage(QWidget):
         self.auto_detect_btn.clicked.connect(self.auto_detect_images)
         
         # 单元格编辑与撤销/重做
-        self.table_widget.itemPressed.connect(self.on_item_pressed) # 在单元格开始编辑前记录旧值
-        self.table_widget.itemChanged.connect(self.on_item_changed_for_undo) # 在单元格内容改变后推送到撤销栈
-        self.table_widget.itemChanged.connect(self._resize_row_on_change) # 新增连接
-        self.table_widget.cellDoubleClicked.connect(self.on_cell_double_clicked) # 图片列双击打开文件选择
-        self.table_widget.cellClicked.connect(self.on_cell_clicked) # 用于处理占位符行点击
-        # 表格右键菜单
+        self.table_widget.itemPressed.connect(self.on_item_pressed)
+        self.table_widget.itemChanged.connect(self.on_item_changed_for_undo)
+        self.table_widget.itemChanged.connect(self._resize_row_on_change)
+        self.table_widget.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        self.table_widget.cellClicked.connect(self.on_cell_clicked)
         self.table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self.show_context_menu)
         
-        # [核心重构] 将所有可能导致“脏”状态变化的信号，都连接到一个统一的状态检查函数
-        self.undo_stack.indexChanged.connect(self.check_dirty_state) # 任何撤销/重做都会触发
-        self.table_widget.itemChanged.connect(self.check_dirty_state) # 任何单元格编辑都会触发
+        self.undo_stack.indexChanged.connect(self.check_dirty_state)
+        self.table_widget.itemChanged.connect(self.check_dirty_state)
 
         # 撤销/重做按钮和快捷键
         self.undo_action = self.undo_stack.createUndoAction(self, "撤销")
         self.undo_action.setShortcut(QKeySequence.Undo)
         self.redo_action = self.undo_stack.createRedoAction(self, "重做")
         self.redo_action.setShortcut(QKeySequence.Redo)
-        
-        # 将撤销/重做动作添加到页面，使其可以通过快捷键触发
         self.addAction(self.undo_action)
         self.addAction(self.redo_action)
-        
-        # 连接撤销/重做按钮到动作
         self.undo_btn.clicked.connect(self.undo_action.trigger)
         self.redo_btn.clicked.connect(self.redo_action.trigger)
-        
-        # 撤销/重做按钮的启用/禁用状态
         self.undo_stack.canUndoChanged.connect(self.undo_btn.setEnabled)
         self.undo_stack.canRedoChanged.connect(self.redo_btn.setEnabled)
-        self.undo_btn.setEnabled(False) # 初始禁用
-        self.redo_btn.setEnabled(False) # 初始禁用
+        self.undo_btn.setEnabled(False)
+        self.redo_btn.setEnabled(False)
 
-        # 其他页面级快捷键
+        # 标准快捷键
         QShortcut(QKeySequence.Save, self, self.save_wordlist)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.save_wordlist_as)
         QShortcut(QKeySequence.New, self, self.new_wordlist)
         
-        # 剪贴板操作快捷键
-        QShortcut(QKeySequence.Copy, self, self.copy_selection)
-        QShortcut(QKeySequence.Cut, self, self.cut_selection)
-        QShortcut(QKeySequence.Paste, self, self.paste_selection)
+        # --- [核心修改] 应用自定义快捷键 ---
+        QShortcut(QKeySequence(get_shortcut("copy", "Ctrl+C")), self, self.copy_selection)
+        QShortcut(QKeySequence(get_shortcut("cut", "Ctrl+X")), self, self.cut_selection)
+        QShortcut(QKeySequence(get_shortcut("paste", "Ctrl+V")), self, self.paste_selection)
+        QShortcut(QKeySequence(get_shortcut("duplicate", "Ctrl+D")), self, self.duplicate_rows)
+        QShortcut(QKeySequence(get_shortcut("move_up", "Alt+Up")), self, lambda: self.move_rows(-1))
+        QShortcut(QKeySequence(get_shortcut("move_down", "Alt+Down")), self, lambda: self.move_rows(1))
+        QShortcut(QKeySequence(get_shortcut("remove_row", "Ctrl+-")), self, self.remove_row)
+        # --- [修改结束] ---
         
-        # 行操作快捷键
-        QShortcut(QKeySequence("Ctrl+D"), self, self.duplicate_rows)
-        QShortcut(QKeySequence(Qt.ALT | Qt.Key_Up), self, lambda: self.move_rows(-1)) # Alt+Up 向上移动
-        QShortcut(QKeySequence(Qt.ALT | Qt.Key_Down), self, lambda: self.move_rows(1)) # Alt+Down 向下移动
-        QShortcut(QKeySequence(Qt.CTRL | Qt.Key_Minus), self, self.remove_row) # Ctrl+- 删除行
-        
-        # 表头列宽调整信号
         self.table_widget.horizontalHeader().sectionResized.connect(self.on_column_resized)
 
     def _resize_row_on_change(self, item):
@@ -1998,110 +1996,254 @@ class DialectVisualEditorPage(QWidget):
         cmd = RowOperationCommand(self, start_row, rows_data, 'remove', description="移除选中行")
         self.undo_stack.push(cmd)
 
-# --- [核心新增] 与 wordlist_editor_module 对齐的设置对话框 ---
+# --- [核心重构] 为图文词表编辑器定制的双栏设置对话框 ---
 class SettingsDialog(QDialog):
     """
-    一个专门用于配置“图文词表编辑器”模块的对话框。
+    一个专门用于配置“图文词表编辑器”模块的双栏设置对话框。
     """
     def __init__(self, parent_page, file_manager_available):
         super().__init__(parent_page)
+        
+        # [核心修复] 将传入的值保存为实例属性
+        self.file_manager_available = file_manager_available
         
         self.parent_page = parent_page
         self.setWindowTitle("图文词表编辑器设置")
         self.setWindowIcon(self.parent_page.parent_window.windowIcon())
         self.setStyleSheet(self.parent_page.parent_window.styleSheet())
-        self.setMinimumWidth(450)
+        self.setMinimumSize(650, 450)
         
-        # 主布局
-        layout = QVBoxLayout(self)
-        
-        # --- 组1: 自动保存 ---
-        autosave_group = QGroupBox("自动保存")
-        autosave_form_layout = QFormLayout(autosave_group)
-        
-        self.autosave_checkbox = QCheckBox("启用自动保存")
-        self.autosave_checkbox.setToolTip("勾选后，编辑器将在指定的时间间隔内自动保存当前打开的文件。")
-        
-        autosave_interval_layout = QHBoxLayout()
-        self.interval_slider = QSlider(Qt.Horizontal)
-        self.interval_slider.setRange(1, 30) # 1到30分钟
-        self.interval_slider.setToolTip("设置自动保存的时间间隔（分钟）。")
-        self.interval_label = QLabel("15 分钟")
-        self.interval_label.setFixedWidth(60)
-        autosave_interval_layout.addWidget(self.interval_slider)
-        autosave_interval_layout.addWidget(self.interval_label)
-        
-        autosave_form_layout.addRow(self.autosave_checkbox)
-        autosave_form_layout.addRow("保存间隔:", autosave_interval_layout)
-        
-        layout.addWidget(autosave_group)
+        # --- [核心布局重构] ---
+        # 1. 主布局现在是垂直的，以容纳内容区和下方的按钮栏
+        dialog_layout = QVBoxLayout(self)
+        dialog_layout.setSpacing(10)
+        dialog_layout.setContentsMargins(0, 10, 0, 10)
 
-        # --- 组2: 文件操作 ---
-        file_op_group = QGroupBox("文件操作")
-        file_op_form_layout = QFormLayout(file_op_group)
-        
-        self.recycle_bin_checkbox = QCheckBox("删除时移至回收站")
-        self.recycle_bin_checkbox.setToolTip("勾选后，删除的文件将进入回收站（如果可用）。\n取消勾选则会直接永久删除。")
-        self.recycle_bin_checkbox.setEnabled(file_manager_available)
-        if not file_manager_available:
-            self.recycle_bin_checkbox.setToolTip("此选项需要 '文件管理器' 插件被启用。")
-        file_op_form_layout.addRow(self.recycle_bin_checkbox)
-        layout.addWidget(file_op_group)
+        # 2. 创建一个水平布局用于放置导航栏和内容堆栈
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- [核心新增] 组3: 界面设置 ---
-        ui_group = QGroupBox("界面设置")
-        ui_form_layout = QFormLayout(ui_group)
+        # 3. 左侧导航栏 (无变化)
+        self.nav_list = QListWidget()
+        self.nav_list.setFixedWidth(180)
+        self.nav_list.setObjectName("SettingsNavList")
+        content_layout.addWidget(self.nav_list)
+
+        # 4. 右侧内容区 (无变化)
+        self.stack = QStackedWidget()
+        content_layout.addWidget(self.stack, 1)
+
+        # 5. 将内容区（双栏布局）添加到主垂直布局中
+        dialog_layout.addLayout(content_layout, 1)
+
+        # --- [核心修复] 重新添加按钮栏 ---
+        # 6. 添加一条分隔线，以在视觉上分离内容和按钮
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        dialog_layout.addWidget(separator)
         
-        self.show_tooltip_checkbox = QCheckBox("鼠标悬停时显示图片预览")
-        self.show_tooltip_checkbox.setToolTip("启用后，当鼠标悬停在“图片文件”单元格上时，会显示该图片的预览图。")
-        
-        ui_form_layout.addRow(self.show_tooltip_checkbox)
-        layout.addWidget(ui_group)
-        # --- [新增结束] ---
-        
-        # OK 和 Cancel 按钮
+        # 7. 创建并添加 QDialogButtonBox
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        
-        layout.addWidget(self.button_box)
-        
-        # 连接信号
-        self.autosave_checkbox.toggled.connect(self.interval_slider.setEnabled)
-        self.interval_slider.valueChanged.connect(lambda v: self.interval_label.setText(f"{v} 分钟"))
+        self.button_box.setContentsMargins(0, 0, 10, 0) # 右侧留出边距
+        dialog_layout.addWidget(self.button_box)
+
+        # --- [修复结束] ---
+
+        # 创建各个设置页面 (无变化)
+        self._create_general_page()
+        self._create_shortcut_page()
+
+        # 连接信号 (现在包括按钮的信号)
+        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         
         self.load_settings()
 
+        # 默认选中第一项
+        self.nav_list.setCurrentRow(0)
+
+    def _create_general_page(self):
+        """创建“通用”设置页面。"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # 自动保存组
+        autosave_group = QGroupBox("自动保存")
+        autosave_form_layout = QFormLayout(autosave_group)
+        self.autosave_checkbox = QCheckBox("启用自动保存")
+        autosave_interval_layout = QHBoxLayout()
+        self.interval_slider = QSlider(Qt.Horizontal)
+        self.interval_slider.setRange(1, 30)
+        self.interval_label = QLabel("15 分钟")
+        self.interval_label.setFixedWidth(60)
+        autosave_interval_layout.addWidget(self.interval_slider)
+        autosave_interval_layout.addWidget(self.interval_label)
+        autosave_form_layout.addRow(self.autosave_checkbox)
+        autosave_form_layout.addRow("保存间隔:", autosave_interval_layout)
+        layout.addWidget(autosave_group)
+        
+        # 文件操作组
+        file_op_group = QGroupBox("文件操作")
+        file_op_form_layout = QFormLayout(file_op_group)
+        self.recycle_bin_checkbox = QCheckBox("删除时移至回收站")
+        is_plugin_available = hasattr(self, 'file_manager_available') and self.file_manager_available
+        self.recycle_bin_checkbox.setEnabled(is_plugin_available)
+        if not is_plugin_available:
+            self.recycle_bin_checkbox.setToolTip("此选项需要 '文件管理器' 插件被启用。")
+        file_op_form_layout.addRow(self.recycle_bin_checkbox)
+        layout.addWidget(file_op_group)
+
+        # 界面设置组
+        ui_group = QGroupBox("界面设置")
+        ui_form_layout = QFormLayout(ui_group)
+        self.show_tooltip_checkbox = QCheckBox("鼠标悬停时显示图片预览")
+        ui_form_layout.addRow(self.show_tooltip_checkbox)
+        layout.addWidget(ui_group)
+        
+        layout.addStretch()
+        
+        # 将页面添加到导航和堆栈
+        self.nav_list.addItem("通用")
+        self.stack.addWidget(page)
+        
+        # 连接此页面的信号
+        self.autosave_checkbox.toggled.connect(self.interval_slider.setEnabled)
+        self.interval_slider.valueChanged.connect(lambda v: self.interval_label.setText(f"{v} 分钟"))
+
+    def _create_shortcut_page(self):
+        """创建“快捷键”设置页面。"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        form_layout = QFormLayout()
+        form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        
+        self.shortcut_actions = {
+            "copy": ("复制", "Ctrl+C"),
+            "cut": ("剪切", "Ctrl+X"),
+            "paste": ("粘贴", "Ctrl+V"),
+            "duplicate": ("创建副本/重制行", "Ctrl+D"),
+            "remove_row": ("删除行", "Ctrl+-"),
+            "move_up": ("上移选中行", "Alt+Up"),
+            "move_down": ("下移选中行", "Alt+Down"),
+        }
+
+        self.shortcut_inputs = {}
+        for key, (label, default_shortcut) in self.shortcut_actions.items():
+            input_widget = ShortcutLineEdit(default_shortcut=default_shortcut)
+            self.shortcut_inputs[key] = input_widget
+            form_layout.addRow(f"{label}:", input_widget)
+        
+        layout.addLayout(form_layout)
+        layout.addStretch()
+
+        # 将页面添加到导航和堆栈
+        self.nav_list.addItem("快捷键")
+        self.stack.addWidget(page)
+
+    def accept(self):
+        """重写 accept，在关闭前保存所有页面的设置并关闭。"""
+        self.save_settings()
+        super().accept()
+
     def load_settings(self):
         """从主配置加载所有设置并更新UI。"""
         module_states = self.parent_page.config.get("module_states", {}).get("dialect_visual_editor", {})
         
-        # 加载自动保存设置
+        # 加载通用设置
         autosave_enabled = module_states.get("autosave_enabled", False)
         self.autosave_checkbox.setChecked(autosave_enabled)
         self.interval_slider.setValue(module_states.get("autosave_interval_minutes", 15))
         self.interval_slider.setEnabled(autosave_enabled)
         self.interval_label.setText(f"{self.interval_slider.value()} 分钟")
-        
-        # 加载删除方式设置
         self.recycle_bin_checkbox.setChecked(module_states.get("use_recycle_bin", True))
-        self.show_tooltip_checkbox.setChecked(module_states.get("show_image_tooltip", True)) # 默认启用
+        self.show_tooltip_checkbox.setChecked(module_states.get("show_image_tooltip", True))
+
+        # 加载快捷键设置
+        saved_shortcuts = module_states.get("shortcuts", {})
+        for key, input_widget in self.shortcut_inputs.items():
+            default_shortcut = self.shortcut_actions[key][1]
+            shortcut_str = saved_shortcuts.get(key, default_shortcut)
+            input_widget.setText(shortcut_str)
 
     def save_settings(self):
         """将UI上的所有设置保存回主配置。"""
         main_window = self.parent_page.parent_window
+        
+        # 保存快捷键设置
+        custom_shortcuts = {}
+        for key, input_widget in self.shortcut_inputs.items():
+            custom_shortcuts[key] = input_widget.text()
+
+        # 准备要保存的设置字典
         settings_to_save = {
             "autosave_enabled": self.autosave_checkbox.isChecked(),
             "autosave_interval_minutes": self.interval_slider.value(),
             "use_recycle_bin": self.recycle_bin_checkbox.isChecked(),
-            "show_image_tooltip": self.show_tooltip_checkbox.isChecked(), # [核心新增] 保存新设置
+            "show_image_tooltip": self.show_tooltip_checkbox.isChecked(),
+            "shortcuts": custom_shortcuts,
         }
         
         current_settings = main_window.config.get("module_states", {}).get("dialect_visual_editor", {})
         current_settings.update(settings_to_save)
         main_window.update_and_save_module_state('dialect_visual_editor', current_settings)
+# --- [核心新增] 自定义快捷键输入控件 ---
+class ShortcutLineEdit(QLineEdit):
+    """
+    一个专门用于捕捉和显示QKeySequence的自定义输入框。
+    v1.1: 实现了恢复默认 (Backspace) 和清空 (Delete) 的功能。
+    """
+    def __init__(self, default_shortcut="", parent=None):
+        super().__init__(parent)
+        self.default_shortcut = default_shortcut
 
-    def accept(self):
-        """重写 accept 方法，在关闭对话框前先保存设置。"""
-        self.save_settings()
-        super().accept()
+        self.setReadOnly(True)
+        self.setPlaceholderText("点击并按下快捷键...")
+        self.setToolTip(
+            "点击此输入框，然后按下您想设置的键盘快捷键组合。\n"
+            "• 按 Backspace 键可恢复为默认值。\n"
+            "• 按 Delete 键可清空快捷键。"
+        )
+
+    def keyPressEvent(self, event):
+        """重写此方法以捕捉按键事件，而不是输入字符。"""
+        key = event.key()
+        
+        if key in (Qt.Key_Control, Qt.Key_Alt, Qt.Key_Shift, Qt.Key_Meta):
+            return
+
+        if key == Qt.Key_Backspace:
+            self.setText(self.default_shortcut)
+            event.accept()
+            return
+            
+        if key == Qt.Key_Delete:
+            self.clear()
+            event.accept()
+            return
+            
+        modifiers = event.modifiers()
+        if modifiers:
+            key_sequence = QKeySequence(modifiers | key)
+        else:
+            key_sequence = QKeySequence(key)
+        
+        self.setText(key_sequence.toString(QKeySequence.PortableText))
+        event.accept()
+
+    def mousePressEvent(self, event):
+        """单击时清空内容，准备接收新输入。"""
+        self.clear()
+        self.setPlaceholderText("请按下快捷键...")
+        super().mousePressEvent(event)
+
+    def focusOutEvent(self, event):
+        """失去焦点时恢复占位符文本。"""
+        self.setPlaceholderText("点击并按下快捷键...")
+        super().focusOutEvent(event)

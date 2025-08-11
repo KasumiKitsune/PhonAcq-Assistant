@@ -1,5 +1,7 @@
 # --- START OF FILE modules/audio_analysis_batch_panel.py ---
-
+# --- 模块元数据 ---
+MODULE_NAME = "音频批量分析组件"
+MODULE_DESCRIPTION = "为音频分析模块提供批量处理功能，不直接作为独立标签页。"
 import os
 import sys
 import time

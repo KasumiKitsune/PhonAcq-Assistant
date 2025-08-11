@@ -1,5 +1,3 @@
-from modules.custom_widgets_module import RangeSlider# --- START OF FILE modules/audio_analysis_module.py ---
-
 # --- 模块元数据 ---
 # 定义模块的名称和描述，用于在应用程序中显示。
 MODULE_NAME = "音频分析"
@@ -21,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QP
 from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint, QTimer
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QImage, QIntValidator, QPixmap, QRegion, QFont, QCursor, QKeySequence
-from modules.custom_widgets_module import ColorButton
+from modules.custom_widgets_module import ColorButton, RangeSlider
 
 # 模块级别依赖检查
 # 尝试导入所有必需的第三方库。如果任何一个缺失，设置标志并捕获错误信息。

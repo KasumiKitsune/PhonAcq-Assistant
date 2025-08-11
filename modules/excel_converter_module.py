@@ -1,3 +1,6 @@
+# --- 模块元数据 ---
+MODULE_NAME = "Excel转换器"
+MODULE_DESCRIPTION = "支持标准词表（Standard Wordlist）与图文词表（Visual Wordlist）之间的双向转换，并能处理CSV格式。内置多种模板，方便用户创建新词表，是连接程序内部数据与外部表格工具的桥梁。"
 import os
 import sys
 import pandas as pd

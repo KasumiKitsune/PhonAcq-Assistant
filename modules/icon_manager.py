@@ -1,3 +1,6 @@
+# --- 模块元数据 ---
+MODULE_NAME = "图标管理器"
+MODULE_DESCRIPTION = "负责应用程序所有图标的加载、缓存和主题化着色管理。"
 import os
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QImage
 from PyQt5.QtCore import QSize, Qt

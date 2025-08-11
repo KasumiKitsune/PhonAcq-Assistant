@@ -1,5 +1,7 @@
 # --- START OF FILE modules/custom_widgets_module.py ---
-
+# --- 模块元数据 ---
+MODULE_NAME = "自定义UI组件"
+MODULE_DESCRIPTION = "提供如开关、滑块、按钮等自定义的UI控件，供其他模块复用。"
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QListWidget, QStyle, 
                              QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider, QGraphicsOpacityEffect, QPushButton)
@@ -1448,6 +1450,34 @@ class AnimatedListWidget(QListWidget):
         """当控件大小变化时，重新计算布局以确保省略号正确显示。"""
         super().resizeEvent(event)
         self.scheduleDelayedItemsLayout()
+    # [新增 v2.3] 新的公共API，用于追加单个项目
+    def appendItemWithAnimation(self, item_data):
+        """
+        用动画在列表末尾追加单个新项目，而不会清空现有项目。
+
+        Args:
+            item_data (dict): 描述单个新项目的数据字典。
+                                e.g., {'type': 'item', 'text': 'new clip'}
+        """
+        # 1. 安全检查
+        if not isinstance(item_data, dict):
+            print("AnimatedListWidget Error: appendItemWithAnimation expects a dictionary.")
+            return
+
+        # 2. 创建 QListWidgetItem 并设置其数据和动画持有者
+        #    这里的逻辑与 _populate_list_with_animation 中的单项创建逻辑一致
+        item = self._create_item_from_data(item_data)
+        
+        # 3. 将新项目直接添加到列表的末尾
+        super().addItem(item)
+        
+        # 4. 如果动画被启用，将新项目的动画持有者放入队列并启动定时器
+        if self._animations_enabled:
+            holder = item.data(self.ANIM_HOLDER_ROLE)
+            if holder:
+                self._animation_queue.append(holder)
+                if not self._animation_timer.isActive():
+                    self._animation_timer.start()
 # ==============================================================================
 # 7. 自定义动画进度条 (AnimatedSlider) - v1.1 [尺寸自适应修复版]
 # ==============================================================================

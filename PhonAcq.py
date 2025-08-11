@@ -239,14 +239,26 @@ def ensure_directories_exist():
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'modules')))
 def load_modules(progress_offset=0, progress_scale=1.0):
-    """动态加载所有位于 'modules' 目录下的模块。"""
-    global MODULES
+    """
+    [v2.0 - 可禁用版] 动态加载所有位于 'modules' 目录下的模块。
+    此版本会读取配置，并跳过被用户禁用的模块。
+    """
+    global MODULES, main_config
     MODULES = {}
     modules_dir = os.path.join(BASE_PATH, "modules")
     if not os.path.exists(modules_dir): os.makedirs(modules_dir)
-    module_files = [f for f in os.listdir(modules_dir) if f.endswith('.py') and not f.startswith('__')]
-    total_modules = len(module_files)
-    for i, filename in enumerate(module_files):
+    
+    # --- [核心修改] ---
+    # 1. 从已加载的全局配置中获取禁用的模块列表
+    disabled_modules = main_config.get("app_settings", {}).get("disabled_modules", [])
+    
+    # 2. 筛选出所有未被禁用的模块文件
+    all_module_files = [f for f in os.listdir(modules_dir) if f.endswith('.py') and not f.startswith('__')]
+    enabled_module_files = [f for f in all_module_files if f.replace('.py', '') not in disabled_modules]
+    # --- [修改结束] ---
+    
+    total_modules = len(enabled_module_files)
+    for i, filename in enumerate(enabled_module_files): # <--- [核心修改] 遍历筛选后的列表
         base_progress = progress_offset
         current_stage_progress = int(((i + 1) / total_modules) * (100 * progress_scale)) if total_modules > 0 else int(100 * progress_scale)
         if 'splash' in globals():
@@ -543,6 +555,7 @@ class MainWindow(QMainWindow):
         self.last_sub_tab_indices = {}
         self.animations_enabled = True # 默认启用动画
         self.BASE_PATH = BASE_PATH
+        self.audio_record_dir = AUDIO_RECORD_DIR
         self.splash_ref = splash_ref
         self.tooltips_config = tooltips_ref if tooltips_ref is not None else {}
         self.ToggleSwitch = ToggleSwitch
@@ -598,6 +611,11 @@ class MainWindow(QMainWindow):
         # 5. 延迟加载并启用插件
         QTimer.singleShot(0, self.plugin_manager.load_enabled_plugins)
 
+        # --- [核心修复] 将全局 MODULES 字典暴露为实例属性 ---
+        self.MODULES = MODULES
+        # --- [修复结束] ---
+
+
         # 页面创建
         self.accent_collection_page = self.create_module_or_placeholder('accent_collection_page', 'accent_collection_module', '标准朗读采集', 
             lambda m, ts, w, l, im, rdf: m.create_page(self, self.config, ts, w, l, detect_language, WORD_LIST_DIR, AUDIO_RECORD_DIR, AUDIO_TTS_DIR, BASE_PATH, im, rdf))
@@ -636,7 +654,8 @@ class MainWindow(QMainWindow):
             lambda m, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val: m.create_page(self, ts_class, sil_class, bp_val, gtts_dir_val, gr_dir_val, im_val))
         
         self.settings_page = self.create_module_or_placeholder('settings_page', 'settings_module', '程序设置',
-            lambda m, ts, t_dir, w_dir: m.create_page(self, ts, t_dir, w_dir))
+            lambda m, ts, t_dir, w_dir, rdf: m.create_page(self, ts, t_dir, w_dir, rdf),
+            extra_args={'rdf': resolve_recording_device})
 
         self.audio_analysis_page = self.create_module_or_placeholder('audio_analysis_page', 'audio_analysis_module', '音频分析', 
             lambda m, im, ts: m.create_page(self, im, ts))
@@ -652,35 +671,71 @@ class MainWindow(QMainWindow):
             self.splash_ref.progressBar.setValue(90)
             QApplication.processEvents()
         
-        # 构建Tab结构
-        collection_tabs = QTabWidget(); collection_tabs.setObjectName("SubTabWidget")
-        collection_tabs.addTab(self.accent_collection_page, "标准朗读采集")
-        collection_tabs.addTab(self.dialect_visual_page, "看图说话采集")
-        collection_tabs.addTab(self.voicebank_recorder_page, "提示音录制")
+        # --- [核心修改] 构建Tab结构，并根据配置隐藏禁用的模块 ---
+        
+        # 1. 首先从配置中获取已禁用的模块列表
+        disabled_modules = self.config.get("app_settings", {}).get("disabled_modules", [])
 
+        # 2. 为每个主标签页创建子 QTabWidget
+        collection_tabs = QTabWidget(); collection_tabs.setObjectName("SubTabWidget")
         preparation_tabs = QTabWidget(); preparation_tabs.setObjectName("SubTabWidget")
-        preparation_tabs.addTab(self.wordlist_editor_page, "通用词表编辑器")
-        preparation_tabs.addTab(self.dialect_visual_editor_page, "图文词表编辑器")
-        preparation_tabs.addTab(self.converter_page, "Excel转换器")
-        
         management_tabs = QTabWidget(); management_tabs.setObjectName("SubTabWidget")
-        management_tabs.addTab(self.audio_manager_page, "音频数据管理器")
-        management_tabs.addTab(self.audio_analysis_page, "音频分析")
-        management_tabs.addTab(self.log_viewer_page, "日志查看器")
-        
         utilities_tabs = QTabWidget(); utilities_tabs.setObjectName("SubTabWidget")
-        utilities_tabs.addTab(self.tts_utility_page, "TTS 工具")
-        utilities_tabs.addTab(self.flashcard_page, "速记卡")
-        
         system_tabs = QTabWidget(); system_tabs.setObjectName("SubTabWidget")
-        system_tabs.addTab(self.settings_page, "程序设置")
-        system_tabs.addTab(self.help_page, "帮助文档")
+
+        # 3. 条件性地向子 QTabWidget 添加标签页
+        # 只有当模块的 key 不在 disabled_modules 列表中时，才添加它的标签页
         
-        self.main_tabs.addTab(collection_tabs, "数据采集")
-        self.main_tabs.addTab(preparation_tabs, "数据准备")
-        self.main_tabs.addTab(management_tabs, "资源管理")
-        self.main_tabs.addTab(utilities_tabs, "实用工具")
-        self.main_tabs.addTab(system_tabs, "系统与帮助")
+        # 数据采集
+        if 'accent_collection_module' not in disabled_modules:
+            collection_tabs.addTab(self.accent_collection_page, "标准朗读采集")
+        if 'dialect_visual_collector_module' not in disabled_modules:
+            collection_tabs.addTab(self.dialect_visual_page, "看图说话采集")
+        if 'voicebank_recorder_module' not in disabled_modules:
+            collection_tabs.addTab(self.voicebank_recorder_page, "提示音录制")
+
+        # 数据准备
+        if 'wordlist_editor_module' not in disabled_modules:
+            preparation_tabs.addTab(self.wordlist_editor_page, "通用词表编辑器")
+        if 'dialect_visual_editor_module' not in disabled_modules:
+            preparation_tabs.addTab(self.dialect_visual_editor_page, "图文词表编辑器")
+        if 'excel_converter_module' not in disabled_modules:
+            preparation_tabs.addTab(self.converter_page, "Excel转换器")
+        
+        # 资源管理
+        if 'audio_manager_module' not in disabled_modules:
+            management_tabs.addTab(self.audio_manager_page, "音频数据管理器")
+        if 'audio_analysis_module' not in disabled_modules:
+            management_tabs.addTab(self.audio_analysis_page, "音频分析")
+        if 'log_viewer_module' not in disabled_modules:
+            management_tabs.addTab(self.log_viewer_page, "日志查看器")
+        
+        # 实用工具
+        if 'tts_utility_module' not in disabled_modules:
+            utilities_tabs.addTab(self.tts_utility_page, "TTS 工具")
+        if 'flashcard_module' not in disabled_modules:
+            utilities_tabs.addTab(self.flashcard_page, "速记卡")
+        
+        # 系统与帮助 (settings_module 和 help_module 通常应为核心模块，但为保持一致性也做检查)
+        if 'settings_module' not in disabled_modules:
+            system_tabs.addTab(self.settings_page, "程序设置")
+        if 'help_module' not in disabled_modules:
+            system_tabs.addTab(self.help_page, "帮助文档")
+        
+        # 4. 只有当子 QTabWidget 中有内容时，才将它添加到主 QTabWidget
+        #    这可以防止在整个类别被禁用时出现一个空的主标签页
+        if collection_tabs.count() > 0:
+            self.main_tabs.addTab(collection_tabs, "数据采集")
+        if preparation_tabs.count() > 0:
+            self.main_tabs.addTab(preparation_tabs, "数据准备")
+        if management_tabs.count() > 0:
+            self.main_tabs.addTab(management_tabs, "资源管理")
+        if utilities_tabs.count() > 0:
+            self.main_tabs.addTab(utilities_tabs, "实用工具")
+        if system_tabs.count() > 0:
+            self.main_tabs.addTab(system_tabs, "系统与帮助")
+            
+        # --- [修改结束] ---
 
         # 连接信号与槽
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
@@ -698,10 +753,97 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             
         self.apply_theme()
+        self._install_tab_bar_event_filters()
         self._setup_tab_context_menus()
         
         # --- [核心修改] 在末尾调用新的启动页应用函数 ---
         self._apply_startup_page()
+
+    def _install_tab_bar_event_filters(self):
+        """
+        遍历所有主、子标签页，并为它们的 TabBar 安装事件过滤器，
+        以捕获双击事件。
+        """
+        # 为主标签页的 TabBar 安装过滤器
+        self.main_tabs.tabBar().installEventFilter(self)
+        
+        # 遍历所有子标签页的 TabBar 并安装过滤器
+        for i in range(self.main_tabs.count()):
+            sub_widget = self.main_tabs.widget(i)
+            if isinstance(sub_widget, QTabWidget):
+                sub_widget.tabBar().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """
+        重写 QObject.eventFilter 来处理安装在 TabBar 上的事件。
+        """
+        # 检查事件类型是否为鼠标双击
+        if event.type() == QEvent.MouseButtonDblClick:
+            # 确保事件源是一个 QTabBar
+            if "QTabBar" in obj.metaObject().className():
+                tab_bar = obj
+                tab_widget = tab_bar.parent()
+                
+                # 确定被双击的标签页索引
+                tab_index = tab_bar.tabAt(event.pos())
+                
+                if tab_index != -1:
+                    # 获取对应的页面控件
+                    page_widget = tab_widget.widget(tab_index)
+                    
+                    # 检查页面是否有可用的设置对话框
+                    if hasattr(page_widget, 'open_settings_dialog'):
+                        # 调用设置对话框
+                        page_widget.open_settings_dialog()
+                        # 返回 True，表示我们已经处理了这个事件，它不应再被传递
+                        return True
+        
+        # 对于所有其他事件，调用父类的默认实现
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        """
+        [新增] 重写键盘按下事件，以处理全局快捷键。
+        """
+        # --- 检查 Ctrl 键是否被按下 ---
+        # 如果没有按下 Ctrl，则不处理，将事件传递给默认处理器
+        if not (event.modifiers() & Qt.ControlModifier):
+            super().keyPressEvent(event)
+            return
+
+        key = event.key()
+
+        # --- 1. 处理一级标签页切换 (Ctrl + 1-5) ---
+        if Qt.Key_1 <= key <= Qt.Key_5:
+            target_index = key - Qt.Key_1 # Qt.Key_1 的值是 49, Qt.Key_2 是 50...
+            if target_index < self.main_tabs.count():
+                self.main_tabs.setCurrentIndex(target_index)
+                event.accept() # 标记事件已处理
+                return
+
+        # --- 2. 处理二级标签页切换 (Ctrl + Left/Right) ---
+        elif key in (Qt.Key_Left, Qt.Key_Right):
+            # 获取当前活动的主标签页下的子 QTabWidget
+            current_main_widget = self.main_tabs.currentWidget()
+            if isinstance(current_main_widget, QTabWidget):
+                sub_tabs = current_main_widget
+                count = sub_tabs.count()
+                if count > 0:
+                    current_index = sub_tabs.currentIndex()
+                    
+                    if key == Qt.Key_Left:
+                        # 计算上一个索引，并实现循环
+                        next_index = (current_index - 1 + count) % count
+                    else: # Qt.Key_Right
+                        # 计算下一个索引，并实现循环
+                        next_index = (current_index + 1) % count
+                        
+                    sub_tabs.setCurrentIndex(next_index)
+                    event.accept() # 标记事件已处理
+                    return
+
+        # 如果快捷键不匹配，调用父类的实现
+        super().keyPressEvent(event)
 
     def _apply_startup_page(self):
         """
@@ -1128,7 +1270,7 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"更新模块 '{page_attr_name}' 的工具提示时出错: {e}")
 
-    def create_module_or_placeholder(self, attr_name, module_key, name, page_factory):
+    def create_module_or_placeholder(self, attr_name, module_key, name, page_factory, extra_args=None):
         """
         [v4 - 稳定闭环版]
         根据模块是否加载成功，创建真实页面或占位符页面。
@@ -1156,7 +1298,7 @@ class MainWindow(QMainWindow):
 
                 # --- 根据模块标识符，直接调用 page_factory 创建页面 ---
                 if module_key == 'settings_module':
-                    page = page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR)
+                    page = page_factory(module, ToggleSwitch, THEMES_DIR, WORD_LIST_DIR, extra_args['rdf'])
                 
                 elif module_key == 'flashcard_module':
                     from PyQt5.QtWidgets import QLabel
@@ -1449,6 +1591,7 @@ class MainWindow(QMainWindow):
             'audio_analysis_page',
             'tts_utility_page',
             'flashcard_page',
+            'settings_page',
         ]
         for page_attr_name in pages_with_icons:
             page = getattr(self, page_attr_name, None)

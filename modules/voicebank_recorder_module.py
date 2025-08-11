@@ -149,7 +149,7 @@ class VoicebankRecorderPage(QWidget):
         session_name_label = QLabel("录音批次名称:") # 创建标签
         self.session_name_input = QLineEdit()
         self.session_name_input.setToolTip("为本次录制指定一个批次名称...")
-        
+        self.session_name_input.setPlaceholderText("例如: standard_mandarin")
         self.start_btn = QPushButton("加载词表并开始")
         self.start_btn.setObjectName("AccentButton")
         self.end_session_btn = QPushButton("结束当前会话")

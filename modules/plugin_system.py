@@ -1,5 +1,7 @@
 # --- START OF FILE modules/plugin_system.py (v1.2 with Pin & Manual) ---
-
+# --- 模块元数据 ---
+MODULE_NAME = "插件系统核心"
+MODULE_DESCRIPTION = "负责应用程序插件的发现、加载、管理和执行，是扩展性基石。"
 import os
 import sys
 import json

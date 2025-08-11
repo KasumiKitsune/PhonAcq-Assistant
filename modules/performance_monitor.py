@@ -1,3 +1,5 @@
+MODULE_NAME = "性能监视器"
+MODULE_DESCRIPTION = "实时追踪应用程序及其子模块的CPU、内存和磁盘I/O使用情况，帮助开发者和高级用户诊断性能瓶颈和资源消耗。"
 import sys
 import psutil
 from collections import deque

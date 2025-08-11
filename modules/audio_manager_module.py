@@ -16,7 +16,7 @@ from copy import deepcopy
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
                              QHeaderView, QAbstractItemView, QMenu, QSplitter, QInputDialog, QLineEdit,
-                             QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider)
+                             QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider, QCheckBox)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty, pyqtSignal, QEvent, QSize, QEasingCurve, QPropertyAnimation
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QColor, QPen, QBrush, QPalette, QCursor
 from modules.custom_widgets_module import AnimatedListWidget, AnimatedSlider, AnimatedIconButton
@@ -535,46 +535,44 @@ class AudioManagerPage(QWidget):
     
     def __init__(self, parent_window, config, base_path, data_sources, icon_manager, ToggleSwitchClass):
         super().__init__()
-        self.parent_window = parent_window; self.config = config; self.BASE_PATH = base_path
-        self.icon_manager = icon_manager; self.ToggleSwitch = ToggleSwitchClass
+        self.parent_window = parent_window
+        self.config = config
+        self.BASE_PATH = base_path
+        self.icon_manager = icon_manager
+        self.ToggleSwitch = ToggleSwitchClass
         self.DATA_SOURCES = data_sources
-        self.current_session_path = None; self.current_data_type = None; self.current_displayed_duration = 0
-        self.trim_start_ms = None; self.trim_end_ms = None; self.temp_preview_file = None
-
-        # [新增] 初始化自定义数据源列表
+        self.current_session_path = None
+        self.current_data_type = None
+        self.current_displayed_duration = 0
+        self.trim_start_ms = None
+        self.trim_end_ms = None
+        self.temp_preview_file = None
         self.custom_data_sources = []
-
-        # [重构] 使用播放器缓存池替代单一播放器
-        self.player_cache = {}  # {filepath: QMediaPlayer_instance}
-        self.active_player = None # 指向当前与UI交互的播放器
+        self.player_cache = {}
+        self.active_player = None
         self.preview_player = None
-        self.staged_files = {} # 使用字典来存储 {filepath: display_name} 以防止重复添加
-        # --- [新增] 用于搜索和排序的状态属性 ---
-        self.all_files_data = []  # 存储当前文件夹下所有文件的完整信息
+        self.staged_files = {}
+        self.all_files_data = []
         self.current_sort_key = 'name'
-        # self.current_sort_order = Qt.AscendingOrder # 此属性已被 sort_order_btn.isChecked() 替代
-        # --- [新增结束] ---
-        
-        # --- [新增] 在此处加载持久化设置 ---
+        self.global_file_index = []
+        self.is_global_search_active = False
+        self._is_slider_resetting = False
+
+        # --- 核心修复点 ---
+        # 1. 在调用 _init_ui() 之前，提前加载所有UI控件创建时需要依赖的配置值。
         module_states = self.config.get("module_states", {}).get("audio_manager", {})
-        self.shortcut_button_action = module_states.get('shortcut_action', 'delete') # 默认是删除
-        self.adaptive_volume_default_state = module_states.get('adaptive_volume', True) # 默认开启
-        # --- 结束新增 ---
+        self.shortcut_button_action = module_states.get('shortcut_action', 'delete')
+        self.adaptive_volume_default_state = module_states.get('adaptive_volume', True)
         
+        # 2. 现在可以安全地初始化UI了，因为它依赖的值已经存在。
         self._init_ui()
+
+        # 3. 连接信号和应用布局。
         self._connect_signals()
         self.apply_layout_settings()
         
-        # --- [修改] ---
-        # 确保在程序启动时，按钮就有正确的图标
-        self.update_icons() 
-        # --- [新增] 全局文件索引 ---
-        self.global_file_index = []
-        self.is_global_search_active = False # 标记当前是否处于全局搜索模式
-
-        # --- [新增] 用于搜索和排序的状态属性 ---
-        self.all_files_data = []
-        # --- [修改结束] ---
+        # 4. 最后更新图标和加载数据。
+        self.update_icons()
         
     def _init_ui(self):
         main_splitter = QSplitter(Qt.Horizontal, self)
@@ -872,6 +870,21 @@ class AudioManagerPage(QWidget):
         self.play_shortcut.activated.connect(self.play_current_selected_item_from_shortcut)
         self.play_shortcut_enter = QShortcut(QKeySequence(Qt.Key_Enter), self)
         self.play_shortcut_enter.activated.connect(self.play_current_selected_item_from_shortcut)
+    def open_settings_dialog(self):
+        """
+        创建并显示音频管理器的设置对话框。
+        """
+        # --- [核心修改] ---
+        # 1. 在创建对话框前，先检查插件是否可用
+        file_manager_plugin = self.parent_window.plugin_manager.get_plugin_instance("com.phonacq.file_manager")
+        is_plugin_available = file_manager_plugin is not None and hasattr(file_manager_plugin, 'move_to_trash')
+
+        # 2. 将插件可用状态传递给对话框的构造函数
+        dialog = SettingsDialog(self, file_manager_available=is_plugin_available)
+        # --- 修改结束 ---
+
+        if dialog.exec_() == QDialog.Accepted:
+            self.parent_window.request_tab_refresh(self)
 
     def _show_save_trim_menu(self, position):
         """
@@ -985,29 +998,26 @@ class AudioManagerPage(QWidget):
 
     # [新增] 用于处理播放错误的槽函数
     def _handle_playback_error(self, error):
-        # 如果错误是“无错误”，则忽略 (有时会发射这个信号)
         if error == QMediaPlayer.NoError:
             return
             
-        # 获取是哪个播放器实例发送的信号
         failed_player = self.sender()
         if not failed_player: return
 
-        # 获取失败文件的路径
         filepath = failed_player.media().canonicalUrl().toLocalFile()
         
-        # 检查音频处理器插件是否已激活
         processor_plugin = getattr(self, 'batch_processor_plugin_active', None)
         if processor_plugin and hasattr(processor_plugin, 'execute_automatic_fix'):
             print(f"Playback error on {filepath}. Attempting automatic fix via plugin.")
             
-            # 调用插件的自动修复API，并传入一个成功后的回调函数
+            # [优化] 将 self.reset_player 作为前置回调传递给插件
+            # self.reset_player 会停止所有播放器并释放文件句柄
             processor_plugin.execute_automatic_fix(
                 filepath=filepath,
-                on_success_callback=self._on_auto_fix_success
+                on_success_callback=self._on_auto_fix_success,
+                pre_fix_callback=self.reset_player 
             )
         else:
-            # 如果插件不可用，则显示一个标准的错误消息
             QMessageBox.critical(self, "播放错误", f"无法播放文件: {os.path.basename(filepath)}\n\n错误代码: {error}")
 
     # [新增] 自动修复成功后的回调函数
@@ -1237,16 +1247,26 @@ class AudioManagerPage(QWidget):
             self.active_player.play()
 
     def _request_delete_items(self, paths, is_folder=False):
-        if not paths: return
+        """
+        [v3.0 - 配置统一版]
+        处理文件或文件夹的删除请求。
+        根据用户在设置中选择的删除行为（回收站或永久删除），执行相应的操作。
+        """
+        if not paths:
+            return
 
-        # [核心修正] 移除预清理步骤。清理工作将由后续的 populate_... 方法统一负责。
-        # self.reset_player()
-        # QApplication.processEvents()
-
+        # 1. 从配置中读取用户首选的删除方式
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        # 默认为 'trash'，如果未设置，则优先尝试回收站
+        delete_behavior = module_states.get("deletion_behavior", "trash")
+        
+        # 2. 尝试获取文件管理器插件实例
         file_manager_plugin = self.parent_window.plugin_manager.get_plugin_instance("com.phonacq.file_manager")
+        is_plugin_available = file_manager_plugin and hasattr(file_manager_plugin, 'move_to_trash')
 
-        if file_manager_plugin and hasattr(file_manager_plugin, 'move_to_trash'):
-            # --- 方案A: 使用插件的回收站 ---
+        # 3. 决策逻辑：只有在用户首选且插件可用时，才使用回收站
+        if delete_behavior == "trash" and is_plugin_available:
+            # --- 方案A: 使用插件的回收站功能 ---
             success, message = file_manager_plugin.move_to_trash(paths)
             if success:
                 self.status_label.setText(message)
@@ -1257,21 +1277,39 @@ class AudioManagerPage(QWidget):
             # --- 方案B: 回退到永久删除 ---
             count = len(paths)
             item_type = "项目" if is_folder else "文件"
-            reply = QMessageBox.question(self, "确认永久删除",
-                                         f"文件管理器插件未激活。您确定要永久删除这 {count} 个{item_type}吗？\n此操作不可撤销！",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            
+            # 准备详细的警告信息
+            warning_text = f"您确定要永久删除这 {count} 个{item_type}吗？"
+            informative_text = "<b>此操作不可撤销！</b><br><br>"
+            
+            # 如果是回退情况，向用户解释原因
+            if delete_behavior == "trash" and not is_plugin_available:
+                informative_text += "（注意：文件管理器插件未激活，无法移至回收站）"
+
+            # 创建并显示确认对话框
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("确认永久删除")
+            msg_box.setText(warning_text)
+            msg_box.setInformativeText(informative_text)
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.No)
+            
+            reply = msg_box.exec_()
+            
             if reply == QMessageBox.No:
-                # 如果用户取消，需要刷新UI以恢复之前的状态（因为播放器已被停止）
-                if is_folder: self.populate_session_list()
-                else: self.populate_audio_table()
                 return
             
+            # 在执行物理删除前，彻底释放可能被占用的文件句柄
+            self.reset_player()
+            QApplication.processEvents()
+
             if is_folder:
                 self._delete_folders_permanently(paths)
             else:
                 self._delete_files_permanently(paths)
 
-        # 刷新UI
+        # 4. 无论使用何种方式，删除成功后都刷新UI
         if is_folder:
             self.populate_session_list()
         else:
@@ -1446,27 +1484,36 @@ class AudioManagerPage(QWidget):
 
     def _save_trim_logic(self, mode='keep_selection', overwrite=False):
         """
-        [重构] 根据指定的模式，对音频进行裁切并保存。
+        [v2.1 - 完整无省略版]
+        根据指定的模式，对音频进行裁切并保存。
         新增 overwrite 参数以支持直接覆盖原文件。
         """
-        # 1. 安全检查和获取基本信息 (保持不变)
-        filepath = self.audio_table_widget.item(self.audio_table_widget.currentRow(), 0).data(Qt.UserRole)
+        # 1. 安全检查和获取基本信息
+        current_row = self.audio_table_widget.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "操作无效", "请先选择一个文件。")
+            return
+            
+        filepath = self.audio_table_widget.item(current_row, 0).data(Qt.UserRole)
         if not filepath: return
         
         data, sr = sf.read(filepath)
         total_samples = len(data)
         
-        # 2. 根据模式计算需要保留的音频片段 (保持不变)
+        # 2. 根据模式计算需要保留的音频片段
         final_data = None
-        # ... (所有 if/elif mode == '...' 的逻辑保持不变)
         if mode == 'keep_selection':
-            if self.trim_start_ms is None or self.trim_end_ms is None: return
+            if self.trim_start_ms is None or self.trim_end_ms is None:
+                QMessageBox.warning(self, "操作无效", "需要同时标记起点和终点才能'保存选中部分'。")
+                return
             start_sample = int(self.trim_start_ms / 1000 * sr)
             end_sample = int(self.trim_end_ms / 1000 * sr)
             final_data = data[start_sample:end_sample]
         
         elif mode == 'trim_selection':
-            if self.trim_start_ms is None or self.trim_end_ms is None: return
+            if self.trim_start_ms is None or self.trim_end_ms is None:
+                QMessageBox.warning(self, "操作无效", "需要同时标记起点和终点才能'裁去选中部分'。")
+                return
             start_sample = int(self.trim_start_ms / 1000 * sr)
             end_sample = int(self.trim_end_ms / 1000 * sr)
             part1 = data[:start_sample]
@@ -1474,12 +1521,16 @@ class AudioManagerPage(QWidget):
             final_data = np.concatenate((part1, part2))
 
         elif mode == 'trim_before':
-            if self.trim_start_ms is None: return
+            if self.trim_start_ms is None:
+                QMessageBox.warning(self, "操作无效", "需要标记起点才能'裁去起点之前'。")
+                return
             start_sample = int(self.trim_start_ms / 1000 * sr)
             final_data = data[start_sample:]
             
         elif mode == 'trim_after':
-            if self.trim_end_ms is None: return
+            if self.trim_end_ms is None:
+                QMessageBox.warning(self, "操作无效", "需要标记终点才能'裁去终点之后'。")
+                return
             end_sample = int(self.trim_end_ms / 1000 * sr)
             final_data = data[:end_sample]
         
@@ -1487,41 +1538,35 @@ class AudioManagerPage(QWidget):
             QMessageBox.warning(self, "操作无效", "无法根据当前标记点执行该操作。")
             return
             
-        # 3. 获取新文件名并保存 (核心修改点)
+        # 3. 获取新文件名并准备保存
         target_filepath = ""
         if overwrite:
-            # --- [修正后的覆盖逻辑] ---
+            # --- [补全] 完整的覆盖确认对话框 ---
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Warning)
             msg_box.setWindowTitle("确认覆盖原文件")
-            msg_box.setText("您确定要用裁切后的版本直接覆盖原始文件吗？") # 主文本使用纯文本
+            msg_box.setText("您确定要用处理后的版本直接覆盖原始文件吗？")
 
-            # 使用 setInformativeText 来显示包含HTML的详细信息
             informative_text = (
                 f"<b>文件名:</b> {os.path.basename(filepath)}<br><br>"
                 f"<font color='red'><b>此操作不可撤销！原始音频数据将永久丢失！</b></font>"
             )
             msg_box.setInformativeText(informative_text)
             
-            # 确保Qt知道如何解析这段文本
-            # 实际上，setInformativeText通常会自动检测，但明确设置更保险
-            msg_box.setTextFormat(Qt.RichText)
-
-            # 添加按钮
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg_box.setDefaultButton(QMessageBox.No) # 默认选择“No”更安全
-
-            reply = msg_box.exec_() # 执行对话框
-
+            msg_box.setDefaultButton(QMessageBox.No)
+            
+            reply = msg_box.exec_()
+            
             if reply == QMessageBox.No:
                 self.status_label.setText("覆盖操作已取消。")
                 QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
                 return
             
             target_filepath = filepath
-            # --- [覆盖逻辑结束] ---
+            # --- 补全结束 ---
         else:
-            # --- [原有的“另存为”逻辑] ---
+            # --- [补全] 完整的“另存为”对话框 ---
             base, ext = os.path.splitext(os.path.basename(filepath))
             suffix_map = {
                 'keep_selection': '_selected',
@@ -1531,36 +1576,39 @@ class AudioManagerPage(QWidget):
             }
             suggested_name = f"{base}{suffix_map.get(mode, '_edited')}"
             
-            new_name, ok = QInputDialog.getText(self, "保存裁切文件", "输入新文件名:", QLineEdit.Normal, suggested_name)
-            if not (ok and new_name): return
+            new_name, ok = QInputDialog.getText(self, "保存裁切文件", "请输入新文件名:", QLineEdit.Normal, suggested_name)
+            
+            if not (ok and new_name and new_name.strip()):
+                return
 
-            new_filepath = os.path.join(os.path.dirname(filepath), new_name + ext)
+            new_filepath = os.path.join(os.path.dirname(filepath), new_name.strip() + ext)
             if os.path.exists(new_filepath):
-                QMessageBox.warning(self, "文件已存在", "该文件名已存在。")
+                QMessageBox.warning(self, "文件已存在", f"文件 '{os.path.basename(new_filepath)}' 已存在，请使用其他名称。")
                 return
             target_filepath = new_filepath
-            # --- [“另存为”逻辑结束] ---
+            # --- 补全结束 ---
 
         # 4. 执行文件写入
         if not target_filepath: return
         
         try:
-            # [关键] 写入前，先重置播放器以释放文件句柄
-            # 这在覆盖操作中至关重要，否则Windows下会报“文件被占用”的错误
             self.reset_player()
-            QApplication.processEvents() # 确保事件循环处理完播放器停止的请求
+            QApplication.processEvents()
             
             sf.write(target_filepath, final_data, sr)
 
             if overwrite:
                 QMessageBox.information(self, "成功", f"原文件已成功覆盖！")
-                # 因为文件内容变了，波形图需要刷新
                 self.waveform_widget.set_waveform_data(target_filepath)
             else:
                 QMessageBox.information(self, "成功", f"文件已保存为:\n{target_filepath}")
             
-            # 无论哪种模式，都刷新文件列表
             self.populate_audio_table()
+            
+            # 调用自动选中功能
+            if not overwrite:
+                self._find_and_select_file(target_filepath)
+
         except Exception as e:
             QMessageBox.critical(self, "保存失败", f"写入文件时发生错误:\n{e}")
             
@@ -1826,57 +1874,68 @@ class AudioManagerPage(QWidget):
     # [重构] load_and_refresh 现在负责合并数据源并填充下拉框
     def load_and_refresh(self):
         self.config = self.parent_window.config
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        
+        # 恢复所有持久化控件的状态
+        self.shortcut_button_action = module_states.get('shortcut_action', 'delete')
+        self.adaptive_volume_switch.setChecked(module_states.get('adaptive_volume', True))
+
         self.apply_layout_settings()
         self.update_icons()
 
-        # 1. 加载自定义源
+        # 加载自定义源
         self.custom_data_sources = self.config.get("file_settings", {}).get("custom_data_sources", [])
-        # [新增] 在加载配置后，构建或更新全局索引
         self._build_global_file_index()
 
-        # 2. 填充下拉框
+        # 填充数据源下拉框
         self.source_combo.blockSignals(True)
-        current_text = self.source_combo.currentText()
+        current_text = self.source_combo.currentText() # 记录之前的选择
         self.source_combo.clear()
 
-        # 添加内置源
+        # 添加内置源和自定义源
         for name in self.DATA_SOURCES.keys():
             self.source_combo.addItem(name)
-        
         if self.custom_data_sources:
             self.source_combo.insertSeparator(self.source_combo.count())
             for source in self.custom_data_sources:
-                # 使用图标来区分自定义源
                 self.source_combo.addItem(self.icon_manager.get_icon("folder"), source['name'])
+        
+        # 恢复之前的选择，或根据设置加载上次的源
+        load_last = module_states.get("load_last_source", True)
+        last_source = module_states.get("last_source")
+        
+        if load_last and last_source:
+            index = self.source_combo.findText(last_source)
+            if index != -1:
+                self.source_combo.setCurrentIndex(index)
+        else: # 如果不加载上次的，就恢复刷新前的选择
+            index = self.source_combo.findText(current_text)
+            if index != -1:
+                 self.source_combo.setCurrentIndex(index)
 
-        # 添加特殊操作项
-        self.source_combo.setToolTip("选择数据源。\n双击可添加或管理自定义数据源。")
-        
-        # 尝试恢复之前的选择
-        index = self.source_combo.findText(current_text)
-        if index != -1:
-            self.source_combo.setCurrentIndex(index)
-        
         self.source_combo.blockSignals(False)
 
-        # 触发一次刷新
+        # 触发一次列表填充
         self.on_source_changed(self.source_combo.currentText())
 
     # [新增] on_source_changed 槽函数，替代 populate_session_list
     def on_source_changed(self, text):
-        # [核心修正] 移除对管理项的判断，此方法现在只负责填充列表
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        if module_states.get("load_last_source", True):
+            self._on_persistent_setting_changed("last_source", text)
+        
         self.populate_session_list()
 
     # [重构] populate_session_list 现在只负责填充列表，数据源由 on_source_changed 决定
     def populate_session_list(self):
         self.status_label.setText("正在刷新项目列表...")
-        QApplication.processEvents() # 强制UI立即更新文本
+        QApplication.processEvents()
+        
         source_name = self.source_combo.currentText()
         source_info = self.DATA_SOURCES.get(source_name)
         is_custom = False
 
         if not source_info:
-            # 如果不是内置源，就从自定义源中查找
             for custom_source in self.custom_data_sources:
                 if custom_source['name'] == source_name:
                     source_info = {"path": custom_source['path'], "filter": lambda d, p: os.path.isdir(os.path.join(p, d))}
@@ -1889,7 +1948,10 @@ class AudioManagerPage(QWidget):
             self.table_label.setText("无效的数据源")
             return
 
-        self.session_active = False; self.reset_player()
+        self.session_active = False
+        self.reset_player()
+        
+        # 记录下当前选中的项目，以便在没有“加载上次项目”的情况下恢复
         current_text = self.session_list_widget.currentItem().text() if self.session_list_widget.currentItem() else None
         self.session_list_widget.clear()
         
@@ -1903,15 +1965,26 @@ class AudioManagerPage(QWidget):
             return
 
         try:
-            # 这里的 filter 应该应用于 os.listdir 的结果，而不是 os.path.isdir
-            # 并且需要确保只列出目录
             sessions = sorted([d for d in os.listdir(base_path) if source_info["filter"](d, base_path)], 
                               key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
             self.session_list_widget.addItemsWithAnimation(sessions)
-            if current_text:
-                items = self.session_list_widget.findItems(current_text, Qt.MatchFixedString)
-                if items: self.session_list_widget.setCurrentItem(items[0])
-            # [核心新增] 报告刷新完成
+
+            # 根据设置决定是加载上次项目，还是恢复刷新前的项目
+            module_states = self.config.get("module_states", {}).get("audio_manager", {})
+            load_last = module_states.get("load_last_source", True)
+            last_project = module_states.get("last_project")
+
+            item_to_select_text = None
+            if load_last and last_project:
+                item_to_select_text = last_project
+            elif current_text: # 如果不加载上次的，就恢复刷新前的
+                item_to_select_text = current_text
+
+            if item_to_select_text:
+                items = self.session_list_widget.findItems(item_to_select_text, Qt.MatchFixedString)
+                if items:
+                    self.session_list_widget.setCurrentItem(items[0])
+            
             self.status_label.setText("项目列表已刷新。")
             QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
         except Exception as e:
@@ -2493,29 +2566,51 @@ class AudioManagerPage(QWidget):
              self.play_pause_btn.setEnabled(True)
         
     def on_item_double_clicked(self, item):
-        # [核心修正] 区分全局搜索和常规模式
-        if self.is_global_search_active:
-            filepath = item.data(Qt.UserRole)
-            if filepath:
-                self.go_to_file(filepath)
-        else:
-            self.play_selected_item(item.row())
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        action = module_states.get("double_click_action", "play")
+        row = item.row()
+        
+        if action == "play":
+            # 区分全局搜索和常规模式
+            if self.is_global_search_active:
+                filepath = item.data(Qt.UserRole)
+                if filepath:
+                    self.go_to_file(filepath)
+            else:
+                self.play_selected_item(row)
+        elif action == "analyze":
+            filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+            if filepath: self.send_to_audio_analysis(filepath)
+        elif action == "explorer":
+            filepath = self.audio_table_widget.item(row, 0).data(Qt.UserRole)
+            if filepath: self.open_in_explorer(os.path.dirname(filepath), select_file=os.path.basename(filepath))
+        elif action == "rename":
+            self.rename_selected_file(row)
     
     def on_session_selection_changed(self):
         selected_items = self.session_list_widget.selectedItems()
-        if not selected_items: self.audio_table_widget.setRowCount(0); self.table_label.setText("请从左侧选择一个项目以查看文件"); self.session_active = False; self.reset_player(); return
+        if not selected_items:
+            self.audio_table_widget.setRowCount(0)
+            self.table_label.setText("请从左侧选择一个项目以查看文件")
+            self.session_active = False
+            self.reset_player()
+            return
         
-        # 获取当前选中的数据源类型，判断是内置还是自定义
+        # 保存当前选中的项目状态
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        if module_states.get("load_last_source", True):
+            self._on_persistent_setting_changed("last_project", selected_items[0].text())
+
         source_name = self.source_combo.currentText()
         source_info = self.DATA_SOURCES.get(source_name)
         
-        if not source_info: # 可能是自定义源
+        if not source_info:
             for custom_source in self.custom_data_sources:
                 if custom_source['name'] == source_name:
-                    source_info = {"path": custom_source['path']} # 只需要路径
+                    source_info = {"path": custom_source['path']}
                     break
         
-        if not source_info: # 仍然没有找到，说明数据源无效
+        if not source_info:
             self.audio_table_widget.setRowCount(0)
             self.table_label.setText("无效的数据源")
             self.session_active = False
@@ -2524,7 +2619,21 @@ class AudioManagerPage(QWidget):
 
         self.session_active = True
         self.current_session_path = os.path.join(source_info["path"], selected_items[0].text())
-        self.table_label.setText(f"项目: {selected_items[0].text()}"); self.populate_audio_table()
+        self.table_label.setText(f"项目: {selected_items[0].text()}")
+        self.populate_audio_table()
+
+    def _find_and_select_file(self, filepath_to_find):
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        if not module_states.get("auto_select_new_file", True):
+            return
+
+        for row in range(self.audio_table_widget.rowCount()):
+            item = self.audio_table_widget.item(row, 0)
+            if item and item.data(Qt.UserRole) == filepath_to_find:
+                self.audio_table_widget.setCurrentCell(row, 0)
+                # 确保选中行可见
+                self.audio_table_widget.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+                break
         
     def rename_folder(self, item, base_dir):
         old_name = item.text()
@@ -2651,6 +2760,7 @@ class AudioManagerPage(QWidget):
                 QApplication.processEvents()
                 os.rename(old_filepath, new_filepath)
                 self.populate_audio_table() # 重绘表格以更新
+                self._find_and_select_file(new_filepath)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"重命名失败: {e}")
             
@@ -2795,3 +2905,190 @@ class AudioManagerPage(QWidget):
             processor_plugin.execute_quick_normalize(filepaths=filepaths)
         else:
             QMessageBox.critical(self, "功能错误", "批量处理器插件已激活，但缺少 'execute_quick_normalize' 方法。")
+class SettingsDialog(QDialog):
+    """
+    音频数据管理器的专属设置对话框。
+    
+    这个对话框被设计为完全自包含的，负责：
+    1. 构建所有与此模块相关的设置UI。
+    2. 从主配置文件中加载当前设置并填充UI。
+    3. 在用户确认后，将UI上的新设置保存回主配置文件。
+    """
+    
+    def __init__(self, parent_page, file_manager_available):
+        """
+        构造函数。
+        
+        Args:
+            parent_page (AudioManagerPage): 对主页面实例的引用，用于访问配置和主窗口。
+            file_manager_available (bool): 指示文件管理器插件是否可用，用于控制UI状态。
+        """
+        super().__init__(parent_page)
+        
+        # --- 属性初始化 ---
+        self.parent_page = parent_page
+        
+        # --- 窗口基本设置 ---
+        self.setWindowTitle("音频管理器设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(450)
+        
+        # --- UI构建与数据加载 ---
+        self._init_ui(file_manager_available)
+        self._connect_signals()
+        self.load_settings()
+
+    # ==============================================================================
+    # UI 构建
+    # ==============================================================================
+    def _init_ui(self, file_manager_available):
+        """构建对话框的用户界面。"""
+        # 主布局，采用垂直布局
+        layout = QVBoxLayout(self)
+
+        # --- 组1: 界面与交互 ---
+        ui_group = QGroupBox("界面与交互")
+        ui_form_layout = QFormLayout(ui_group)
+        ui_form_layout.setRowWrapPolicy(QFormLayout.WrapAllRows) # 确保长文本能换行
+
+        # 控件：文件双击行为
+        self.double_click_combo = QComboBox()
+        self.double_click_combo.addItems([
+            "播放/暂停", 
+            "在音频分析中打开", 
+            "在文件浏览器中显示", 
+            "重命名"
+        ])
+        self.double_click_combo.setToolTip(
+            "自定义在文件列表中双击一个文件时执行的操作。"
+        )
+
+        # 控件：启动时自动加载上次的数据源
+        self.load_last_source_check = QCheckBox("启动时自动加载上次的数据源")
+        self.load_last_source_check.setToolTip(
+            "下次进入此模块时，自动恢复到您上次查看的项目。"
+        )
+        
+        # 将控件添加到表单布局
+        ui_form_layout.addRow("文件双击行为:", self.double_click_combo)
+        ui_form_layout.addRow(self.load_last_source_check)
+        
+        layout.addWidget(ui_group)
+
+        # --- 组2: 文件操作 ---
+        file_ops_group = QGroupBox("文件操作")
+        file_ops_form_layout = QFormLayout(file_ops_group)
+        file_ops_form_layout.setRowWrapPolicy(QFormLayout.WrapAllRows)
+
+        # 控件：重命名或裁切后自动选中
+        self.auto_select_check = QCheckBox("重命名或裁切后自动选中新文件")
+        self.auto_select_check.setToolTip(
+            "启用后，程序会自动在列表中找到并高亮新创建的文件。"
+        )
+
+        # 控件：删除时移至回收站
+        self.recycle_bin_checkbox = QCheckBox("删除时移至回收站")
+        self.recycle_bin_checkbox.setEnabled(file_manager_available)
+        if file_manager_available:
+            self.recycle_bin_checkbox.setToolTip(
+                "勾选后，删除的文件将进入回收站（如果可用）。\n"
+                "取消勾选则会直接永久删除。"
+            )
+        else:
+            self.recycle_bin_checkbox.setToolTip(
+                "此选项需要 '文件管理器' 插件被启用。"
+            )
+        
+        # 将控件添加到表单布局
+        file_ops_form_layout.addRow(self.auto_select_check)
+        file_ops_form_layout.addRow(self.recycle_bin_checkbox)
+
+        layout.addWidget(file_ops_group)
+
+        # --- 底部按钮栏 ---
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(self.button_box)
+
+    def _connect_signals(self):
+        """连接所有UI控件的信号与槽。"""
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+    # ==============================================================================
+    # 数据加载与保存
+    # ==============================================================================
+    def load_settings(self):
+        """从主配置文件中加载设置，并更新UI控件的当前状态。"""
+        # 安全地获取本模块的设置字典
+        module_states = self.parent_page.config.get("module_states", {}).get("audio_manager", {})
+        
+        # 定义内部存储值与UI显示文本的映射关系，方便双向转换
+        action_map = {
+            "play": "播放/暂停", 
+            "analyze": "在音频分析中打开", 
+            "explorer": "在文件浏览器中显示", 
+            "rename": "重命名"
+        }
+        
+        # --- 加载“界面与交互”设置 ---
+        # 默认为 'play'
+        double_click_action = module_states.get("double_click_action", "play")
+        self.double_click_combo.setCurrentText(action_map.get(double_click_action, "播放/暂停"))
+        
+        # 默认为 True
+        self.load_last_source_check.setChecked(module_states.get("load_last_source", True))
+        
+        # --- 加载“文件操作”设置 ---
+        # 默认为 True
+        self.auto_select_check.setChecked(module_states.get("auto_select_new_file", True))
+        
+        # 默认为 'trash'
+        deletion_behavior = module_states.get("deletion_behavior", "trash")
+        self.recycle_bin_checkbox.setChecked(deletion_behavior == "trash")
+
+    def save_settings(self):
+        """从UI控件收集当前的设置值，并将其保存回主配置文件。"""
+        # 定义UI显示文本与内部存储值的反向映射
+        reverse_action_map = {
+            "播放/暂停": "play", 
+            "在音频分析中打开": "analyze", 
+            "在文件浏览器中显示": "explorer", 
+            "重命名": "rename"
+        }
+
+        # 构建要保存的设置字典
+        settings_to_save = {
+            # --- 保存“界面与交互”设置 ---
+            "double_click_action": reverse_action_map.get(self.double_click_combo.currentText(), "play"),
+            "load_last_source": self.load_last_source_check.isChecked(),
+            
+            # --- 保存“文件操作”设置 ---
+            "auto_select_new_file": self.auto_select_check.isChecked(),
+            "deletion_behavior": "trash" if self.recycle_bin_checkbox.isChecked() else "permanent",
+            
+            # --- 保留从主页面读取的其他既有设置，避免覆盖 ---
+            "shortcut_action": self.parent_page.shortcut_button_action,
+            "adaptive_volume": self.parent_page.adaptive_volume_switch.isChecked(),
+        }
+        
+        # 如果启用了“加载上次源”，则额外保存当前的位置信息
+        if self.load_last_source_check.isChecked():
+            settings_to_save['last_source'] = self.parent_page.source_combo.currentText()
+            current_project_item = self.parent_page.session_list_widget.currentItem()
+            settings_to_save['last_project'] = current_project_item.text() if current_project_item else None
+        
+        # 通过主窗口的公共API来更新并保存配置
+        main_window = self.parent_page.parent_window
+        main_window.update_and_save_module_state('audio_manager', settings_to_save)
+
+    # ==============================================================================
+    # QDialog 标准方法重写
+    # ==============================================================================
+    def accept(self):
+        """
+        重写 QDialog 的 accept 方法。
+        当用户点击 "OK" 按钮时，先执行保存操作，然后再调用父类的 accept 方法关闭对话框。
+        """
+        self.save_settings()
+        super().accept()
