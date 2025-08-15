@@ -1885,9 +1885,6 @@ class WordlistEditorPage(QWidget):
             QMessageBox.warning(self, "TTS工具不可用", "无法找到TTS工具或其加载功能。")
 # --- [核心新增] ---
 # 为“通用词表编辑器”模块定制的设置对话框
-# --- [核心新增] ---
-# 为“通用词表编辑器”模块定制的设置对话框
-# --- [核心重构] 为通用词表编辑器定制的双栏设置对话框 ---
 class SettingsDialog(QDialog):
     """
     一个专门用于配置“通用词表编辑器”模块的双栏设置对话框。

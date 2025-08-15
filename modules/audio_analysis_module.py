@@ -14,7 +14,7 @@ from audio_analysis_batch_panel import AudioAnalysisBatchPanel
 # PyQt5 GUI 库的核心组件导入
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QMessageBox, QGroupBox, QFormLayout, QSizePolicy, QSlider,
-                             QScrollBar, QProgressDialog, QFileDialog, QCheckBox, QLineEdit,
+                             QScrollBar, QProgressDialog, QFileDialog, QCheckBox, QLineEdit,QListWidget,
                              QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut,QScrollArea, QFrame, QTabWidget, QStackedWidget, QRadioButton) # 新增导入 QMenu, QAction, QDialog, QDialogButtonBox, QComboBox, QShortcut
 from PyQt5.QtCore import Qt, QUrl, QPointF, QThread, pyqtSignal, QObject, pyqtProperty, QRect, QPoint, QTimer
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -292,81 +292,112 @@ class AudioTaskWorker(QObject):
 
     def _analyze_formants_helper(self, y_data, sr, hop_length, start_offset, pre_emphasis):
         """
-        可复用的共振峰分析逻辑。
-        Args:
-            y_data (np.ndarray): 要分析的音频数据。
-            sr (int): 采样率。
-            hop_length (int): 帧之间的步长。
-            start_offset (int): 当前 y_data 在原始音频中的起始采样点偏移量。
-            pre_emphasis (bool): 是否应用预加重。
-        Returns:
-            list: 共振峰数据点列表，每个点是 (采样点位置, [F1, F2, F3...])。
+        改进版的共振峰分析（窗口化、LPC 阶数保护、按带宽筛选候选）。
+        Returns: list of (sample_center, [F1, F2, ...])
         """
-        # 根据是否预加重处理音频数据
+        # 预加重（如果需要）
         y_proc = librosa.effects.preemphasis(y_data) if pre_emphasis else y_data
-        
-        # 共振峰分析的帧长度和LPC阶数
-        frame_length = int(sr * 0.025) # 25ms 帧长
-        order = 2 + sr // 1000        # LPC 阶数，通常是 2 + 采样率(kHz)
-        formant_points = []           # 存储找到的共振峰点
 
-        # 计算RMS能量以进行语音/非语音判断
+        # 帧与阶数设置
+        frame_length = int(sr * 0.025)  # 25 ms
+        if frame_length < 16:
+            frame_length = max(16, len(y_proc))
+        # 推荐的初始阶数（保持你原先思路），但进行上下界约束
+        order = int(2 + sr // 1000)
+        # 阶数不得超过 (frame_length - 2) 且至少为 6
+        order = max(6, min(order, max(6, frame_length - 2)))
+
+        formant_points = []
+
+        # 能量判断
         rms = librosa.feature.rms(y=y_data, frame_length=frame_length, hop_length=hop_length)[0]
-        # 能量阈值，低于此阈值的帧不进行共振峰分析
         energy_threshold = np.max(rms) * 0.05 if np.max(rms) > 0 else 0
         frame_index = 0
 
-        # 遍历音频帧进行共振峰分析
+        # 预定义 formant band，并确保不超过 Nyquist
+        nyq = sr / 2.0
+        formant_ranges = [
+            (250, min(800, nyq)),
+            (800, min(2200, nyq)),
+            (2200, min(3000, nyq)),
+            (3000, min(4000, nyq))
+        ]
+
         for i in range(0, len(y_proc) - frame_length, hop_length):
-            # 跳过能量过低的帧（通常是静音或噪音）
             if frame_index < len(rms) and rms[frame_index] < energy_threshold:
                 frame_index += 1
                 continue
 
-            y_frame = y_proc[i : i + frame_length] # 提取当前帧
+            y_frame = y_proc[i: i + frame_length]
+            if len(y_frame) < frame_length:
+                frame_index += 1
+                continue
 
-            # 检查帧是否有效（非零且有限）
-            if np.max(np.abs(y_frame)) < 1e-5 or not np.isfinite(y_frame).all():
+            # 去均值 + 窗函数（非常关键）
+            y_frame = y_frame - np.mean(y_frame)
+            win = np.hamming(len(y_frame))
+            y_frame = y_frame * win
+
+            # 跳过低能量/无效帧
+            if np.max(np.abs(y_frame)) < 1e-6 or not np.isfinite(y_frame).all():
                 frame_index += 1
                 continue
 
             try:
-                # 使用线性预测编码 (LPC) 计算滤波器系数
-                a = librosa.lpc(y_frame, order=order)
-                if not np.isfinite(a).all(): 
+                # LPC：如遇数值问题，跳过
+                if len(y_frame) <= order:
                     frame_index += 1
                     continue
-                
-                # 找到LPC多项式的根，并只保留虚部大于等于0的根
-                roots = [r for r in np.roots(a) if np.imag(r) >= 0]
-                # 将根的相位角转换为频率 (Hz)，并排序
-                freqs = sorted(np.angle(roots) * (sr / (2 * np.pi)))
-                
-                # 定义共振峰的典型频率范围
-                formant_ranges = [(250, 800), (800, 2200), (2200, 3000), (3000, 4000)]
-                found_formants = []
-                candidate_freqs = list(freqs) # 复制一份，以便移除已找到的共振峰
 
-                # 在预定义的频率范围内查找共振峰
+                a = librosa.lpc(y_frame, order=order)
+                if not np.isfinite(a).all():
+                    frame_index += 1
+                    continue
+
+                roots_all = np.roots(a)
+
+                # 只保留上半平面根（imag >= 0）并且在合理幅度范围内 (避免 0 或 >1 的极端值)
+                roots = [r for r in roots_all if np.imag(r) >= 0 and 0.001 < np.abs(r) < 0.9999]
+
+                candidates = []
+                for r in roots:
+                    ang = np.angle(r)
+                    freq = ang * (sr / (2 * np.pi))
+                    if freq <= 0 or freq >= nyq:
+                        continue
+                    # 带宽（Hz）：常用离散极点到带宽的映射
+                    bw = - (sr / np.pi) * np.log(np.abs(r))
+                    # 忽掉非常大的带宽（噪声 / 非共振峰）
+                    if bw <= 0 or bw > 1000:  # 1000Hz 上限可调，默认保守
+                        continue
+                    candidates.append((freq, bw))
+
+                # 按频率排序（便于在各个 band 中选择）
+                candidates.sort(key=lambda x: x[0])
+
+                found_formants = []
+                # 对每个 formant band，选择带宽最小的 candidate（更尖锐更可靠）
                 for f_min, f_max in formant_ranges:
-                    band_freqs = [f for f in candidate_freqs if f_min <= f <= f_max]
-                    if band_freqs:
-                        best_f = band_freqs[0] # 通常取第一个找到的作为该范围的共振峰
-                        found_formants.append(best_f)
-                        candidate_freqs.remove(best_f) # 从候选列表中移除已找到的频率
-                
-                # 如果找到了共振峰，则添加到结果列表
+                    band_cands = [(f, bw) for (f, bw) in candidates if f_min <= f <= f_max]
+                    if not band_cands:
+                        continue
+                    # 根据带宽选择最“尖锐”的峰
+                    best = min(band_cands, key=lambda x: x[1])
+                    found_formants.append(best[0])
+
                 if found_formants:
-                    # 记录共振峰的采样点位置 (帧中心) 和频率列表
-                    formant_points.append((start_offset + i + frame_length // 2, found_formants))
+                    sample_center = start_offset + i + frame_length // 2
+                    formant_points.append((sample_center, found_formants))
+
             except Exception:
-                # 捕获LPC或根计算中的异常，跳过当前帧
+                # 出现数值问题就跳过该帧
                 frame_index += 1
                 continue
-            
+
             frame_index += 1
-        
+
         return formant_points
+
 
 # ExportDialog 类：用于设置图片导出选项的对话框
 class ExportDialog(QDialog):
@@ -638,6 +669,7 @@ class SpectrogramWidget(QWidget):
         self._manual_f0_min = 75
         self._manual_f0_max = 400
         self._info_box_position = 'top_left' # 悬浮信息框位置 ('top_left' 或 'bottom_right')
+        self._hover_info_mode = "always" # 默认模式
 
         # QSS可控颜色属性 (确保这些属性在QSS中可以被覆盖，以便通过样式表改变颜色)
         self._backgroundColor = Qt.white
@@ -663,6 +695,7 @@ class SpectrogramWidget(QWidget):
         self._f2_point_outline_color = QColor(Qt.white)
         self._formant_point_has_outline = False
         self._formant_point_outline_color = QColor(Qt.black)
+        self._point_outline_width = 0.5
 
     # --- @pyqtProperty 装饰器和 set_overlay_visibility 方法 ---
     # 这些属性允许通过QSS（Qt Style Sheets）来设置控件的颜色，实现主题化。
@@ -761,6 +794,17 @@ class SpectrogramWidget(QWidget):
         self._show_intensity, self._smooth_intensity = show_intensity, smooth_intensity
         self._show_formants, self._highlight_f1, self._highlight_f2, self._show_other_formants = show_formants, highlight_f1, highlight_f2, show_other_formants
         self.update() # 触发重绘以应用新的可见性设置
+
+    def set_point_outline_width(self, width):
+        """[新增] 设置所有数据点轮廓的宽度。"""
+        self._point_outline_width = width
+        self.update()
+
+
+    def set_hover_info_mode(self, mode):
+        """[新增] 设置悬停信息的显示模式。"""
+        if mode in ["always", "ctrl"]:
+            self._hover_info_mode = mode
 
     def set_f0_axis_range(self, lower=None, upper=None):
         """
@@ -898,230 +942,211 @@ class SpectrogramWidget(QWidget):
 
     def paintEvent(self, event):
         """
-        绘制语谱图及其所有叠加层。
+        [v2.0 - Optimized] 绘制语谱图及其所有叠加层。
+        此版本使用 numpy.searchsorted 对所有叠加层数据进行高效裁剪，
+        仅绘制当前视图内的部分，极大地提升了缩放和平移的性能。
         """
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing) # 开启抗锯齿
-        painter.fillRect(self.rect(), self._backgroundColor) # 填充背景色
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), self._backgroundColor)
 
-        plot_rect = self._get_plot_rect() # 获取绘图安全区
+        plot_rect = self._get_plot_rect()
         
-        if not plot_rect.isValid(): return # 如果绘图区无效，则不绘制
+        if not plot_rect.isValid(): return
 
-        w, h = plot_rect.width(), plot_rect.height() # 绘图区宽度和高度
+        w, h = plot_rect.width(), plot_rect.height()
         view_width_samples = self._view_end_sample - self._view_start_sample
-        if view_width_samples <= 0: return # 如果视图宽度无效，则不绘制
+        if view_width_samples <= 0: return
 
         # --- 绘制语谱图背景 ---
         if self.spectrogram_image:
-            # 计算语谱图图像中需要绘制的起始和结束帧
             start_frame = self._view_start_sample // self.hop_length
             end_frame = self._view_end_sample // self.hop_length
             view_width_frames = end_frame - start_frame
             if view_width_frames > 0:
-                # 定义语谱图图像中的源矩形（要绘制的部分）
                 source_rect = QRect(start_frame, 0, view_width_frames, self.spectrogram_image.height())
-                # 将源矩形的内容绘制到控件的绘图区
                 painter.drawImage(plot_rect, self.spectrogram_image, source_rect)
 
-        # --- 绘制坐标轴和网格线 ---
-        painter.setPen(QPen(self._f0AxisColor, 1, Qt.DotLine)) # 设置网格线颜色和样式
+        # --- 绘制坐标轴和网格线 (此部分无需优化) ---
+        painter.setPen(QPen(self._f0AxisColor, 1, Qt.DotLine))
         font = self.font()
-        font.setPointSize(8) # 设置字体大小
+        font.setPointSize(8)
         painter.setFont(font)
         
-        # 左侧频率轴 (Hz)
-        # 从0Hz到最大显示频率，每隔1000Hz绘制一个刻度
         for freq in range(0, int(self.max_display_freq) + 1, 1000):
-            if freq == 0 and self.max_display_freq > 0: # 避免0Hz刻度文本与底部重叠
-                continue
-            # 计算频率对应的Y坐标
+            if freq == 0 and self.max_display_freq > 0: continue
             y = plot_rect.bottom() - (freq / self.max_display_freq * h)
-            painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y)) # 绘制水平网格线
-            painter.drawText(QPointF(plot_rect.left() - 35, int(y) + 4), f"{freq}") # 绘制频率标签
+            painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y))
+            painter.drawText(QPointF(plot_rect.left() - 35, int(y) + 4), f"{freq}")
         
-        # 右侧基频轴 (Hz)
         if self._f0_axis_enabled:
             f0_display_range = self._f0_display_max - self._f0_display_min
             if f0_display_range > 0:
-                # 根据F0显示范围动态调整刻度步长
                 step = 50 if f0_display_range > 200 else 25 if f0_display_range > 100 else 10
-                
-                # [核心修改] 获取当前绘图字体的度量信息
                 metrics = painter.fontMetrics()
-                text_height = metrics.height() # 获取字体的高度
-                
+                text_height = metrics.height()
                 for freq in range(int(self._f0_display_min // step * step), int(self._f0_display_max) + 1, step):
                     if freq < self._f0_display_min: continue
-                    
                     y = plot_rect.bottom() - ((freq - self._f0_display_min) / f0_display_range * h)
-                    painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y)) # 绘制水平网格线
-                    
-                    # 绘制F0标签，右侧对齐
-                    # [核心修改] 调整绘制区域的Y坐标和高度
-                    # Y坐标：int(y) - text_height // 2，使其垂直居中于刻度线
-                    # 高度：text_height，确保有足够空间
+                    painter.drawLine(plot_rect.left(), int(y), plot_rect.right(), int(y))
                     painter.drawText(
                         QRect(plot_rect.right() + 5, int(y) - text_height // 2, 
-                              plot_rect.right() - plot_rect.left() - 10, text_height), # 使用动态计算的高度
-                        Qt.AlignLeft | Qt.AlignVCenter, 
-                        f"{freq}"
+                              plot_rect.right() - plot_rect.left() - 10, text_height),
+                        Qt.AlignLeft | Qt.AlignVCenter, f"{freq}"
                     )
 
-        # --- 在plot_rect内绘制所有叠加层 ---
-        # 强度曲线
+        # --- [OPTIMIZED] 强度曲线 ---
         if self._show_intensity and self._intensity_data is not None:
-            painter.setPen(QPen(self._intensityColor, 2)) # 设置强度曲线颜色和粗细
-            intensity_points = []
+            painter.setPen(QPen(self._intensityColor, 2))
             data_to_plot = self._intensity_data
             if self._smooth_intensity:
-                # 如果启用平滑，则应用滚动平均
                 data_to_plot = pd.Series(data_to_plot).rolling(window=5, center=True, min_periods=1).mean().to_numpy()
             
-            # 归一化强度数据以便映射到Y轴
             max_intensity = np.max(data_to_plot) if len(data_to_plot) > 0 else 1.0
-            if max_intensity == 0: max_intensity = 1.0 # 避免除以零
-            
-            for i, val in enumerate(data_to_plot):
-                sample_pos = i * self.hop_length # 计算采样点位置
-                if self._view_start_sample <= sample_pos < self._view_end_sample:
-                    # 将采样点位置映射到X坐标
-                    x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
-                    # 将强度值映射到Y坐标 (只占用绘图区底部30%的高度)
-                    y = plot_rect.bottom() - (val / max_intensity * h * 0.3) 
-                    intensity_points.append(QPointF(x, y))
-            if len(intensity_points) > 1:
-                painter.drawPolyline(*intensity_points) # 绘制强度曲线
+            if max_intensity == 0: max_intensity = 1.0
 
-        # 基频曲线 (F0)
+            # 1. 创建采样点位置数组
+            sample_positions = np.arange(len(data_to_plot)) * self.hop_length
+            # 2. 使用二分查找快速定位视图范围内的起始和结束索引
+            start_idx = np.searchsorted(sample_positions, self._view_start_sample, side='left')
+            end_idx = np.searchsorted(sample_positions, self._view_end_sample, side='right')
+
+            intensity_points = []
+            # 3. 只遍历视图内的切片，而不是全部数据
+            for i in range(start_idx, end_idx):
+                sample_pos = sample_positions[i]
+                val = data_to_plot[i]
+                x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
+                y = plot_rect.bottom() - (val / max_intensity * h * 0.3) 
+                intensity_points.append(QPointF(x, y))
+                
+            if len(intensity_points) > 1:
+                painter.drawPolyline(*intensity_points)
+
+        # --- [OPTIMIZED] 基频曲线 (F0) ---
         if self._show_f0 and self._f0_axis_enabled and f0_display_range > 0:
             if self._show_f0_derived and self._f0_derived_data:
-                painter.setPen(QPen(self._f0DerivedColor, 1.5, Qt.DashLine)) # 派生F0曲线样式
-                derived_points = []
+                painter.setPen(QPen(self._f0DerivedColor, 1.5, Qt.DashLine))
                 derived_times, derived_f0 = self._f0_derived_data
-                for i, t in enumerate(derived_times):
-                    sample_pos = t * self.sr # 时间转换为采样点
-                    if self._view_start_sample <= sample_pos < self._view_end_sample and np.isfinite(derived_f0[i]):
-                        # 将采样点和F0值映射到X,Y坐标
+                
+                # 优化：快速找到可视区域的数据
+                sample_positions = derived_times * self.sr
+                start_idx = np.searchsorted(sample_positions, self._view_start_sample, side='left')
+                end_idx = np.searchsorted(sample_positions, self._view_end_sample, side='right')
+                
+                derived_points = []
+                # 只遍历切片
+                for i in range(start_idx, end_idx):
+                    if np.isfinite(derived_f0[i]):
+                        sample_pos = sample_positions[i]
                         x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
                         y = plot_rect.bottom() - ((derived_f0[i] - self._f0_display_min) / f0_display_range * h)
                         derived_points.append(QPointF(x, y))
+
                 if len(derived_points) > 1:
-                    painter.drawPolyline(*derived_points) # 绘制派生F0曲线
+                    painter.drawPolyline(*derived_points)
 
             if self._show_f0_points and self._f0_data:
-                # [修改] F0 数据点绘制逻辑
                 raw_times, raw_f0 = self._f0_data
-                for i, t in enumerate(raw_times):
-                    sample_pos = t * self.sr
-                    if self._view_start_sample <= sample_pos < self._view_end_sample and np.isfinite(raw_f0[i]):
+                
+                # 优化：快速找到可视区域的数据
+                sample_positions = raw_times * self.sr
+                start_idx = np.searchsorted(sample_positions, self._view_start_sample, side='left')
+                end_idx = np.searchsorted(sample_positions, self._view_end_sample, side='right')
+                
+                # 只遍历切片
+                for i in range(start_idx, end_idx):
+                    if np.isfinite(raw_f0[i]):
+                        sample_pos = sample_positions[i]
                         x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
                         y = plot_rect.bottom() - ((raw_f0[i] - self._f0_display_min) / f0_display_range * h)
                         
                         if self._f0_point_has_outline:
-                            # 1. 先用画笔绘制轮廓
-                            painter.setPen(QPen(self._f0_point_outline_color, 1))
+                            painter.setPen(QPen(self._f0_point_outline_color, self._point_outline_width))
                             painter.setBrush(self._f0Color)
                             painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
                         else:
-                            # 2. 否则，像以前一样只用画刷绘制
                             painter.setPen(Qt.NoPen)
                             painter.setBrush(self._f0Color)
                             painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
         
-        # 共振峰点
+        # --- [OPTIMIZED] 共振峰点 ---
         if self._show_formants and self._formants_data:
             max_freq_y_axis = self.max_display_freq
-            for sample_pos, formants in self._formants_data:
-                if self._view_start_sample <= sample_pos < self._view_end_sample:
-                    x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
-                    for i, f in enumerate(formants):
-                        # [修改] 共振峰数据点绘制逻辑
-                        brush, has_outline, outline_color, should_draw = None, False, None, False
-                        
-                        if i == 0 and self._highlight_f1:
-                            brush, has_outline, outline_color, should_draw = self._f1Color, self._f1_point_has_outline, self._f1_point_outline_color, True
-                        elif i == 1 and self._highlight_f2:
-                            brush, has_outline, outline_color, should_draw = self._f2Color, self._f2_point_has_outline, self._f2_point_outline_color, True
-                        elif i > 1 and self._show_other_formants:
-                            brush, has_outline, outline_color, should_draw = self._formantColor, self._formant_point_has_outline, self._formant_point_outline_color, True
-                        
-                        if should_draw:
-                            y = plot_rect.bottom() - (f / max_freq_y_axis * h)
-                            if plot_rect.top() <= y <= plot_rect.bottom():
-                                if has_outline:
-                                    painter.setPen(QPen(outline_color, 1))
-                                    painter.setBrush(brush)
-                                    painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
-                                else:
-                                    painter.setPen(Qt.NoPen)
-                                    painter.setBrush(brush)
-                                    painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
+            
+            # 优化：提取所有采样点位置并快速查找可视区域
+            sample_positions = np.array([item[0] for item in self._formants_data])
+            start_idx = np.searchsorted(sample_positions, self._view_start_sample, side='left')
+            end_idx = np.searchsorted(sample_positions, self._view_end_sample, side='right')
 
-        # 播放光标
+            # 只遍历切片
+            for i in range(start_idx, end_idx):
+                sample_pos, formants = self._formants_data[i]
+                x = plot_rect.left() + (sample_pos - self._view_start_sample) * w / view_width_samples
+                for i, f in enumerate(formants):
+                    brush, has_outline, outline_color, should_draw = None, False, None, False
+                    
+                    if i == 0 and self._highlight_f1:
+                        brush, has_outline, outline_color, should_draw = self._f1Color, self._f1_point_has_outline, self._f1_point_outline_color, True
+                    elif i == 1 and self._highlight_f2:
+                        brush, has_outline, outline_color, should_draw = self._f2Color, self._f2_point_has_outline, self._f2_point_outline_color, True
+                    elif i > 1 and self._show_other_formants:
+                        brush, has_outline, outline_color, should_draw = self._formantColor, self._formant_point_has_outline, self._formant_point_outline_color, True
+                    
+                    if should_draw:
+                        y = plot_rect.bottom() - (f / max_freq_y_axis * h)
+                        if plot_rect.top() <= y <= plot_rect.bottom():
+                            if has_outline:
+                                painter.setPen(QPen(self._f0_point_outline_color, self._point_outline_width))
+                                painter.setBrush(brush)
+                                painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
+                            else:
+                                painter.setPen(Qt.NoPen)
+                                painter.setBrush(brush)
+                                painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
+
+        # --- 播放光标、选区、悬浮信息 (这些部分本身很快，无需优化) ---
         if self._view_start_sample <= self._playback_pos_sample < self._view_end_sample:
-            # 计算播放光标的X坐标
             pos_x = plot_rect.left() + (self._playback_pos_sample - self._view_start_sample) * w / view_width_samples
-            painter.setPen(QPen(self._cursorColor, 2)) # 设置光标颜色和粗细
-            painter.drawLine(int(pos_x), 0, int(pos_x), self.height()) # 绘制垂直光标线
+            painter.setPen(QPen(self._cursorColor, 2))
+            painter.drawLine(int(pos_x), 0, int(pos_x), self.height())
 
-        # --- 核心修改: 绘制一维区间选区 ---
         start_x_pixel, end_x_pixel = 0, 0
-        # 判断是正在拖动中，还是已有一个确定的选区
         if self._is_selecting:
             start_x_pixel = self._selection_start_x
             end_x_pixel = self._selection_end_x
         elif self._selection_start_sample is not None and self._selection_end_sample is not None:
-            # 将选区的采样点转换为像素坐标
             start_x_pixel = self._sample_to_pixel(self._selection_start_sample)
             end_x_pixel = self._sample_to_pixel(self._selection_end_sample)
 
-        if start_x_pixel != end_x_pixel: # 只有当选区有宽度时才绘制
-            # 保证 x1 < x2，方便绘制矩形
-            x1 = min(start_x_pixel, end_x_pixel)
-            x2 = max(start_x_pixel, end_x_pixel)
-            
-            # 1. 绘制半透明的填充矩形 (覆盖整个控件高度)
+        if start_x_pixel != end_x_pixel:
+            x1, x2 = min(start_x_pixel, end_x_pixel), max(start_x_pixel, end_x_pixel)
             selection_fill_rect = QRect(x1, 0, x2 - x1, self.height())
-            painter.setPen(Qt.NoPen) # 不绘制边框
-            painter.setBrush(self._selectionColor) # 设置填充颜色
-            painter.drawRect(selection_fill_rect) # 绘制填充矩形
-
-            # 2. 绘制两侧的红色边界线 (覆盖整个控件高度)
-            pen = QPen(self._selectionBorderColor, 1.5) # 粗细1.5像素的红色线
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self._selectionColor)
+            painter.drawRect(selection_fill_rect)
+            pen = QPen(self._selectionBorderColor, 1.5)
             painter.setPen(pen)
-            
-            # 左边界线
             painter.drawLine(x1, 0, x1, self.height())
-            # 右边界线
             painter.drawLine(x2, 0, x2, self.height())
 
-
-        # --- 悬浮信息框的绘制 ---
         if self._cursor_info_text:
             font = self.font()
             font.setPointSize(10)
             painter.setFont(font)
-            metrics = painter.fontMetrics() # 获取字体度量信息
-            
-            # 先计算文本矩形的大小
-            text_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text)
-            text_rect.adjust(-5, -5, 5, 5) # 添加内边距
-
-            # 根据信息框位置决定绘制位置
+            metrics = painter.fontMetrics()
+            text_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text).adjusted(-5, -5, 5, 5)
             margin = 10
             if self._info_box_position == 'top_left':
                 text_rect.moveTo(margin, margin)
-            else: # 'bottom_right'
-                text_rect.moveTo(self.width() - text_rect.width() - margin, 
-                                 self.height() - text_rect.height() - margin)
+            else:
+                text_rect.moveTo(self.width() - text_rect.width() - margin, self.height() - text_rect.height() - margin)
 
-            painter.setBrush(self._infoBackgroundColor) # 设置背景填充色
-            painter.setPen(Qt.NoPen) # 不绘制边框
-            painter.drawRoundedRect(text_rect, 5, 5) # 绘制圆角矩形背景
-            
-            painter.setPen(self._infoTextColor) # 设置文字颜色
-            painter.drawText(text_rect, Qt.AlignCenter, self._cursor_info_text) # 绘制文本
+            painter.setBrush(self._infoBackgroundColor)
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(text_rect, 5, 5)
+            painter.setPen(self._infoTextColor)
+            painter.drawText(text_rect, Qt.AlignCenter, self._cursor_info_text)
 
     def apply_style_settings(self, style_dict):
         """
@@ -1188,85 +1213,101 @@ class SpectrogramWidget(QWidget):
 
     def mouseMoveEvent(self, event):
         """
-        处理鼠标移动事件，更新选区或悬浮信息。
+        [v1.1 - 模式感知版]
+        处理鼠标移动事件。根据设置的显示模式和键盘状态来更新选区或悬浮信息。
         """
+        # 1. 如果用户正在拖动选择区域，则优先更新选区并重绘
         if self._is_selecting:
-            self._selection_end_x = event.pos().x() # 更新选区结束的像素X坐标
-            self.update() # 触发重绘以实时更新选区显示
+            self._selection_end_x = event.pos().x()
+            self.update()
         
-        # 原有的悬停信息逻辑
+        # 2. 安全检查：如果没有任何音频数据，则不执行任何操作
         if self.spectrogram_image is None:
             super().mouseMoveEvent(event)
             return
+
+        # 3. [核心逻辑] 根据显示模式判断是否应显示悬浮信息
+        should_show_info = False
+        if self._hover_info_mode == "always":
+            should_show_info = True
+        elif self._hover_info_mode == "ctrl":
+            # 检查当前是否按下了 Ctrl 键 (ControlModifier)
+            if QApplication.keyboardModifiers() & Qt.ControlModifier:
+                should_show_info = True
+
+        # 4. 如果不满足显示条件
+        if not should_show_info:
+            # 检查当前是否仍有残留的文本信息
+            if self._cursor_info_text:
+                # 如果有，则清空它并触发一次重绘以移除信息框
+                self._cursor_info_text = ""
+                self.update()
+            
+            # 调用父类的方法并立即退出，不再进行后续的耗时计算
+            super().mouseMoveEvent(event)
+            return
         
+        # --- 只有在 should_show_info 为 True 时，才执行以下昂贵的信息计算逻辑 ---
+        
+        # 5. 计算鼠标位置对应的音频数据坐标
         plot_rect = self._get_plot_rect()
         
-        # 将鼠标位置的像素坐标转换为数据坐标 (时间、频率)
         x_ratio = (event.x() - plot_rect.left()) / plot_rect.width()
         y_ratio = (plot_rect.bottom() - event.y()) / plot_rect.height()
         
-        # 限制在0-1之间，避免鼠标移出绘图区时数据异常
         x_ratio = max(0.0, min(1.0, x_ratio)) 
         y_ratio = max(0.0, min(1.0, y_ratio)) 
         
         view_width_samples = self._view_end_sample - self._view_start_sample
-        if view_width_samples <= 0: return # 避免除以零
+        if view_width_samples <= 0: return
 
-        current_sample = self._view_start_sample + x_ratio * view_width_samples # 当前鼠标位置的采样点
-        current_time_s = current_sample / self.sr # 当前鼠标位置的时间（秒）
-        current_freq_hz = y_ratio * self.max_display_freq # 当前鼠标位置的频率（Hz）
+        current_sample = self._view_start_sample + x_ratio * view_width_samples
+        current_time_s = current_sample / self.sr
+        current_freq_hz = y_ratio * self.max_display_freq
 
         info_parts = [f"Time: {current_time_s:.3f} s", f"Freq: {current_freq_hz:.0f} Hz"]
         
-        # F0 信息
+        # 6. 查找并添加 F0 信息
         if self._show_f0 and self._f0_data and self._show_f0_points:
             times, f0_values = self._f0_data
             if len(times) > 0:
-                # 找到最接近当前时间点的F0值
                 time_diffs = np.abs(times - current_time_s)
                 closest_idx = np.argmin(time_diffs)
-                # 如果时间点足够接近并且F0值有效，则添加到信息
                 if time_diffs[closest_idx] < (self.hop_length / self.sr) and np.isfinite(f0_values[closest_idx]):
                     info_parts.append(f"F0: {f0_values[closest_idx]:.1f} Hz")
         
-        # 共振峰信息
+        # 7. 查找并添加共振峰信息
         if self._show_formants and self._formants_data:
             closest_formant_dist, closest_formants = float('inf'), None
             for sample_pos, formants in self._formants_data:
                 dist = abs(sample_pos - current_sample)
-                # 如果鼠标距离共振峰点足够近（例如3个hop_length的范围），则显示
                 if dist < (self.hop_length * 3): 
-                    if dist < closest_formant_dist: # 找最近的点
+                    if dist < closest_formant_dist:
                         closest_formant_dist, closest_formants = dist, formants
-            if closest_formants: # 确保找到了共振峰且距离在阈值内
-                 # 格式化共振峰信息
+            if closest_formants:
                  info_parts.append(" | ".join([f"F{i+1}: {int(f)}" for i, f in enumerate(closest_formants)]))
         
-        self._cursor_info_text = "\n".join(info_parts) # 更新悬浮信息文本
+        # 8. 组合信息文本并智能调整信息框位置
+        self._cursor_info_text = "\n".join(info_parts)
         
-        # --- 新增: 动态调整信息框位置的逻辑 ---
-        # 避免信息框遮挡鼠标指针
         if self._cursor_info_text:
             metrics = self.fontMetrics()
-            # 计算左上角信息框的理论位置和大小
             top_left_text_rect = metrics.boundingRect(QRect(0, 0, self.width(), self.height()), Qt.AlignLeft, self._cursor_info_text).adjusted(-5, -5, 5, 5)
-            top_left_text_rect.moveTo(10, 10) # 固定左上角位置
+            top_left_text_rect.moveTo(10, 10)
 
-            # 如果鼠标当前在左上角信息框的区域内，则将信息框切换到右下角
             if top_left_text_rect.contains(event.pos()):
                 self._info_box_position = 'bottom_right'
             else:
-                # 仅当鼠标也不在右下角区域时，才恢复到左上角
-                # 计算右下角信息框的理论位置
                 bottom_right_text_rect = top_left_text_rect.translated(
-                    self.width() - top_left_text_rect.width() - 20, # X轴偏移量
-                    self.height() - top_left_text_rect.height() - 20 # Y轴偏移量
+                    self.width() - top_left_text_rect.width() - 20,
+                    self.height() - top_left_text_rect.height() - 20
                 )
                 if not bottom_right_text_rect.contains(event.pos()):
                     self._info_box_position = 'top_left'
 
-        self.update() # 触发重绘
-        super().mouseMoveEvent(event) # 调用父类的事件处理
+        # 9. 触发重绘以显示更新后的信息
+        self.update()
+        super().mouseMoveEvent(event)
 
 
     def mouseReleaseEvent(self, event):
@@ -1410,7 +1451,9 @@ class SpectrogramWidget(QWidget):
 
     def _send_data_to_plotter(self):
         """
-        收集选区内的共振峰数据，并通过钩子调用元音绘制器插件的execute方法。
+        [v2.1 - 音频路径感知版]
+        收集选区内的共振峰数据，并连同源音频文件路径一起，
+        通过钩子调用元音绘制器插件的execute方法。
         """
         if not hasattr(self, 'vowel_plotter_plugin_active') or self.vowel_plotter_plugin_active is None:
             QMessageBox.warning(self, "插件未启用", "元音空间图绘制器插件未启用或加载失败。")
@@ -1436,21 +1479,29 @@ class SpectrogramWidget(QWidget):
         df = pd.DataFrame(data_points)
         
         # --- [核心修改] ---
-        # 1. 获取主页面对象，它持有当前文件路径
-        #    SpectrogramWidget 的父级是 center_panel, 再往上才是主页面 AudioAnalysisPage
+        # 1. 向上追溯，从父页面 AudioAnalysisPage 获取核心信息
         parent_page = self.parent().parent()
         
+        # 2. 获取源文件名（用于图层命名）
         source_name_for_plugin = '来自音频分析模块' # 默认值
         if hasattr(parent_page, 'current_filepath') and parent_page.current_filepath:
-            # 2. 从完整路径中提取不带后缀的文件名
             source_name_for_plugin = os.path.splitext(os.path.basename(parent_page.current_filepath))[0]
 
-        # 3. 在调用 execute 时，传入 source_name
-        self.vowel_plotter_plugin_active.execute(dataframe=df, source_name=source_name_for_plugin)
+        # 3. 获取完整的音频文件路径
+        audio_filepath_for_plugin = getattr(parent_page, 'current_filepath', None)
+
+        # 4. 在调用 execute 时，将所有信息作为关键字参数传入
+        self.vowel_plotter_plugin_active.execute(
+            dataframe=df, 
+            source_name=source_name_for_plugin,
+            audio_filepath=audio_filepath_for_plugin # 新增参数
+        )
 
     def _send_data_to_intonation_visualizer(self):
         """
+        [v2.2 - 音频路径修复版]
         收集选区内的F0数据，并通过钩子调用语调可视化插件。
+        此版本修复了未传递 audio_filepath 的问题。
         """
         if not hasattr(self, 'intonation_visualizer_plugin_active') or self.intonation_visualizer_plugin_active is None:
             QMessageBox.warning(self, "插件未启用", "语调可视化器插件未启用或加载失败。")
@@ -1478,14 +1529,22 @@ class SpectrogramWidget(QWidget):
             
         df = pd.DataFrame(data_points)
         
-        # --- [核心修改] (与上面 plotter 的修改逻辑完全相同) ---
+        # --- [核心修改] (与 plotter 的修改逻辑完全相同) ---
         parent_page = self.parent().parent()
         
         source_name_for_plugin = '来自音频分析模块' # 默认值
         if hasattr(parent_page, 'current_filepath') and parent_page.current_filepath:
             source_name_for_plugin = os.path.splitext(os.path.basename(parent_page.current_filepath))[0]
+        
+        # [核心新增] 获取完整的音频文件路径
+        audio_filepath_for_plugin = getattr(parent_page, 'current_filepath', None)
 
-        self.intonation_visualizer_plugin_active.execute(dataframe=df, source_name=source_name_for_plugin)
+        # [核心修改] 将 audio_filepath_for_plugin 添加到 execute 调用中
+        self.intonation_visualizer_plugin_active.execute(
+            dataframe=df, 
+            source_name=source_name_for_plugin,
+            audio_filepath=audio_filepath_for_plugin
+        )
 
     # --- 默认的右键菜单事件处理器 ---
     def contextMenuEvent(self, event):
@@ -1934,57 +1993,82 @@ class WaveformWidget(QWidget):
 
     def paintEvent(self, event):
         """
-        绘制波形图。
+        [v2.0 - 性能优化版]
+        绘制波形图。此版本实现了动态渲染降采样：
+        - 当放大到细节可见时，绘制平滑的波形曲线。
+        - 当缩小时，为每个水平像素计算并绘制一条代表振幅范围的垂直线，
+          极大地提高了处理大量数据时的渲染性能和流畅度。
         """
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing) # 开启抗锯齿
-        painter.fillRect(self.rect(), self.palette().color(QPalette.Base)) # 填充背景色
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), self.palette().color(QPalette.Base))
 
         if self._y_full is None:
-            # 如果没有音频数据，则显示提示文本
             painter.setPen(self.palette().color(QPalette.Mid))
             painter.drawText(self.rect(), Qt.AlignCenter, "波形")
             return
         
-        # 波形绘制逻辑
+        # --- 1. 准备绘图参数和数据 ---
         view_width_samples = self._view_end_sample - self._view_start_sample
-        w, h, half_h = self.width(), self.height(), self.height() / 2 # 控件宽度、高度、半高
+        w, h, half_h = self.width(), self.height(), self.height() / 2
         
-        # 根据视图宽度选择绘制完整数据还是概览数据，以提高性能
+        # 根据视图宽度选择使用概览数据或完整数据
         y_to_draw = self._y_overview if view_width_samples > w * 4 else self._y_full
         
-        # 计算要绘制的数据在 y_to_draw 中的起始和结束索引
         start_idx = int(self._view_start_sample / len(self._y_full) * len(y_to_draw))
         end_idx = int(self._view_end_sample / len(self._y_full) * len(y_to_draw))
         
-        view_y = y_to_draw[start_idx:end_idx] # 提取当前视图内的波形数据
-        if len(view_y) == 0: return # 如果没有数据，则不绘制
+        view_y = y_to_draw[start_idx:end_idx]
+        if len(view_y) == 0: return
 
-        painter.setPen(QPen(self._waveformColor, 1)) # 设置波形颜色和粗细
-        max_val = np.max(np.abs(view_y)) or 1.0 # 归一化波形幅度
-        
-        # 将波形数据点映射到像素坐标
-        points = [QPointF(i * w / len(view_y), half_h - (val / max_val * half_h * 0.95)) for i, val in enumerate(view_y)]
-        if points:
-            painter.drawPolyline(*points) # 绘制波形曲线
+        painter.setPen(QPen(self._waveformColor, 1))
+        # 使用视图内的最大绝对值进行归一化，防止缩放时波形幅度跳变
+        max_val = np.max(np.abs(view_y)) or 1.0
 
-        # --- 绘制选区高亮 ---
+        # --- 2. [核心优化] 根据数据密度选择渲染模式 ---
+        # 如果视图内的采样点数远大于水平像素数，则使用降采样模式
+        if len(view_y) > w * 2:
+            # 2a. 降采样渲染模式 (适用于缩小的视图)
+            step = len(view_y) / w  # 每个像素平均代表多少个采样点
+            
+            for i in range(w): # 遍历每个水平像素
+                # 找到该像素对应的采样点切片
+                start_slice = int(i * step)
+                end_slice = int((i + 1) * step)
+                if start_slice >= end_slice: continue
+                
+                chunk = view_y[start_slice:end_slice]
+                
+                # 计算切片内的最小值和最大值
+                min_val_in_chunk = np.min(chunk)
+                max_val_in_chunk = np.max(chunk)
+                
+                # 将振幅的min/max值转换为y坐标，并绘制一条垂直线
+                y1 = half_h - (min_val_in_chunk / max_val * half_h * 0.95)
+                y2 = half_h - (max_val_in_chunk / max_val * half_h * 0.95)
+                painter.drawLine(i, int(y1), i, int(y2))
+        else:
+            # 2b. 详细折线图渲染模式 (适用于放大的视图)
+            points = [QPointF(i * w / len(view_y), half_h - (val / max_val * half_h * 0.95)) for i, val in enumerate(view_y)]
+            if points:
+                painter.drawPolyline(*points)
+
+        # --- 3. 绘制选区高亮 (此部分逻辑不变，始终在顶层绘制) ---
         selection_to_draw = None
-        if self._is_selecting: # 正在拖动时
+        if self._is_selecting:
             x1 = min(self._selection_start_x, self._selection_end_x)
             x2 = max(self._selection_start_x, self._selection_end_x)
-            selection_to_draw = QRect(int(x1), 0, int(x2 - x1), h) # 选区矩形
-        elif self._selection_start_sample is not None: # 已有确定选区时
-            # 将选区的采样点转换为像素坐标
+            selection_to_draw = QRect(int(x1), 0, int(x2 - x1), h)
+        elif self._selection_start_sample is not None:
             start_x = (self._selection_start_sample - self._view_start_sample) / view_width_samples * w
             end_x = (self._selection_end_sample - self._view_start_sample) / view_width_samples * w
-            if start_x < w and end_x > 0: # 仅当选区在视图内时绘制
+            if start_x < w and end_x > 0:
                 selection_to_draw = QRect(int(start_x), 0, int(end_x - start_x), h)
         
         if selection_to_draw:
-            painter.setPen(Qt.NoPen) # 不绘制边框
-            painter.setBrush(self._selectionColor) # 设置填充颜色
-            painter.drawRect(selection_to_draw) # 绘制选区矩形
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self._selectionColor)
+            painter.drawRect(selection_to_draw)
 
 
 # create_page 函数：模块的工厂函数，用于创建和返回主页面实例
@@ -2140,7 +2224,12 @@ class AudioAnalysisPage(QWidget):
         self.analyze_acoustics_button.setToolTip("请先运行“分析语谱图”以启用此功能。")
         self.analyze_acoustics_button.setEnabled(False)
         self.analyze_formants_button = QPushButton(" 分析共振峰")
-        self.analyze_formants_button.setToolTip("仅对屏幕上可见区域进行共振峰分析，速度更快。")
+        self.analyze_formants_button.setToolTip(
+            "智能分析共振峰：\n"
+            "- 如果存在选区，则仅分析选区内的部分。\n"
+            "- 如果不存在选区，则分析整个音频文件。\n\n"
+            "分析结果将替换掉现有的共振峰数据。"
+        )
         actions_layout.addWidget(self.analyze_spectrogram_button)
         actions_layout.addWidget(self.analyze_acoustics_button)
         actions_layout.addWidget(self.analyze_formants_button)
@@ -2407,7 +2496,7 @@ class AudioAnalysisPage(QWidget):
         
         # --- [核心] 共振峰精细度布局 ---
         self.formant_density_slider = QSlider(Qt.Horizontal)
-        self.formant_density_slider.setRange(1, 9)
+        self.formant_density_slider.setRange(1, 6)
         self.formant_density_slider.setValue(5)
         self.formant_density_slider.setToolTip(
             "调整共振峰分析的精细度。\n"
@@ -2569,7 +2658,7 @@ class AudioAnalysisPage(QWidget):
         # --- 分析动作 ---
         self.analyze_acoustics_button.clicked.connect(self.run_acoustics_analysis)
         self.analyze_spectrogram_button.clicked.connect(self.run_spectrogram_analysis)
-        self.analyze_formants_button.clicked.connect(self.run_view_formant_analysis)
+        self.analyze_formants_button.clicked.connect(self.run_formant_analysis)
 
         # --- 选区同步与快捷键 ---
         self.spectrogram_widget.selectionChanged.connect(self.waveform_widget.set_selection)
@@ -3069,31 +3158,51 @@ class AudioAnalysisPage(QWidget):
                       pre_emphasis=self.pre_emphasis_checkbox.isChecked(),
                       progress_text="正在分析语谱图背景...")
 
-    def run_view_formant_analysis(self):
+    def run_formant_analysis(self):
         """
-        运行可见区域的共振峰分析。
+        [v2.0 - 选区感知版]
+        启动共振峰分析。
+        - 如果存在选区 (self.current_selection)，则分析选区。
+        - 否则，分析整个音频文件。
         """
         if self.audio_data is None:
             QMessageBox.warning(self, "无音频", "请先加载音频文件。")
             return
-        
-        # 获取当前视图的起始和结束采样点
-        start, end = self.waveform_widget._view_start_sample, self.waveform_widget._view_end_sample
-        
-        # 从新的 formant_density_slider 计算 hop_length
+
+        start_sample, end_sample = 0, 0
+        progress_text = ""
+
+        # --- 核心逻辑：判断分析范围 ---
+        if self.current_selection:
+            # 1. 如果存在选区，则使用选区的范围
+            start_sample, end_sample = self.current_selection
+            progress_text = "正在分析选区共振峰..."
+        else:
+            # 2. 如果不存在选区，则使用整个音频文件的范围
+            start_sample = 0
+            end_sample = len(self.audio_data)
+            progress_text = "正在分析完整音频共振峰..."
+
+        # 确保范围有效，避免空分析
+        if start_sample >= end_sample:
+            QMessageBox.information(self, "范围无效", "分析范围无效，操作已取消。")
+            return
+
+        # 计算跳跃长度 (hop_length) 的逻辑保持不变
         narrow_band_window_s = 0.035
         base_n_fft_for_hop = 1 << (int(self.sr * narrow_band_window_s) - 1).bit_length()
-        overlap_ratio = 1 - (1 / (2**self.formant_density_slider.value())) # 根据共振峰精细度计算重叠比例
-        hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1 # 计算跳跃长度，确保至少为1
-        
-        self.run_task('analyze_formants_view', 
-                      audio_data=self.audio_data, 
-                      sr=self.sr, 
-                      start_sample=start, 
-                      end_sample=end, 
-                      hop_length=hop_length, 
-                      pre_emphasis=self.pre_emphasis_checkbox.isChecked(), 
-                      progress_text="正在分析可见区域共振峰...")
+        overlap_ratio = 1 - (1 / (2**self.formant_density_slider.value()))
+        hop_length = int(base_n_fft_for_hop * (1 - overlap_ratio)) or 1
+
+        # 启动后台任务，传入我们动态确定的范围和进度文本
+        self.run_task('analyze_formants_view',
+                      audio_data=self.audio_data,
+                      sr=self.sr,
+                      start_sample=start_sample,
+                      end_sample=end_sample,
+                      hop_length=hop_length,
+                      pre_emphasis=self.pre_emphasis_checkbox.isChecked(),
+                      progress_text=progress_text)
 
     # [新增] 处理声学分析结果的回调
     def on_acoustics_finished(self, results):
@@ -3841,10 +3950,20 @@ class AudioAnalysisPage(QWidget):
 
     def _load_persistent_settings(self):
         """
-        [v2.2 - 样式刷新版] 加载并应用所有持久化的用户设置。
+        [v2.3 - 启动模式版] 加载并应用所有持久化的用户设置。
         """
-        # 从全局配置中安全地获取本模块的状态字典，如果不存在则返回空字典
         module_states = self.parent_window.config.get("module_states", {}).get("audio_analysis", {})
+        
+        # --- [核心新增] 在所有其他UI设置加载之前，首先应用启动模式 ---
+        # 这样可以确保正确的面板在第一时间被显示
+        startup_mode = module_states.get("startup_mode", "single")
+        # 暂时阻塞信号，避免触发不必要的切换逻辑
+        self.mode_toggle.blockSignals(True)
+        # mode_toggle 为 True 时是批量模式，为 False 时是单文件模式
+        self.mode_toggle.setChecked(startup_mode == "batch")
+        self.mode_toggle.blockSignals(False)
+        # 手动调用一次切换函数，以确保UI状态同步
+        self._on_mode_toggled(self.mode_toggle.isChecked())
         
         # 定义所有需要加载的常规控件及其属性、键名和默认值
         controls_to_load = [
@@ -3928,6 +4047,12 @@ class AudioAnalysisPage(QWidget):
         self._update_render_density_label(self.render_density_slider.value())
         self._update_formant_density_label(self.formant_density_slider.value())
         self._on_chunk_settings_changed()
+        # [核心修改] 将所有需要传递给 SpectrogramWidget 的设置集中在此处
+        hover_info_mode = module_states.get("hover_info_mode", "always")
+        self.spectrogram_widget.set_hover_info_mode(hover_info_mode)
+        
+        outline_width = module_states.get("point_outline_width", 0.5)
+        self.spectrogram_widget.set_point_outline_width(outline_width)
 
 
 # SpectrumSliceDialog 类：显示频谱切片的对话框
@@ -4029,8 +4154,10 @@ class SpectrumSliceDialog(QDialog):
         else:
             self.info_label.setText(" ") # 鼠标移出绘图区则清空信息
 class AnalysisSettingsDialog(QDialog):
-    """一个专门用于配置“音频分析”模块的设置对话框。"""
-    
+    """
+    [v2.0 - 导航布局版]
+    一个专门用于配置“音频分析”模块的双栏设置对话框。
+    """
     def __init__(self, parent_page):
         super().__init__(parent_page)
         
@@ -4038,112 +4165,170 @@ class AnalysisSettingsDialog(QDialog):
         self.setWindowTitle("音频分析设置")
         self.setWindowIcon(self.parent_page.parent_window.windowIcon())
         self.setStyleSheet(self.parent_page.parent_window.styleSheet())
-        self.setMinimumWidth(450)
+        self.setMinimumSize(650, 500)
         
-        layout = QVBoxLayout(self)
-        
-        # --- 分析模式组 (保持不变) ---
-        mode_group = QGroupBox("F0/强度分析模式")
-        mode_layout = QVBoxLayout(mode_group)
-        self.normal_mode_radio = QRadioButton("普通模式 (推荐)")
-        self.normal_mode_radio.setToolTip("速度优化模式...")
-        self.compatibility_mode_radio = QRadioButton("兼容模式")
-        self.compatibility_mode_radio.setToolTip("精度优先模式...")
-        mode_layout.addWidget(self.normal_mode_radio)
-        mode_layout.addWidget(self.compatibility_mode_radio)
-        layout.addWidget(mode_group)
+        # --- 1. 主布局与内容区 ---
+        dialog_layout = QVBoxLayout(self)
+        dialog_layout.setSpacing(10)
+        dialog_layout.setContentsMargins(0, 10, 0, 10)
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- 数据点样式组 ---
-        style_group = QGroupBox("数据点样式")
-        style_group_layout = QVBoxLayout(style_group) # 使用QVBoxLayout以容纳复选框和表单
-        
-        # [核心新增] “跟随主题”复选框
-        self.follow_theme_check = QCheckBox("数据点样式跟随主题")
-        self.follow_theme_check.setToolTip(
-            "勾选此项，数据点的颜色将由当前主题的QSS文件决定。\n"
-            "取消勾选，则可以使用下方的自定义颜色选项。"
-        )
-        style_group_layout.addWidget(self.follow_theme_check)
-        
-        # [核心新增] 分隔线
+        # --- 2. 左侧导航栏 ---
+        self.nav_list = QListWidget()
+        self.nav_list.setFixedWidth(180)
+        self.nav_list.setObjectName("SettingsNavList")
+        content_layout.addWidget(self.nav_list)
+
+        # --- 3. 右侧内容区 ---
+        self.stack = QStackedWidget()
+        content_layout.addWidget(self.stack, 1)
+        dialog_layout.addLayout(content_layout, 1)
+
+        # --- 4. 分隔线和按钮栏 ---
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
-        style_group_layout.addWidget(separator)
-
-        # [核心新增] 用于容纳自定义颜色选项的容器
-        self.custom_color_widget = QWidget()
-        style_layout = QFormLayout(self.custom_color_widget)
-        style_layout.setContentsMargins(0, 5, 0, 0) # 移除顶部边距
-
-        # F0 数据点
-        self.f0_color_btn = ColorButton()
-        self.f0_outline_check = QCheckBox("增加轮廓")
-        f0_style_layout = QHBoxLayout()
-        f0_style_layout.addWidget(self.f0_color_btn)
-        f0_style_layout.addWidget(self.f0_outline_check)
-        f0_style_layout.addStretch()
-        style_layout.addRow("F0 数据点:", f0_style_layout)
-
-        # F1 共振峰
-        self.f1_color_btn = ColorButton()
-        self.f1_outline_check = QCheckBox("增加轮廓")
-        f1_style_layout = QHBoxLayout()
-        f1_style_layout.addWidget(self.f1_color_btn)
-        f1_style_layout.addWidget(self.f1_outline_check)
-        f1_style_layout.addStretch()
-        style_layout.addRow("F1 共振峰:", f1_style_layout)
-
-        # F2 共振峰
-        self.f2_color_btn = ColorButton()
-        self.f2_outline_check = QCheckBox("增加轮廓")
-        f2_style_layout = QHBoxLayout()
-        f2_style_layout.addWidget(self.f2_color_btn)
-        f2_style_layout.addWidget(self.f2_outline_check)
-        f2_style_layout.addStretch()
-        style_layout.addRow("F2 共振峰:", f2_style_layout)
-
-        # 其他共振峰
-        self.formant_color_btn = ColorButton()
-        self.formant_outline_check = QCheckBox("增加轮廓")
-        formant_style_layout = QHBoxLayout()
-        formant_style_layout.addWidget(self.formant_color_btn)
-        formant_style_layout.addWidget(self.formant_outline_check)
-        formant_style_layout.addStretch()
-        style_layout.addRow("其他共振峰:", formant_style_layout)
-        
-        style_group_layout.addWidget(self.custom_color_widget)
-        layout.addWidget(style_group)
-        
-        # OK 和 Cancel 按钮
+        dialog_layout.addWidget(separator)
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.setContentsMargins(0, 0, 10, 0)
+        dialog_layout.addWidget(self.button_box)
+
+        # --- 5. 创建并填充页面 ---
+        self._create_general_page()
+        self._create_style_page()
+
+        # --- 6. 连接信号并加载设置 ---
+        self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         
-        layout.addStretch()
-        layout.addWidget(self.button_box)
-        
-        # [核心新增] 连接信号
-        self.follow_theme_check.toggled.connect(self._on_follow_theme_toggled)
+        # [核心修改] 将新滑块的信号连接添加在此处
+        self.follow_theme_check.toggled.connect(lambda checked: self.custom_color_widget.setEnabled(not checked))
+        self.outline_width_slider.valueChanged.connect(self._on_outline_width_changed)
 
         self.load_settings()
-    
-    def _on_follow_theme_toggled(self, checked):
-        """当“跟随主题”复选框状态改变时，启用或禁用下方的自定义颜色区域。"""
-        self.custom_color_widget.setEnabled(not checked)
+        self.nav_list.setCurrentRow(0)
+
+    def _on_outline_width_changed(self, value):
+        """[新增] 当轮廓宽度滑块改变时，更新标签。"""
+        width = value / 10.0
+        self.outline_width_label.setText(f"{width:.1f} px")
+
+    def _create_general_page(self):
+        """创建“常规”设置页面。"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # 启动模式组
+        startup_mode_group = QGroupBox("默认启动模式")
+        startup_mode_layout = QVBoxLayout(startup_mode_group)
+        self.single_file_mode_radio = QRadioButton("单文件模式")
+        self.batch_mode_radio = QRadioButton("批量分析模式")
+        startup_mode_layout.addWidget(self.single_file_mode_radio)
+        startup_mode_layout.addWidget(self.batch_mode_radio)
+        layout.addWidget(startup_mode_group)
+
+        # 悬停信息显示方式组
+        hover_info_group = QGroupBox("悬停信息显示方式")
+        hover_info_layout = QVBoxLayout(hover_info_group)
+        self.hover_info_always_radio = QRadioButton("总是显示 (默认)")
+        self.hover_info_ctrl_radio = QRadioButton("按住 Ctrl 时显示")
+        hover_info_layout.addWidget(self.hover_info_always_radio)
+        hover_info_layout.addWidget(self.hover_info_ctrl_radio)
+        layout.addWidget(hover_info_group)
+
+        # F0/强度分析模式组
+        mode_group = QGroupBox("F0/强度分析模式")
+        mode_layout = QVBoxLayout(mode_group)
+        self.normal_mode_radio = QRadioButton("普通模式 (推荐)")
+        self.compatibility_mode_radio = QRadioButton("兼容模式")
+        mode_layout.addWidget(self.normal_mode_radio)
+        mode_layout.addWidget(self.compatibility_mode_radio)
+        layout.addWidget(mode_group)
+        
+        layout.addStretch()
+        
+        self.nav_list.addItem("常规设置")
+        self.stack.addWidget(page)
+
+    def _create_style_page(self):
+        """创建“样式”设置页面。"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        style_group = QGroupBox("数据点样式")
+        style_group_layout = QVBoxLayout(style_group)
+        self.follow_theme_check = QCheckBox("数据点样式跟随主题")
+        self.follow_theme_check.setToolTip("勾选此项，数据点的颜色将由当前主题决定。\n取消勾选，则可以使用下方的自定义颜色选项。")
+        style_group_layout.addWidget(self.follow_theme_check)
+        
+        separator = QFrame(); separator.setFrameShape(QFrame.HLine); separator.setFrameShadow(QFrame.Sunken)
+        style_group_layout.addWidget(separator)
+
+        self.custom_color_widget = QWidget()
+        style_layout = QFormLayout(self.custom_color_widget)
+        style_layout.setContentsMargins(0, 5, 0, 0)
+        
+        self.f0_color_btn = ColorButton(); self.f0_outline_check = QCheckBox("增加轮廓")
+        f0_style_layout = QHBoxLayout(); f0_style_layout.addWidget(self.f0_color_btn); f0_style_layout.addWidget(self.f0_outline_check); f0_style_layout.addStretch()
+        style_layout.addRow("F0 数据点:", f0_style_layout)
+        
+        self.f1_color_btn = ColorButton(); self.f1_outline_check = QCheckBox("增加轮廓")
+        f1_style_layout = QHBoxLayout(); f1_style_layout.addWidget(self.f1_color_btn); f1_style_layout.addWidget(self.f1_outline_check); f1_style_layout.addStretch()
+        style_layout.addRow("F1 共振峰:", f1_style_layout)
+        
+        self.f2_color_btn = ColorButton(); self.f2_outline_check = QCheckBox("增加轮廓")
+        f2_style_layout = QHBoxLayout(); f2_style_layout.addWidget(self.f2_color_btn); f2_style_layout.addWidget(self.f2_outline_check); f2_style_layout.addStretch()
+        style_layout.addRow("F2 共振峰:", f2_style_layout)
+
+        self.formant_color_btn = ColorButton(); self.formant_outline_check = QCheckBox("增加轮廓")
+        formant_style_layout = QHBoxLayout(); formant_style_layout.addWidget(self.formant_color_btn); formant_style_layout.addWidget(self.formant_outline_check); formant_style_layout.addStretch()
+        style_layout.addRow("其他共振峰:", formant_style_layout)
+        
+        # [核心新增] 轮廓宽度设置
+        self.outline_width_slider = QSlider(Qt.Horizontal)
+        self.outline_width_slider.setRange(5, 20) # 对应 0.5 到 2.0
+        self.outline_width_slider.setToolTip("调整所有数据点轮廓（描边）的宽度。")
+        
+        self.outline_width_label = QLabel() # 标签用于显示 "x.x px"
+        
+        outline_width_widget = QWidget()
+        outline_width_layout = QHBoxLayout(outline_width_widget)
+        outline_width_layout.setContentsMargins(0, 5, 0, 0)
+        outline_width_layout.addWidget(self.outline_width_slider)
+        outline_width_layout.addWidget(self.outline_width_label)
+        
+        style_layout.addRow("轮廓宽度:", outline_width_widget)
+        
+        style_group_layout.addWidget(self.custom_color_widget)
+        layout.addWidget(style_group)
+        layout.addStretch()
+
+        self.nav_list.addItem("样式设置")
+        self.stack.addWidget(page)
 
     def load_settings(self):
         """从主配置加载所有设置并更新UI。"""
         module_states = self.parent_page.parent_window.config.get("module_states", {}).get("audio_analysis", {})
         
-        analysis_mode = module_states.get("analysis_mode", "normal")
-        if analysis_mode == "compatibility": self.compatibility_mode_radio.setChecked(True)
+        if module_states.get("startup_mode", "single") == "batch": self.batch_mode_radio.setChecked(True)
+        else: self.single_file_mode_radio.setChecked(True)
+        
+        if module_states.get("hover_info_mode", "always") == "ctrl": self.hover_info_ctrl_radio.setChecked(True)
+        else: self.hover_info_always_radio.setChecked(True)
+            
+        if module_states.get("analysis_mode", "normal") == "compatibility": self.compatibility_mode_radio.setChecked(True)
         else: self.normal_mode_radio.setChecked(True)
 
-        # [核心修改] 加载新的“跟随主题”设置
-        follow_theme = module_states.get("follow_theme_for_points", True) # 默认跟随主题
+        follow_theme = module_states.get("follow_theme_for_points", True)
         self.follow_theme_check.setChecked(follow_theme)
-        self._on_follow_theme_toggled(follow_theme) # 触发一次，以设置初始UI状态
+        self.custom_color_widget.setEnabled(not follow_theme)
 
         self.f0_color_btn.set_color(QColor(module_states.get("f0_point_color", "#FFA726")))
         self.f0_outline_check.setChecked(module_states.get("f0_point_outline", False))
@@ -4154,13 +4339,26 @@ class AnalysisSettingsDialog(QDialog):
         self.formant_color_btn.set_color(QColor(module_states.get("formant_point_color", "#29B6F6")))
         self.formant_outline_check.setChecked(module_states.get("formant_point_outline", False))
 
+        # [核心新增] 加载轮廓宽度
+        outline_width = module_states.get("point_outline_width", 0.5)
+        self.outline_width_slider.setValue(int(outline_width * 10))
+        self._on_outline_width_changed(self.outline_width_slider.value())
+
     def save_settings(self):
-        """将UI上的所有设置保存回主配置。"""
+        """
+        [已修复] 将UI上的所有设置保存回主配置。
+        此版本通过先读取再更新的方式，避免了覆盖掉由主页面管理的设置。
+        """
         main_window = self.parent_page.parent_window
         
-        settings_to_save = {
+        # 1. [核心修复] 首先，从主配置中获取当前“音频分析”模块的所有设置
+        current_settings = main_window.config.get("module_states", {}).get("audio_analysis", {}).copy()
+
+        # 2. 创建一个只包含本对话框管理的设置的字典
+        settings_from_dialog = {
+            "startup_mode": "batch" if self.batch_mode_radio.isChecked() else "single",
+            "hover_info_mode": "ctrl" if self.hover_info_ctrl_radio.isChecked() else "always",
             "analysis_mode": "compatibility" if self.compatibility_mode_radio.isChecked() else "normal",
-            # [核心修改] 保存新的“跟随主题”设置
             "follow_theme_for_points": self.follow_theme_check.isChecked(),
             "f0_point_color": self.f0_color_btn.color().name(),
             "f0_point_outline": self.f0_outline_check.isChecked(),
@@ -4170,9 +4368,15 @@ class AnalysisSettingsDialog(QDialog):
             "f2_point_outline": self.f2_outline_check.isChecked(),
             "formant_point_color": self.formant_color_btn.color().name(),
             "formant_point_outline": self.formant_outline_check.isChecked(),
+            "point_outline_width": self.outline_width_slider.value() / 10.0,
         }
         
-        main_window.update_and_save_module_state('audio_analysis', settings_to_save)
+        # 3. [核心修复] 使用字典的 update() 方法，用对话框的新值更新旧的设置
+        #    这会修改 'startup_mode' 等键的值，但会保留 'smooth_intensity' 等其他键
+        current_settings.update(settings_from_dialog)
+        
+        # 4. [核心修复] 将这个完整的、合并后的字典保存回去
+        main_window.update_and_save_module_state('audio_analysis', current_settings)
 
     def accept(self):
         self.save_settings()

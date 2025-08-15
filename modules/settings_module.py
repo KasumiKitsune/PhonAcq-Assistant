@@ -226,7 +226,7 @@ class SettingsPage(QWidget):
         # --- 主布局：垂直布局，顶部是水平内容区，底部是配置管理按钮 ---
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(10)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(20, 10, 20, 10)
 
         # --- 内容区布局：水平分割，左侧为导航，右侧为页面 ---
         content_layout = QHBoxLayout()
@@ -768,7 +768,7 @@ class SettingsPage(QWidget):
         page = QWidget()
         page_layout = QVBoxLayout(page)
         # 为整个页面添加一些内边距，使其看起来不那么拥挤
-        page_layout.setContentsMargins(10, 10, 10, 10) 
+        page_layout.setContentsMargins(20, 20, 20, 20) 
         
         # --- 2. 创建水平布局，用于分割列表和按钮 ---
         content_layout = QHBoxLayout()
@@ -1710,7 +1710,7 @@ class SettingsPage(QWidget):
                 status_icon = self.icon_manager.get_icon("success")
                 status_tooltip = "已启用"
             else:
-                status_icon = self.icon_manager.get_icon("info")
+                status_icon = self.icon_manager.get_icon("lock")
                 status_tooltip = "已禁用"
             cell_widget = QWidget()
             icon_label = QLabel()

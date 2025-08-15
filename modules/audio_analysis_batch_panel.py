@@ -397,47 +397,123 @@ class BatchAnalysisWorker(QObject):
             formant_points = self._analyze_formants_helper(y, sr, hop_length_formant)
             results_for_file['formants_data'] = formant_points
             
+        results_for_file['sr'] = sr
+        results_for_file['duration_ms'] = (len(y) / sr) * 1000
+
         return results_for_file
 
-    def _analyze_formants_helper(self, y_data, sr, hop_length):
+    def _analyze_formants_helper(self, y_data, sr, hop_length, start_offset=0, pre_emphasis=None):
         """
-        可复用的共振峰分析逻辑。
-        这是一个独立的辅助函数，复制自 `audio_analysis_module` 以保持模块的独立性。
+        改进版（用于 BatchAnalysisWorker）：窗口化 + 去均值 + LPC 阶数约束 +
+        计算极点频率与带宽，并在每个 formant band 中选择带宽最小的候选。
+        :param pre_emphasis: 若传入 None，则从 self.params 中读取 (默认启用或禁用由 ui 决定)。
+        :return: list of (sample_center, [F1, F2, ...])
         """
-        y_proc = librosa.effects.preemphasis(y_data)
+        # 决定是否做预加重（优先使用显式参数，否则从 worker 的 params 读）
+        if pre_emphasis is None:
+            pre_emphasis = bool(self.params.get('pre_emphasis', True))
+
+        # 预加重（如果启用）
+        y_proc = librosa.effects.preemphasis(y_data) if pre_emphasis else y_data
+
+        # 帧设置：25 ms 常用值（Praat 常用窗长 20-25ms）
         frame_length = int(sr * 0.025)
-        order = 2 + sr // 1000
+        if frame_length < 16:
+            frame_length = max(16, len(y_proc))
+
+        # LPC 阶数：基于采样率的启发式值，但做上下界约束，且不能超过 frame_length-2
+        order = int(2 + sr // 1000)
+        order = max(6, min(order, max(6, frame_length - 2)))
+
         formant_points = []
+
+        # 能量判定，过滤静音帧
         rms = librosa.feature.rms(y=y_data, frame_length=frame_length, hop_length=hop_length)[0]
         energy_threshold = np.max(rms) * 0.05 if np.max(rms) > 0 else 0
         frame_index = 0
+
+        nyq = sr / 2.0
+        # formant bands（上限受 Nyquist 限制）
+        formant_ranges = [
+            (250, min(800, nyq)),
+            (800, min(2200, nyq)),
+            (2200, min(3000, nyq)),
+            (3000, min(4000, nyq)),
+        ]
+
         for i in range(0, len(y_proc) - frame_length, hop_length):
+            # 能量阈值过滤
             if frame_index < len(rms) and rms[frame_index] < energy_threshold:
-                frame_index += 1; continue
-            y_frame = y_proc[i : i + frame_length]
-            if np.max(np.abs(y_frame)) < 1e-5 or not np.isfinite(y_frame).all():
-                frame_index += 1; continue
+                frame_index += 1
+                continue
+
+            y_frame = y_proc[i: i + frame_length]
+            if len(y_frame) < frame_length:
+                frame_index += 1
+                continue
+
+            # 去均值 + 窗函数
+            y_frame = y_frame - np.mean(y_frame)
+            win = np.hamming(len(y_frame))
+            y_frame = y_frame * win
+
+            # 跳过低能量或数值异常帧
+            if np.max(np.abs(y_frame)) < 1e-6 or not np.isfinite(y_frame).all():
+                frame_index += 1
+                continue
+
             try:
+                if len(y_frame) <= order:
+                    frame_index += 1
+                    continue
+
                 a = librosa.lpc(y_frame, order=order)
-                if not np.isfinite(a).all(): 
-                    frame_index += 1; continue
-                roots = [r for r in np.roots(a) if np.imag(r) >= 0]
-                freqs = sorted(np.angle(roots) * (sr / (2 * np.pi)))
-                formant_ranges = [(250, 800), (800, 2200), (2200, 3000), (3000, 4000)]
+                if not np.isfinite(a).all():
+                    frame_index += 1
+                    continue
+
+                roots_all = np.roots(a)
+                # 只保留上半平面的极点并剔除幅度异常的极点
+                roots = [r for r in roots_all if np.imag(r) >= 0 and 0.001 < np.abs(r) < 0.9999]
+
+                candidates = []
+                for r in roots:
+                    ang = np.angle(r)
+                    freq = ang * (sr / (2 * np.pi))
+                    if freq <= 0 or freq >= nyq:
+                        continue
+                    # 带宽映射：bw = - (sr / pi) * ln(|r|)
+                    bw = - (sr / np.pi) * np.log(np.abs(r))
+                    # 丢弃过宽或负值带宽（噪声）
+                    if bw <= 0 or bw > 1000:
+                        continue
+                    candidates.append((freq, bw))
+
+                # 以频率排序，便于在bands中选择
+                candidates.sort(key=lambda x: x[0])
+
                 found_formants = []
-                candidate_freqs = list(freqs)
+                # 对每个预设 band，选择带宽最小的候选（更尖锐、可靠）
                 for f_min, f_max in formant_ranges:
-                    band_freqs = [f for f in candidate_freqs if f_min <= f <= f_max]
-                    if band_freqs:
-                        best_f = band_freqs[0]
-                        found_formants.append(best_f)
-                        candidate_freqs.remove(best_f)
+                    band_cands = [(f, bw) for (f, bw) in candidates if f_min <= f <= f_max]
+                    if not band_cands:
+                        continue
+                    best = min(band_cands, key=lambda x: x[1])
+                    found_formants.append(best[0])
+
                 if found_formants:
-                    formant_points.append((i + frame_length // 2, found_formants))
+                    sample_center = start_offset + i + frame_length // 2
+                    formant_points.append((sample_center, found_formants))
+
             except Exception:
-                frame_index += 1; continue
+                # 数值问题就忽略该帧
+                frame_index += 1
+                continue
+
             frame_index += 1
+
         return formant_points
+
 
 
 # ==============================================================================
@@ -644,8 +720,9 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _perform_delayed_load(self):
         """
-        只有当用户的选择稳定下来（计时器超时）后，此方法才会被执行。
-        它包含了所有实际的文件加载逻辑。
+        [v2.1 - 优化版]
+        根据文件是否已有分析缓存，决定是执行快速的“缓存优先”显示，
+        还是执行完整的异步加载。
         """
         selected_rows = self.file_table.selectionModel().selectedRows()
     
@@ -653,13 +730,93 @@ class AudioAnalysisBatchPanel(QWidget):
             self.main_page.clear_all_central_widgets()
             return
     
-        # 即使是多选模式，我们也只加载最后选中的那一个
         current_row = selected_rows[-1].row()
-    
         filepath = self.file_table.item(current_row, 0).data(Qt.UserRole)
     
-        # [核心修复] 调用现在已经存在的 _display_file_async 方法
-        self._display_file_async(filepath)
+        # --- 核心优化逻辑 ---
+        # 检查点击的文件是否已有分析缓存
+        if filepath in self.analysis_cache:
+            # 如果有，走新的、快速的“缓存优先”路径
+            self._display_from_cache_and_load_audio_async(filepath)
+        else:
+            # 如果没有，走原来的、完整的加载路径
+            self._display_file_async(filepath)
+
+    def _display_from_cache_and_load_audio_async(self, filepath):
+        """
+        [新增] 优化核心：立即显示缓存数据，并异步加载音频。
+        """
+        # 1. 立即清理并显示缓存的分析结果
+        self.main_page.clear_all_central_widgets()
+        self.main_page.current_filepath = filepath
+        
+        cached_data = self.analysis_cache[filepath]
+
+        # --- 立即渲染语谱图和叠加层 ---
+        if 'S_db' in cached_data and 'hop_length' in cached_data:
+            # 注意：这里需要一个临时的sr值，我们可以从上次分析中缓存它
+            # (这需要在BatchAnalysisWorker中添加sr到缓存结果里)
+            # 假设我们已经在缓存中保存了sr
+            sr = cached_data.get('sr', 44100) # 从缓存获取sr，或使用一个回退值
+            self.main_page.spectrogram_widget.set_data(
+                cached_data['S_db'], sr, cached_data['hop_length']
+            )
+        self.main_page.spectrogram_widget.set_analysis_data(
+            f0_data=cached_data.get('f0_data'),
+            f0_derived_data=cached_data.get('f0_derived_data'),
+            intensity_data=cached_data.get('intensity_data'),
+            formants_data=cached_data.get('formants_data'),
+            clear_previous_formants=True
+        )
+
+        # 在波形图区域显示“加载中...”的提示
+        self.main_page.waveform_widget.clear() # 清空旧波形
+        # (可以进一步优化，让WaveformWidget能显示一个加载文本)
+        
+        # 禁用播放按钮，直到音频加载完成
+        self.main_page.play_pause_btn.setEnabled(False)
+
+        # 2. 启动一个非阻塞的后台线程来加载音频
+        self.load_thread = QThread()
+        self.load_worker = BatchLoadWorker(filepath) # 复用现有的加载器
+        self.load_worker.moveToThread(self.load_thread)
+
+        self.load_worker.finished.connect(self._on_background_audio_loaded)
+        # 可以选择性地处理错误
+        self.load_worker.error.connect(lambda err: print(f"Background audio load failed: {err}"))
+        self.load_thread.started.connect(self.load_worker.run)
+        
+        # 线程结束后自动清理
+        def cleanup():
+            if self.load_worker: self.load_worker.deleteLater()
+            if self.load_thread: self.load_thread.deleteLater()
+        self.load_thread.finished.connect(cleanup)
+        
+        self.load_thread.start()
+
+    def _on_background_audio_loaded(self, result):
+        """
+        [新增] 当后台音频加载完成后，填充剩余的UI部分。
+        """
+        y, sr, filepath = result['y'], result['sr'], result['filepath']
+
+        # --- 安全检查 ---
+        # 检查加载完成的音频是否仍然是当前选中的项，防止用户快速切换导致错乱
+        current_row = self.file_table.currentRow()
+        if current_row == -1 or self.file_table.item(current_row, 0).data(Qt.UserRole) != filepath:
+            self.load_thread.quit()
+            return
+
+        # 3. 填充波形图和播放器
+        self.main_page.audio_data = y
+        self.main_page.sr = sr
+        # 为了简化，我们直接用完整数据作为概览数据
+        self.main_page.waveform_widget.set_audio_data(y, sr, y)
+        self.main_page.player.setMedia(QMediaContent(QUrl.fromLocalFile(filepath)))
+        self.main_page.play_pause_btn.setEnabled(True)
+        self.current_audio_data = (y, sr)
+        
+        self.load_thread.quit()
 
     def _display_file_async(self, filepath):
         """
@@ -1382,39 +1539,30 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _send_data_to_plugin(self, filepaths, data_type):
         """
-        [v2.0 - 分层发送版]
-        核心数据发送逻辑。此版本不再合并数据，而是为每个选中的文件
-        单独创建一个DataFrame，并多次调用插件，从而为每个文件创建独立的图层。
-
-        :param filepaths: 已分析的文件路径列表。
-        :param data_type: 'f0' 或 'formants'。
+        [v2.1 - 音频路径修复版]
+        核心数据发送逻辑。此版本现在会将每个文件的完整音频路径
+        一同发送给插件，以实现自动音频加载。
         """
-        # 1. 确定目标插件ID
         plugin_id = None
         if data_type == 'f0':
             plugin_id = "com.phonacq.intonation_visualizer"
         elif data_type == 'formants':
             plugin_id = "com.phonacq.vowel_space_plotter"
 
-        if not plugin_id:
-            return
+        if not plugin_id: return
 
-        # 2. 检查插件是否已激活
         plugin_instance = self.main_page.parent_window.plugin_manager.get_plugin_instance(plugin_id)
         if not plugin_instance:
             QMessageBox.warning(self, "插件未激活", f"无法执行操作，因为目标插件 ({plugin_id}) 未激活。")
             return
 
-        # 3. [核心逻辑] 遍历每个文件，单独准备并发送数据
         files_sent_count = 0
         for fp in filepaths:
-            if fp not in self.analysis_cache:
-                continue
+            if fp not in self.analysis_cache: continue
                 
             cache = self.analysis_cache[fp]
             source_name = os.path.splitext(os.path.basename(fp))[0]
             
-            # 为当前文件准备一个数据点列表
             single_file_data_points = []
 
             if data_type == 'f0' and 'f0_data' in cache:
@@ -1423,9 +1571,8 @@ class AudioAnalysisBatchPanel(QWidget):
                     single_file_data_points.append({'timestamp': t, 'f0_hz': f0})
 
             elif data_type == 'formants' and 'formants_data' in cache:
-                # 尝试从缓存或主页面获取采样率
                 sr = cache.get('sr', self.main_page.sr)
-                if not sr: continue # 如果没有sr，无法计算时间戳，跳过此文件
+                if not sr: continue
                 
                 formants_list = cache.get('formants_data', [])
                 for sample_pos, formants in formants_list:
@@ -1436,28 +1583,23 @@ class AudioAnalysisBatchPanel(QWidget):
                             'F2': formants[1],
                         })
             
-            # 如果为当前文件找到了数据，则创建DataFrame并调用插件
             if single_file_data_points:
                 df = pd.DataFrame(single_file_data_points)
                 
-                # 准备传递给插件的参数
-                execute_kwargs = {}
-                if data_type == 'f0':
-                    execute_kwargs = {'dataframe': df, 'source_name': source_name}
-                elif data_type == 'formants':
-                    execute_kwargs = {'dataframe': df, 'source_name': source_name}
+                # --- [核心修复] ---
+                # 在 execute_kwargs 中增加 audio_filepath 参数，
+                # 将当前正在处理的文件路径 fp 传递过去。
+                execute_kwargs = {
+                    'dataframe': df, 
+                    'source_name': source_name,
+                    'audio_filepath': fp  # <-- 关键的修复！
+                }
                 
-                # [核心] 多次执行插件，每次传入一个文件的数据
                 self.main_page.parent_window.plugin_manager.execute_plugin(plugin_id, **execute_kwargs)
                 files_sent_count += 1
 
-        # 4. 最终反馈
         if files_sent_count == 0:
             QMessageBox.warning(self, "无数据", f"在选中的已分析文件中，未找到任何有效的 {data_type} 数据可以发送。")
-        else:
-            # 执行完所有调用后，确保插件窗口被激活并置于顶层
-            # (execute_plugin 内部已经处理了 show/raise/activate)
-            print(f"成功为 {files_sent_count} 个文件创建了独立的图层。")
 
     def _play_file(self, filepath):
         """辅助方法：播放单个文件。"""

@@ -1684,13 +1684,15 @@ class AudioManagerPage(QWidget):
 
     def open_file_context_menu(self, position):
         """
-        [v2.2 - 批量分析集成版]
+        [v2.3 - 修复重复执行Bug]
         构建文件列表的右键上下文菜单。
+        修复了因重复定义 selected_filepaths 导致外部工具被多次调用的问题。
         """
         menu = QMenu(self.audio_table_widget)
         selected_items = self.audio_table_widget.selectedItems()
 
         if selected_items:
+            # --- 第一次，也是唯一一次正确的定义 ---
             is_single_selection = len(set(item.row() for item in selected_items)) == 1
             selected_rows_count = len(set(item.row() for item in selected_items))
             selected_filepaths = sorted(list(set(
@@ -1702,24 +1704,21 @@ class AudioManagerPage(QWidget):
             play_action.triggered.connect(self.toggle_playback)
             play_action.setEnabled(is_single_selection)
 
-            # --- [核心修改] 动态创建分析菜单项 ---
             analysis_module_available = hasattr(self.parent_window, 'audio_analysis_page') and self.parent_window.audio_analysis_page is not None
             if analysis_module_available:
                 if is_single_selection:
-                    # 单选时：在单个分析器中打开
                     analyze_single_action = menu.addAction(self.icon_manager.get_icon("analyze"), "在音频分析中打开")
                     analyze_single_action.triggered.connect(lambda: self.send_to_audio_analysis(selected_filepaths[0]))
                 else:
-                    # 多选时：发送到批量分析
                     analyze_batch_action = menu.addAction(self.icon_manager.get_icon("analyze_dark"), f"发送 {selected_rows_count} 个文件到批量分析")
                     analyze_batch_action.triggered.connect(lambda: self.send_to_batch_analysis(selected_filepaths))
-            # --- 修改结束 ---
 
             menu.addSeparator()
 
-            # 第二组：文件处理与修改
-            selected_rows_count = len(set(item.row() for item in selected_items))
-            selected_filepaths = [self.audio_table_widget.item(item.row(), 0).data(Qt.UserRole) for item in selected_items]
+            # --- 第二组：文件处理与修改 ---
+            # [核心修复] 删除下面这两行多余且错误的重定义！
+            # selected_rows_count = len(set(item.row() for item in selected_items))  <-- 已删除
+            # selected_filepaths = [self.audio_table_widget.item(item.row(), 0).data(Qt.UserRole) for item in selected_items] <-- 已删除
 
             rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名")
             rename_action.triggered.connect(lambda: self.rename_selected_file(selected_items[0].row()))
@@ -1737,8 +1736,9 @@ class AudioManagerPage(QWidget):
         
             menu.addSeparator()
 
-            # 第三组：系统与外部交互
+            # --- 第三组：系统与外部交互 ---
             if hasattr(self, 'external_launcher_plugin_active'):
+                # 现在这里接收到的 selected_filepaths 是正确的、去重后的列表
                 launcher_plugin = self.external_launcher_plugin_active
                 launcher_plugin.populate_menu(menu, selected_filepaths)
 
@@ -1747,7 +1747,7 @@ class AudioManagerPage(QWidget):
         
             open_folder_action = menu.addAction(self.icon_manager.get_icon("show_in_explorer"), "在文件浏览器中显示")
             if is_single_selection:
-                filepath = self.audio_table_widget.item(selected_items[0].row(), 0).data(Qt.UserRole)
+                filepath = selected_filepaths[0] # 直接使用去重后的列表
                 folder_path = os.path.dirname(filepath)
                 file_name = os.path.basename(filepath)
                 open_folder_action.triggered.connect(lambda: self.open_in_explorer(folder_path, select_file=file_name))
@@ -1755,7 +1755,6 @@ class AudioManagerPage(QWidget):
                 open_folder_action.setEnabled(False)
 
         # --- 无论是否选中，始终显示刷新和设置 ---
-        # 如果已经有项目了（说明不是空菜单），则先加一个分隔符
         if menu.actions():
             menu.addSeparator()
 

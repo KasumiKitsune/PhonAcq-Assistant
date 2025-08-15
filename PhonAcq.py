@@ -1286,7 +1286,7 @@ class MainWindow(QMainWindow):
         # [核心修复] 立即定义能够创建“下一代”页面的、闭环的重建配方。
         # 它的工作就是重新调用本函数，确保任何被创建的页面都经过完整的属性注入流程。
         future_recreation_factory = lambda: self.create_module_or_placeholder(
-            attr_name, module_key, name, page_factory
+            attr_name, module_key, name, page_factory, extra_args
         )
 
         page = None

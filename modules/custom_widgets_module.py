@@ -9,6 +9,7 @@ from PyQt5.QtCore import (pyqtProperty, pyqtSignal, QEvent, QEasingCurve,
                           QParallelAnimationGroup, QPoint, QPropertyAnimation, 
                           QRect, QRectF, QSequentialAnimationGroup, QSize, Qt, QObject, QTimer)
 from PyQt5.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen, QPixmap
+import json
 
 # ==============================================================================
 # 1. 自定义 ToggleSwitch 控件
@@ -1344,7 +1345,11 @@ class AnimatedListWidget(QListWidget):
         """从数据字典创建一个 QListWidgetItem 并设置其所有属性。"""
         text = data.get('text', 'Unnamed Item')
         item = QListWidgetItem(text)
-        item.setToolTip(text)
+        
+        # [核心新增] 从数据字典中获取Tooltip文本并设置
+        tooltip_text = data.get('tooltip', text) # 如果没有tooltip，则用项目文本作为后备
+        item.setToolTip(tooltip_text)
+        
         item.setData(self.HIERARCHY_DATA_ROLE, data)
         
         holder = _ItemAnimationHolder(item, self)
@@ -2077,6 +2082,50 @@ class WordlistSelectionDialog(QDialog):
         self.search_input.textChanged.connect(self._filter_list)
         self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
 
+    def _parse_wordlist_for_tooltip(self, file_path):
+        """解析指定的词表JSON文件，并生成一个用于Tooltip的HTML字符串。"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            meta = data.get('meta', {})
+            # 优先使用元数据中的描述，否则使用文件名
+            name = os.path.splitext(os.path.basename(file_path))[0]
+            description = meta.get('description', '无详细描述。')
+            author = meta.get('author', '未知')
+            version = meta.get('version', 'N/A')
+
+            # 构建HTML头部
+            html = (f"<b>{name}</b> (v{version})<br>"
+                    f"<i>{description}</i><br>"
+                    f"作者: {author}<hr>")
+
+            # 提取前三项作为预览
+            groups = data.get('groups', [])
+            preview_items = []
+            item_count = 0
+            for group in groups:
+                if item_count >= 3:
+                    break
+                for item in group.get('items', []):
+                    if item_count >= 3:
+                        break
+                    preview_items.append(item.get('text', ''))
+                    item_count += 1
+            
+            if preview_items:
+                html += "<b>内容预览:</b><br>"
+                for text in preview_items:
+                    # 使用HTML实体编码以防止特殊字符破坏布局
+                    import html as html_converter
+                    safe_text = html_converter.escape(text)
+                    html += f"• {safe_text}<br>"
+            
+            return html.rstrip('<br>')
+
+        except Exception as e:
+            return f"无法解析词表: {os.path.basename(file_path)}\n错误: {e}"
+
     def on_item_selected(self, item):
         """当用户选择一个文件后，存储其相对路径并关闭对话框。"""
         item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
@@ -2161,7 +2210,15 @@ class WordlistSelectionDialog(QDialog):
                     display_name, _ = os.path.splitext(filename)
                     is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
                     
-                    item_data = {'type': 'item', 'icon': icon_manager.get_icon("document"), 'data': {'path': full_path}}
+                    # [核心修改] 在这里预先生成Tooltip
+                    tooltip_html = self._parse_wordlist_for_tooltip(full_path)
+
+                    item_data = {
+                        'type': 'item',
+                        'icon': icon_manager.get_icon("document"),
+                        'data': {'path': full_path},
+                        'tooltip': tooltip_html  # 将Tooltip存入数据
+                    }
                     
                     if is_pinned:
                         shortcut = item_data.copy()
@@ -2184,7 +2241,15 @@ class WordlistSelectionDialog(QDialog):
             
             for folder_path in sorted(folder_map.keys()):
                 children = sorted(folder_map[folder_path], key=lambda x: x['text'])
-                regular_items.append({'type': 'folder', 'text': os.path.basename(folder_path), 'icon': icon_manager.get_icon("folder"), 'children': children})
+                # [核心修改] 为文件夹也添加简单的Tooltip
+                folder_tooltip = f"文件夹: {os.path.basename(folder_path)}"
+                regular_items.append({
+                    'type': 'folder', 
+                    'text': os.path.basename(folder_path), 
+                    'icon': icon_manager.get_icon("folder"), 
+                    'children': children,
+                    'tooltip': folder_tooltip
+                })
             
             regular_items.sort(key=lambda x: (x['type'] != 'folder', x['text']))
             pinned_shortcuts.sort(key=lambda x: x['text'])

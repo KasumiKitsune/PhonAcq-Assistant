@@ -18,7 +18,7 @@ import shutil
 import hashlib # 用于为没有 deck_id 的 .fdeck 文件生成哈希ID
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
-                             QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,QInputDialog,
+                             QMessageBox, QComboBox, QFormLayout, QGroupBox, QRadioButton, QLineEdit,QInputDialog,QDialogButtonBox, QDialog,
                              QListWidgetItem, QSizePolicy, QShortcut, QScrollArea, QGridLayout, QButtonGroup, QFrame, QCheckBox, QSpacerItem, QStyle, QStyleOptionButton, QMenu) 
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize, QRect
 from PyQt5.QtGui import QPixmap, QImageReader, QIcon, QTextDocument, QColor, QFontMetrics, QKeySequence, QPainter, QDesktopServices
@@ -85,6 +85,7 @@ class FlashcardPage(QWidget):
         
         # --- 核心状态变量 ---
         self.session_active = False
+        self.is_incognito_session = False 
         self.all_loaded_cards = [] 
         self.cards = [] 
         self.current_card_index = -1
@@ -116,7 +117,13 @@ class FlashcardPage(QWidget):
         self.populate_wordlists() 
         self._update_ui_for_selection()
 
-
+    def open_settings_dialog(self):
+        """
+        打开此模块的设置对话框。
+        由于此模块的设置大多在会话开始前生效，所以无需刷新页面。
+        """
+        dialog = SettingsDialog(self)
+        dialog.exec_()
 
     def _init_ui(self):
         """
@@ -439,52 +446,65 @@ class FlashcardPage(QWidget):
         QShortcut(QKeySequence(Qt.Key_P), self, self.play_current_audio)
         QShortcut(QKeySequence(Qt.Key_Space), self, self.toggle_answer)
         QShortcut(QKeySequence("Ctrl+G"), self, self.toggle_mastered_status)
+    def _apply_prompt_preferences(self, test_type_button):
+        """
+        [新增] 辅助函数，根据给定的考核类型按钮，应用用户保存的提示物偏好。
+        """
+        # 建立从按钮对象到配置键的映射
+        type_map = {
+            self.test_type_input_radio: 'input',
+            self.test_type_mc_text_radio: 'mc_text',
+            self.test_type_mc_image_radio: 'mc_image',
+            self.test_type_mc_audio_radio: 'mc_audio'
+        }
+        current_test_type = type_map.get(test_type_button)
+        if not current_test_type:
+            return
 
+        # 加载用户偏好设置，并提供安全的默认值
+        module_states = self.parent_window.config.get("module_states", {}).get("flashcard", {})
+        default_prefs = {
+            "input": ["text", "image", "audio"], "mc_text": ["image", "audio"],
+            "mc_image": ["text", "audio"], "mc_audio": ["text", "image"]
+        }
+        prefs = module_states.get("test_type_defaults", default_prefs)
+        
+        preferred_prompts = prefs.get(current_test_type, [])
+
+        # 阻塞信号，以避免在程序化修改时触发不必要的事件
+        self.prompt_text_check.blockSignals(True)
+        self.prompt_image_check.blockSignals(True)
+        self.prompt_audio_check.blockSignals(True)
+
+        # 根据用户偏好和当前卡组的能力，设置复选框状态
+        self.prompt_text_check.setChecked(
+            'text' in preferred_prompts and self.prompt_text_check.isEnabled()
+        )
+        self.prompt_image_check.setChecked(
+            'image' in preferred_prompts and self.prompt_image_check.isEnabled()
+        )
+        self.prompt_audio_check.setChecked(
+            'audio' in preferred_prompts and self.prompt_audio_check.isEnabled()
+        )
+
+        # 恢复信号
+        self.prompt_text_check.blockSignals(False)
+        self.prompt_image_check.blockSignals(False)
+        self.prompt_audio_check.blockSignals(False)
+
+        # 手动触发一次验证
+        self._validate_prompt_selection()
     def _on_test_type_changed(self, button, checked):
         """
-        [新增] 当考核类型单选按钮被切换时调用的槽函数。
-        它首先更新UI的启用状态，然后智能地预设“提示物”选项。
+        [v2.1 - 重构版]
+        当考核类型单选按钮被切换时，此方法会读取用户保存的偏好设置。
         """
-        # 步骤 1: 无论如何，都先调用通用的UI更新函数，以确保所有控件的启用/禁用状态是最新的。
+        # 步骤 1: 更新所有UI元素的启用/禁用状态
         self._update_ui_for_selection()
 
-        # 步骤 2: 只有当一个按钮被 *选中* 时，才执行智能预设逻辑。
+        # 步骤 2: 只有当一个按钮被 *选中* 时，才应用用户偏好
         if checked:
-            # 暂时阻塞“提示物”复选框的信号，以防止在程序化地修改它们时触发不必要的事件。
-            self.prompt_text_check.blockSignals(True)
-            self.prompt_image_check.blockSignals(True)
-            self.prompt_audio_check.blockSignals(True)
-
-            # --- 根据被选中的考核类型，应用不同的预设 ---
-
-            if button == self.test_type_mc_image_radio:
-                # 考核方式是“四选一(图片)”，那么题目最可能是“文字”或“音频”。
-                if self.prompt_text_check.isEnabled(): self.prompt_text_check.setChecked(True)
-                if self.prompt_audio_check.isEnabled(): self.prompt_audio_check.setChecked(True)
-                # 同时，取消勾选“图片”作为提示物，因为图片现在是答案选项。
-                if self.prompt_image_check.isEnabled(): self.prompt_image_check.setChecked(False)
-
-            elif button == self.test_type_mc_audio_radio:
-                # 考核方式是“四选一(音频)”，那么题目最可能是“文字”或“图片”。
-                if self.prompt_text_check.isEnabled(): self.prompt_text_check.setChecked(True)
-                if self.prompt_image_check.isEnabled(): self.prompt_image_check.setChecked(True)
-                # 取消勾选“音频”作为提示物。
-                if self.prompt_audio_check.isEnabled(): self.prompt_audio_check.setChecked(False)
-
-            elif button == self.test_type_mc_text_radio:
-                # 考核方式是“四选一(文字)”，那么题目最可能是“图片”或“音频”。
-                if self.prompt_image_check.isEnabled(): self.prompt_image_check.setChecked(True)
-                if self.prompt_audio_check.isEnabled(): self.prompt_audio_check.setChecked(True)
-                # 取消勾选“文字”作为提示物。
-                if self.prompt_text_check.isEnabled(): self.prompt_text_check.setChecked(False)
-
-            # 恢复所有“提示物”复选框的信号。
-            self.prompt_text_check.blockSignals(False)
-            self.prompt_image_check.blockSignals(False)
-            self.prompt_audio_check.blockSignals(False)
-
-            # 手动触发一次验证，以防智能预设导致所有提示物都被取消勾选（例如，当卡组能力非常有限时）。
-            self._validate_prompt_selection()
+            self._apply_prompt_preferences(button) # 调用新的辅助函数
 
     def _show_wordlist_context_menu(self, position):
         """
@@ -762,11 +782,19 @@ class FlashcardPage(QWidget):
 
         if is_test_mode:
             current_checked = self.test_type_button_group.checkedButton()
+            # 如果当前选中的按钮不存在或被禁用了
             if not current_checked or not current_checked.isEnabled():
+                # 遍历并选中第一个可用的按钮
                 for rb in [self.test_type_input_radio, self.test_type_mc_text_radio, self.test_type_mc_image_radio, self.test_type_mc_audio_radio]:
                     if rb.isEnabled():
                         rb.setChecked(True)
+                        # [核心修复] 在以编程方式设置后，手动调用偏好加载逻辑
+                        self._apply_prompt_preferences(rb)
                         break
+            else:
+                # [核心修复] 如果当前选中的按钮仍然可用，也需要手动触发一次偏好加载
+                # 这处理了从“记忆模式”切换回“考核模式”时的情况
+                self._apply_prompt_preferences(current_checked)
 
     def handle_start_reset(self):
         """处理“开始/结束学习会话”按钮的点击事件。"""
@@ -891,6 +919,14 @@ class FlashcardPage(QWidget):
     
         self.current_wordlist_type, wordlist_full_path = user_data
     
+        # [核心新增] 在会话开始时，读取并锁定“隐身模式”的状态
+        module_states = self.parent_window.config.get("module_states", {}).get("flashcard", {})
+        self.is_incognito_session = module_states.get("incognito_mode", False)
+
+        if self.is_incognito_session:
+            # 如果是隐身模式，在状态栏给出明确提示
+            self.progress_label.setText("隐身模式：本次学习将不会被记录")
+
         self.session_config = {}
         if self.memory_radio.isChecked():
             self.session_config['paradigm'] = 'memory'
@@ -952,7 +988,8 @@ class FlashcardPage(QWidget):
         else:
             self.card_question_area.set_pixmap(None)
             self.card_question_area.setText("所有卡片均已掌握并通过筛选！\n请尝试其他模式或重置进度。")
-            self.progress_label.setText("太棒了！")
+            if not self.is_incognito_session: # 仅在非隐身模式下更新进度标签
+                self.progress_label.setText("太棒了！")
             self.multiple_choice_widget.hide()
             self.answer_input_widget.hide()
             self.play_audio_btn.setEnabled(False) 
@@ -964,8 +1001,12 @@ class FlashcardPage(QWidget):
 
     def reset_session(self):
         if self.session_active:
-            self.save_progress(); self._cleanup_fdeck_cache()
+            self.save_progress() # save_progress 内部会检查隐身模式
+            self._cleanup_fdeck_cache()
         
+        # [核心新增] 结束会话时，重置隐身模式状态
+        self.is_incognito_session = False
+
         self.session_active = False; self.cards.clear(); self.all_loaded_cards.clear()
         self.list_widget.clear(); self.card_question_area.set_pixmap(None)
         self.card_question_area.setText("请从左侧选择词表并加载")
@@ -974,13 +1015,11 @@ class FlashcardPage(QWidget):
         self.progress_label.setText("卡片: - / -"); self.progress_data.clear()
         self.session_config = {}; self.current_cache_dir = None
         
-        # [新增] 重置例句音频状态
         self.has_sentence_audio = False
         self.play_sentence_switch.setEnabled(False)
 
         self.list_widget.show(); self.start_reset_btn.setText("加载词表并开始学习"); self.update_icons()
         
-        # 启用设置面板
         self.wordlist_list.setEnabled(True); self.memory_radio.setEnabled(True); self.test_radio.setEnabled(True)
         self.prompt_group.setEnabled(True); self.test_type_group.setEnabled(True)
         self.order_mode_group.setEnabled(True); self.hide_list_switch.setEnabled(True)
@@ -2007,7 +2046,8 @@ class FlashcardPage(QWidget):
 
     def save_progress(self):
         """保存当前会话的词表学习进度。"""
-        if not self.session_active:
+        # [核心修改] 添加“隐身模式”检查
+        if not self.session_active or self.is_incognito_session:
             return 
             
         progress_file = os.path.join(self.PROGRESS_DIR, f"{self.current_wordlist_name_no_ext}.json")
@@ -2025,7 +2065,8 @@ class FlashcardPage(QWidget):
 
     def update_progress_on_view(self, card_id):
         """更新卡片被查看时的学习进度数据（如查看次数、最后查看时间）。"""
-        if not card_id:
+        # [核心修改] 添加“隐身模式”检查
+        if not card_id or self.is_incognito_session:
             return
             
         progress = self.progress_data.setdefault(card_id, {"views": 0, "mastered": False, "errors": 0, "level": 0, "last_viewed_ts": 0, "next_review_ts": 0})
@@ -2037,7 +2078,9 @@ class FlashcardPage(QWidget):
 
     def update_progress_on_correct(self, card_id):
         """当答案正确时更新卡片的学习进度。"""
-        if not card_id:
+        # [核心修改] 添加“隐身模式”检查
+        if not card_id or self.is_incognito_session:
+            # 即使在隐身模式下，也要返回一个模拟的返回值以确保调用链正常
             return False, datetime.now()
             
         progress = self.progress_data.setdefault(card_id, {"views": 0, "mastered": False, "errors": 0, "level": 0, "last_viewed_ts": 0, "next_review_ts": 0})
@@ -2056,7 +2099,8 @@ class FlashcardPage(QWidget):
 
     def update_progress_on_wrong(self, card_id):
         """当答案错误时更新卡片的学习进度。"""
-        if not card_id:
+        # [核心修改] 添加“隐身模式”检查
+        if not card_id or self.is_incognito_session:
             return
             
         progress = self.progress_data.setdefault(card_id, {"views": 0, "mastered": False, "errors": 0, "level": 0, "last_viewed_ts": 0, "next_review_ts": 0})
@@ -2074,6 +2118,123 @@ class FlashcardPage(QWidget):
         当用户更改任何可记忆的设置时，调用此方法以保存状态。
         这会通过主窗口的 API 将设置持久化到 settings.json。
         """
-        self.parent_window.update_and_save_module_state('flashcard', key, value) 
+        # [核心修改] 增加对我们新创建的 SettingsDialog 的兼容性
+        # 如果会话正在进行，则不允许更改可能影响当前会话的设置
+        if self.session_active and key in ['order_mode', 'incognito_mode']:
+             # 可以在这里给一个提示，但通常静默处理更好
+             return
 
+        self.parent_window.update_and_save_module_state('flashcard', key, value)
+# ==============================================================================
+#   SettingsDialog - 速记卡模块专属设置对话框
+# ==============================================================================
+class SettingsDialog(QDialog):
+    """
+    一个专门用于配置“速记卡”模块的对话框。
+    """
+    def __init__(self, parent_page):
+        super().__init__(parent_page)
+        
+        self.parent_page = parent_page
+        self.setWindowTitle("速记卡设置")
+        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
+        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setMinimumWidth(350)
+        
+        # --- UI 构建 ---
+        layout = QVBoxLayout(self)
+        
+        # --- 组1: 学习模式 ---
+        mode_group = QGroupBox("学习模式")
+        form_layout = QFormLayout(mode_group)
+        
+        # 隐身模式 ToggleSwitch
+        incognito_layout = QHBoxLayout()
+        self.incognito_switch = self.parent_page.ToggleSwitch()
+        self.incognito_switch.setToolTip("开启后，本次学习会话的所有操作（如查看次数、对错、掌握状态）将不会被记录。\n此设置只对新开始的会话生效。")
+        incognito_layout.addWidget(QLabel("关闭"))
+        incognito_layout.addWidget(self.incognito_switch)
+        incognito_layout.addWidget(QLabel("开启"))
+        
+        form_layout.addRow("隐身模式 (不记录进度):", incognito_layout)
+        layout.addWidget(mode_group)
+        # [核心新增] 组2: 考核模式默认提示物
+        defaults_group = QGroupBox("考核模式默认提示物")
+        defaults_group.setToolTip("自定义当您选择不同考核类型时，“提示物”区域默认勾选哪些项目。")
+        defaults_layout = QFormLayout(defaults_group)
+        
+        # --- 为每种考核类型创建一组复选框 ---
+        self.defaults_checkboxes = {} # 使用字典来管理所有复选框
+        test_types = {
+            "input": "输入答案",
+            "mc_text": "四选一 (文字)",
+            "mc_image": "四选一 (图片)",
+            "mc_audio": "四选一 (音频)"
+        }
+        prompt_types = {"text": "文字", "image": "图片", "audio": "音频"}
+
+        for test_key, test_name in test_types.items():
+            hbox = QHBoxLayout()
+            for prompt_key, prompt_name in prompt_types.items():
+                checkbox = QCheckBox(prompt_name)
+                # 创建一个唯一的键，例如 'input_text'
+                dict_key = f"{test_key}__{prompt_key}"
+                self.defaults_checkboxes[dict_key] = checkbox
+                hbox.addWidget(checkbox)
+            hbox.addStretch()
+            defaults_layout.addRow(f"{test_name}:", hbox)
+            
+        layout.addWidget(defaults_group)
+        
+        # --- OK 和 Cancel 按钮 ---
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+        
+        self.load_settings()
+
+    def load_settings(self):
+        """从主配置加载设置并更新UI。"""
+        module_states = self.parent_page.parent_window.config.get("module_states", {}).get("flashcard", {})
+        self.incognito_switch.setChecked(module_states.get("incognito_mode", False))
+        
+        # [核心新增] 加载默认提示物设置
+        
+        # 提供一个与旧版硬编码逻辑一致的默认值，确保平滑过渡
+        default_prefs = {
+            "input": ["text", "image", "audio"],
+            "mc_text": ["image", "audio"],
+            "mc_image": ["text", "audio"],
+            "mc_audio": ["text", "image"]
+        }
+        prefs = module_states.get("test_type_defaults", default_prefs)
+        
+        for key, checkbox in self.defaults_checkboxes.items():
+            test_key, prompt_key = key.split('__')
+            # 检查该提示物是否在对应考核类型的偏好列表中
+            is_checked = prompt_key in prefs.get(test_key, [])
+            checkbox.setChecked(is_checked)
+
+    def save_settings(self):
+        """将UI上的设置保存回主配置。"""
+        main_window = self.parent_page.parent_window
+        
+        # [核心新增] 保存默认提示物设置
+        prefs_to_save = {"input": [], "mc_text": [], "mc_image": [], "mc_audio": []}
+        for key, checkbox in self.defaults_checkboxes.items():
+            if checkbox.isChecked():
+                test_key, prompt_key = key.split('__')
+                prefs_to_save[test_key].append(prompt_key)
+        
+        # 保存到主配置中
+        main_window.update_and_save_module_state('flashcard', 'test_type_defaults', prefs_to_save)
+        
+        # 保存隐身模式设置
+        main_window.update_and_save_module_state('flashcard', 'incognito_mode', self.incognito_switch.isChecked())
+
+    def accept(self):
+        """重写 accept 方法，在关闭对话框前先保存设置。"""
+        self.save_settings()
+        super().accept()
 # --- END OF FILE modules/flashcard_module.py ---
