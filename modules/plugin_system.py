@@ -362,13 +362,43 @@ class PluginManagementDialog(QDialog):
             self.add_btn.setToolTip("从一个 .zip 压缩包安装新插件。\n压缩包的根目录应只包含一个插件文件夹。")
             self.add_btn.clicked.connect(self.add_plugin)
 
+    # [新增]
+    def is_plugin_pinned_to_tray(self, plugin_id):
+        """检查一个插件是否已被固定到托盘菜单。"""
+        return plugin_id in self.plugin_manager.main_window.config.get("plugin_settings", {}).get("pinned_to_tray", [])
+
+    # [新增]
+    def toggle_tray_pin_state(self, plugin_id, pin):
+        """切换一个插件的托盘固定状态，并立即保存配置和刷新UI。"""
+        config = self.plugin_manager.main_window.config
+        plugin_settings = config.setdefault("plugin_settings", {})
+        pinned_to_tray = plugin_settings.setdefault("pinned_to_tray", [])
+
+        if pin:
+            if plugin_id not in pinned_to_tray:
+                pinned_to_tray.append(plugin_id)
+        else:
+            if plugin_id in pinned_to_tray:
+                pinned_to_tray.remove(plugin_id)
+        
+        self.save_config(config)
+        self.populate_plugin_list() # 刷新列表以显示 (T) 标记
+
     def populate_plugin_list(self):
         current_id = self.plugin_list.currentItem().data(Qt.UserRole) if self.plugin_list.currentItem() else None
         self.plugin_list.clear()
         for plugin_id, meta in sorted(self.plugin_manager.available_plugins.items()):
             display_name = meta['name']
+            
+            # [修改] 增加 (T) 标记
+            pin_markers = []
             if self.is_plugin_pinned(plugin_id):
-                display_name += " 📌"
+                pin_markers.append("📌")
+            if self.is_plugin_pinned_to_tray(plugin_id):
+                pin_markers.append("📍")
+            
+            if pin_markers:
+                display_name += f" {' '.join(pin_markers)}"
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, plugin_id); item.setSizeHint(QSize(0, 40))
 
@@ -439,6 +469,12 @@ class PluginManagementDialog(QDialog):
                 else: 
                     menu.addAction(self.icon_manager.get_icon("pin"), "固定到工具栏").triggered.connect(
                         lambda: self.toggle_pin_state(plugin_id, True))
+            is_pinned_to_tray = self.is_plugin_pinned_to_tray(plugin_id)
+            tray_action_text = "从托盘菜单取消固定" if is_pinned_to_tray else "固定到托盘菜单"
+            tray_action_icon = self.icon_manager.get_icon("unpin") if is_pinned_to_tray else self.icon_manager.get_icon("pin_to_tray") # 假设有一个 pin_to_tray 图标
+            tray_pin_action = menu.addAction(tray_action_icon, tray_action_text)
+            tray_pin_action.setEnabled(is_enabled) # 只有启用的插件才能固定
+            tray_pin_action.triggered.connect(lambda: self.toggle_tray_pin_state(plugin_id, not is_pinned_to_tray))
             
             # 查看帮助手册
             meta = self.plugin_manager.available_plugins.get(plugin_id, {})
@@ -448,6 +484,16 @@ class PluginManagementDialog(QDialog):
                 action_help.setEnabled(MARKDOWN_AVAILABLE)
                 # [核心修改] 这里的 show_manual_for_current_plugin 需要微调
                 action_help.triggered.connect(lambda: self.show_manual_for_item(self.plugin_list.currentItem()))
+            # [核心新增] 添加“恢复默认设置”功能
+            # 只有在单选时，才显示高级操作
+            if not menu.isEmpty():
+                menu.addSeparator() # 与常规操作分隔开
+
+            reset_action = menu.addAction(self.icon_manager.get_icon("undo"), "恢复默认设置...")
+            reset_action.setToolTip("警告：此操作将删除该插件的配置文件和缓存，\n使其恢复到初始安装状态。")
+            # 将 action 连接到新的处理方法，并传递 plugin_id
+            reset_action.triggered.connect(lambda: self._reset_plugin_to_defaults(plugin_id))
+            # [新增结束]
 
         # --- 批量移除 ---
         # 移除操作始终放在最后，并用分隔线隔开
@@ -456,6 +502,87 @@ class PluginManagementDialog(QDialog):
             self.remove_plugin) # remove_plugin 方法将被修改以处理多选
         
         menu.exec_(self.plugin_list.mapToGlobal(position))
+    def _reset_plugin_to_defaults(self, plugin_id):
+        """
+        [v2.0 - 预检查版] 将指定插件恢复到其默认状态。
+        - 在操作前先检查是否存在可恢复的文件。
+        """
+        import shutil
+
+        meta = self.plugin_manager.available_plugins.get(plugin_id)
+        if not meta:
+            QMessageBox.critical(self, "错误", f"找不到插件 '{plugin_id}' 的元数据。")
+            return
+            
+        plugin_name = meta['name']
+        plugin_path = meta['path']
+
+        # --- [核心修改] 步骤 1 & 2: 预检查 ---
+        config_path = os.path.join(plugin_path, 'config.json')
+        pycache_path = os.path.join(plugin_path, '__pycache__')
+
+        has_config = os.path.isfile(config_path)
+        has_pycache = os.path.isdir(pycache_path)
+
+        if not has_config and not has_pycache:
+            # 如果两个目标都不存在，则提前告知用户并退出
+            QMessageBox.information(self, "无需操作",
+                                    f"插件 '{plugin_name}' 没有找到可恢复的配置文件或缓存。")
+            return
+        # --- [修改结束] ---
+
+        # 3. 如果通过了预检查，才显示警告确认对话框
+        reply = QMessageBox.warning(self, "确认恢复默认设置",
+                                     f"您确定要将插件 <b>'{plugin_name}'</b> 恢复到默认设置吗？<br><br>"
+                                     "此操作将：<br>"
+                                     "<ul>"
+                                     "<li><b>永久删除</b>该插件的配置文件 (config.json)</li>"
+                                     "<li>清除其Python缓存 (__pycache__)</li>"
+                                     "</ul>"
+                                     "所有与该插件相关的个人设置都将丢失。此操作无法撤销。",
+                                     QMessageBox.Yes | QMessageBox.Cancel,
+                                     QMessageBox.Cancel)
+
+        if reply == QMessageBox.Cancel:
+            return
+            
+        # 4. 执行删除操作 (此部分逻辑与之前完全相同)
+        was_enabled = plugin_id in self.plugin_manager.active_plugins
+        files_removed = []
+        
+        # a. 删除 config.json (使用预检查的结果)
+        if has_config:
+            try:
+                os.remove(config_path)
+                files_removed.append("配置文件 (config.json)")
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"无法删除配置文件:\n{e}")
+                return
+        
+        # b. 删除 __pycache__ 文件夹 (使用预检查的结果)
+        if has_pycache:
+            try:
+                shutil.rmtree(pycache_path)
+                files_removed.append("Python缓存 (__pycache__)")
+            except Exception as e:
+                QMessageBox.critical(self, "删除失败", f"无法删除缓存文件夹:\n{e}")
+                return
+        
+        # 5. 重新加载插件
+        if was_enabled:
+            self.plugin_manager.disable_plugin(plugin_id)
+            self.plugin_manager.enable_plugin(plugin_id)
+
+        self.save_config()
+        self.populate_plugin_list()
+        self.plugin_manager.main_window.update_pinned_plugins_ui()
+        
+        # 6. 显示成功信息 (files_removed 此时必定不为空)
+        removed_str = " 和 ".join(files_removed)
+        QMessageBox.information(self, "操作成功",
+                                f"插件 '{plugin_name}' 的 {removed_str} 已被清除。\n"
+                                f"插件已恢复到其初始状态" + ("并已重新加载。" if was_enabled else "。"))
+
 
     def show_manual_for_current_plugin(self):
         if not MARKDOWN_AVAILABLE: QMessageBox.warning(self, "功能缺失", "无法显示帮助手册，'markdown' 库未安装。"); return

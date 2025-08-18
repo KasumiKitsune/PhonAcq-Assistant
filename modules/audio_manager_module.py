@@ -770,11 +770,39 @@ class AudioManagerPage(QWidget):
         
         page_layout = QHBoxLayout(self)
         page_layout.addWidget(main_splitter)
+        # 启用拖放并安装事件过滤器
+        self.session_list_widget.setAcceptDrops(True)
+        self.audio_table_widget.setAcceptDrops(True)
+        self.session_list_widget.installEventFilter(self)
+        self.audio_table_widget.installEventFilter(self)
         self.source_combo.installEventFilter(self)
         self.setFocusPolicy(Qt.StrongFocus)
         self.reset_player()
 
     def eventFilter(self, obj, event):
+        # --- [新增代码] ---
+        # 拦截项目列表的拖放事件
+        if obj is self.session_list_widget:
+            if event.type() == QEvent.DragEnter:
+                # 检查拖入的是否为文件/文件夹
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Drop:
+                self._handle_folder_drop(event)
+                return True
+        
+        # 拦截文件列表的拖放事件
+        elif obj is self.audio_table_widget:
+            if event.type() == QEvent.DragEnter:
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Drop:
+                self._handle_audio_file_drop(event)
+                return True
+        # --- [新增结束] ---
+
         # 确保事件源是我们的数据源下拉框，并且事件类型是鼠标双击
         if obj is self.source_combo and event.type() == QEvent.MouseButtonDblClick:
             # 调用管理数据源的方法
@@ -784,6 +812,113 @@ class AudioManagerPage(QWidget):
         
         # 对于所有其他事件，调用父类的默认实现
         return super().eventFilter(obj, event)
+
+    def _perform_file_operation(self, paths, dest_dir):
+        """
+        [新增 v1.1 - 修复版] 
+        弹窗询问用户是复制还是移动，并根据项目类型（文件或文件夹）执行相应的操作。
+        """
+        if not paths: return False
+        
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("选择操作")
+        msg_box.setText(f"要将 {len(paths)} 个项目如何处理？")
+        msg_box.setInformativeText(f"目标目录: {os.path.basename(dest_dir)}")
+        copy_button = msg_box.addButton("复制", QMessageBox.AcceptRole)
+        move_button = msg_box.addButton("移动", QMessageBox.DestructiveRole)
+        msg_box.addButton("取消", QMessageBox.RejectRole)
+        msg_box.exec_()
+        
+        clicked_button = msg_box.clickedButton()
+        is_copy = clicked_button == copy_button
+        is_move = clicked_button == move_button
+
+        if not (is_copy or is_move):
+            return False # 用户取消
+
+        errors = []
+        for path in paths:
+            try:
+                target_path = os.path.join(dest_dir, os.path.basename(path))
+                if os.path.exists(target_path):
+                    errors.append(f"跳过 '{os.path.basename(path)}'：目标位置已存在同名项。")
+                    continue
+                
+                # --- [核心修复] ---
+                # 根据操作类型和文件/文件夹类型选择正确的 shutil 函数
+                if is_copy:
+                    if os.path.isdir(path):
+                        # 对文件夹使用 shutil.copytree
+                        # copytree 的目标路径(target_path)必须是不存在的
+                        shutil.copytree(path, target_path)
+                    else:
+                        # 对文件使用 shutil.copy2
+                        # copy2 的目标路径(dest_dir)是目录
+                        shutil.copy2(path, dest_dir)
+                elif is_move:
+                    # shutil.move 可以智能处理文件和文件夹
+                    # 它的目标路径(dest_dir)是目录
+                    shutil.move(path, dest_dir)
+                # --- [修复结束] ---
+
+            except Exception as e:
+                errors.append(f"处理 '{os.path.basename(path)}' 时出错: {e}")
+
+        if errors:
+            QMessageBox.warning(self, "操作中出现问题", "\n".join(errors))
+        return True
+
+    def _handle_folder_drop(self, event):
+        """[新增] 处理拖拽到项目列表（session_list_widget）的事件。"""
+        source_name = self.source_combo.currentText()
+        source_info = self.DATA_SOURCES.get(source_name)
+        if not source_info:
+            for custom_source in self.custom_data_sources:
+                if custom_source['name'] == source_name:
+                    source_info = {"path": custom_source['path']}
+                    break
+        if not source_info:
+            QMessageBox.warning(self, "操作无效", "无法确定当前数据源的目标路径。")
+            return
+            
+        dest_dir = source_info['path']
+        
+        # 筛选出拖入的文件夹
+        dropped_folders = [
+            url.toLocalFile() for url in event.mimeData().urls() 
+            if os.path.isdir(url.toLocalFile())
+        ]
+        
+        if not dropped_folders:
+            self.status_label.setText("操作取消：没有拖入文件夹。")
+            QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
+            return
+
+        if self._perform_file_operation(dropped_folders, dest_dir):
+            self.populate_session_list() # 成功后刷新列表
+
+    def _handle_audio_file_drop(self, event):
+        """[新增] 处理拖拽到文件列表（audio_table_widget）的事件。"""
+        if not self.current_session_path:
+            QMessageBox.warning(self, "操作无效", "请先从左侧选择一个项目文件夹。")
+            return
+            
+        dest_dir = self.current_session_path
+        supported_exts = ('.wav', '.mp3', '.flac', '.ogg')
+        
+        # 筛选出拖入的音频文件
+        dropped_files = [
+            url.toLocalFile() for url in event.mimeData().urls()
+            if os.path.isfile(url.toLocalFile()) and url.toLocalFile().lower().endswith(supported_exts)
+        ]
+
+        if not dropped_files:
+            self.status_label.setText("操作取消：没有拖入支持的音频文件。")
+            QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
+            return
+
+        if self._perform_file_operation(dropped_files, dest_dir):
+            self.populate_audio_table() # 成功后刷新列表
 
     def send_to_batch_analysis(self, filepaths):
         """

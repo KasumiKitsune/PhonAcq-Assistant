@@ -566,6 +566,7 @@ class AudioAnalysisBatchPanel(QWidget):
         self.current_audio_data = None # 当前选中文件的 (y, sr) 数据，用于播放
         self.batch_thread = None
         self.batch_worker = None
+        self.is_batch_task_running = False # <-- [新增] 状态标志
         # [修改] 移除 single_load_... 属性，替换为更通用的 load_...
         self.load_thread = None
         self.load_worker = None
@@ -1004,6 +1005,7 @@ class AudioAnalysisBatchPanel(QWidget):
         :param filepaths_to_process: 要分析的文件路径列表。
         :param dialog_title: 进度对话框的标题。
         """
+        self.is_batch_task_running = True # <-- [新增] 任务开始，设置标志
         self.run_all_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
         
@@ -1037,10 +1039,10 @@ class AudioAnalysisBatchPanel(QWidget):
         self.total_files = len(self.file_list_for_run)
         self.current_file_index = 0
 
-        self.progress_dialog = QProgressDialog(dialog_title, "取消", 0, self.total_files * 100, self)
+        self.progress_dialog = QProgressDialog(dialog_title, "取消", 0, self.total_files * 100, self.main_page.parent_window)
         self.progress_dialog.setStyleSheet(self.main_page.parent_window.styleSheet())
         self.progress_dialog.setWindowIcon(self.main_page.parent_window.windowIcon())
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setWindowModality(Qt.NonModal)
         self.progress_dialog.setAutoClose(False)
         self.progress_dialog.show()
 
@@ -1076,12 +1078,29 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _cleanup_batch_thread(self):
         """线程结束后进行安全的清理。"""
+        self.is_batch_task_running = False # <-- [新增] 任务结束，清除标志
         if self.batch_worker:
             self.batch_worker.deleteLater()
             self.batch_worker = None
         if self.batch_thread:
             self.batch_thread.deleteLater()
             self.batch_thread = None
+
+    def is_busy(self):
+        """
+        返回此面板是否有正在运行的后台任务。
+        :return: bool
+        """
+        return self.is_batch_task_running
+
+    # [新增]
+    def cancel_task(self):
+        """
+        请求取消当前正在运行的批量分析任务。
+        """
+        if self.is_batch_task_running and self.batch_thread and self.batch_thread.isRunning():
+            self.batch_thread.requestInterruption()
+            print("Batch analysis task cancellation requested.")
 
     def _on_batch_progress(self, current, total, filename):
         """
@@ -1259,8 +1278,8 @@ class AudioAnalysisBatchPanel(QWidget):
             return
         
         # 1. 设置进度对话框
-        progress_dialog = QProgressDialog(f"正在分析: {os.path.basename(filepath)}...", "取消", 0, 100, self)
-        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog = QProgressDialog(f"正在分析: {os.path.basename(filepath)}...", "取消", 0, 100, self.main_page.parent_window)
+        progress_dialog.setWindowModality(Qt.NonModal)
         progress_dialog.setStyleSheet(self.main_page.parent_window.styleSheet())
         progress_dialog.setWindowIcon(self.main_page.parent_window.windowIcon())
         progress_dialog.show()

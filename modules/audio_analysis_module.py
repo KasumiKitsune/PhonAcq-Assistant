@@ -2616,7 +2616,29 @@ class AudioAnalysisPage(QWidget):
                 current_progress_ms = f0_times[-1] * 1000
                 progress_percent = (current_progress_ms / self.known_duration) * 100
                 self.progress_dialog.setValue(int(progress_percent))
+    # [新增]
+    def is_busy(self):
+        """
+        检查此模块（包括其所有子面板）是否有正在运行的、不可中断的任务。
+        :return: (str or None) 如果正忙，返回一个描述任务的字符串；否则返回 None。
+        """
+        if self.is_task_running:
+            return "单个音频文件的分析任务"
+        if hasattr(self, 'batch_analysis_panel') and self.batch_analysis_panel.is_busy():
+            return "批量音频文件的分析任务"
+        return None
 
+    # [新增]
+    def cancel_all_tasks(self):
+        """
+        向此模块所有可能正在运行的后台任务发送取消请求。
+        """
+        if self.is_task_running and self.task_thread and self.task_thread.isRunning():
+            self.task_thread.requestInterruption()
+            print("Single file analysis task cancellation requested.")
+        
+        if hasattr(self, 'batch_analysis_panel'):
+            self.batch_analysis_panel.cancel_task()
 
     # [新增] 用于在所有块都处理完毕后进行清理
     def on_acoustics_analysis_done(self, final_result):
@@ -3336,8 +3358,8 @@ class AudioAnalysisPage(QWidget):
         if task_type == 'analyze_acoustics' and kwargs.get('analysis_mode', 'normal') == 'normal':
              min_val, max_val = (0, 100)
 
-        self.progress_dialog = QProgressDialog(progress_text, "取消", min_val, max_val, self)
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog = QProgressDialog(progress_text, "取消", min_val, max_val, self.parent_window)
+        self.progress_dialog.setWindowModality(Qt.NonModal)
         self.progress_dialog.setValue(0)
         self.progress_dialog.show()
         

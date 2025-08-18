@@ -399,7 +399,7 @@ class SettingsPage(QWidget):
         title_label = QLabel("PhonAcq Assistant")
         title_label.setObjectName("AboutTitleLabel") # 用于QSS样式化
         
-        version_str = "v1.7.0" # 示例版本信息
+        version_str = "v1.7.5" # 示例版本信息
         version_label = QLabel(f"版本: {version_str}")
         version_label.setObjectName("SubtleStatusLabel")
         
@@ -570,6 +570,20 @@ class SettingsPage(QWidget):
         self.hide_tooltips_switch = self.ToggleSwitch()
         hide_tooltips_layout = QHBoxLayout(); hide_tooltips_layout.addWidget(self.hide_tooltips_switch); hide_tooltips_layout.addStretch()
         ui_appearance_form_layout.addRow("隐藏Tab文字提示:", hide_tooltips_layout)
+        # [新增] 关闭窗口操作
+        self.close_action_combo = QComboBox()
+        self.close_action_combo.setToolTip("选择点击主窗口关闭按钮时的默认行为，防止误操作。")
+        self.close_action_combo.addItem("弹出确认提示框", "prompt")
+        self.close_action_combo.addItem("最小化到系统托盘", "tray")
+        self.close_action_combo.addItem("直接退出程序", "exit")
+        ui_appearance_form_layout.addRow("关闭窗口时的操作:", self.close_action_combo)
+        # [新增] 启动时常驻托盘
+        self.tray_always_visible_switch = self.ToggleSwitch()
+        self.tray_always_visible_switch.setToolTip("勾选后，程序启动时系统托盘图标将始终可见，\n即使主窗口处于显示状态。")
+        tray_always_visible_layout = QHBoxLayout()
+        tray_always_visible_layout.addWidget(self.tray_always_visible_switch)
+        tray_always_visible_layout.addStretch()
+        ui_appearance_form_layout.addRow("启动时常驻系统托盘:", tray_always_visible_layout)
         
         content_layout.addWidget(ui_appearance_group)
 
@@ -909,6 +923,8 @@ class SettingsPage(QWidget):
         
         self.gtts_lang_combo.currentIndexChanged.connect(self._on_setting_changed)
         self.gtts_auto_detect_switch.stateChanged.connect(self._on_setting_changed)
+        self.close_action_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self.tray_always_visible_switch.stateChanged.connect(self._on_setting_changed)
         
         # --- 2. 音频设置页面的信号连接 ---
         self.simple_mode_switch.stateChanged.connect(self.on_device_mode_toggled)
@@ -1439,6 +1455,12 @@ class SettingsPage(QWidget):
         # --- 应用设置 (日志) ---
         app_settings = config.get("app_settings", {})
         self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True))
+        # [新增] 加载关闭窗口操作设置
+        close_action = app_settings.get("close_window_action", "prompt") # 默认为弹出提示框
+        index = self.close_action_combo.findData(close_action)
+        if index != -1:
+            self.close_action_combo.setCurrentIndex(index)
+        self.tray_always_visible_switch.setChecked(app_settings.get("tray_icon_always_visible", False)) # 默认不启用
         
         # --- gTTS 设置 ---
         gtts_settings = config.get("gtts_settings", {})
@@ -1519,8 +1541,11 @@ class SettingsPage(QWidget):
         # 应用设置 (日志)
         app_settings = config.setdefault("app_settings", {})
         app_settings["enable_logging"] = self.enable_logging_switch.isChecked()
+        app_settings["close_window_action"] = self.close_action_combo.currentData()
+        app_settings["tray_icon_always_visible"] = self.tray_always_visible_switch.isChecked()
 
         # 音频设置
+
         audio_settings = config.setdefault("audio_settings", {})
         if self.simple_mode_switch.isChecked(): # 如果是简易模式
             audio_settings["input_device_mode"] = self.input_device_combo.currentData() # 保存模式字符串 (smart, default等)

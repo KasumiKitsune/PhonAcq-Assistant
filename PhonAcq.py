@@ -76,6 +76,7 @@ sys.excepthook = global_exception_handler
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False) # <-- [新增] 阻止在最后一个窗口关闭时自动退出
 
     def get_base_path_for_splash():
         """获取用于启动画面的基本路径，兼容打包和源码运行。"""
@@ -145,7 +146,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem, QLineEdit, 
                              QFileDialog, QMessageBox, QComboBox, QSlider, QStyle, 
                              QFormLayout, QGroupBox, QCheckBox, QTabWidget, QScrollArea, 
-                             QSpacerItem, QSizePolicy, QGraphicsOpacityEffect, QWidgetAction, QMenu, QDialog)
+                             QSpacerItem, QSizePolicy, QGraphicsOpacityEffect, QWidgetAction, QMenu, QDialog, QSystemTrayIcon, QAction)
 from PyQt5.QtGui import QIntValidator, QPainter, QPen, QBrush
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtProperty, QRect, QSize, QEasingCurve, QPropertyAnimation, QParallelAnimationGroup, QPoint, QEvent
 from modules.custom_widgets_module import ToggleSwitch
@@ -186,21 +187,37 @@ icon_manager = None # [新增] 全局图标管理器实例
 def setup_and_load_config():
     """设置并加载配置文件，如果不存在则创建默认配置。"""
     if not os.path.exists(CONFIG_DIR): os.makedirs(CONFIG_DIR)
+    
+    # [核心修改] 在这里定义新的默认设置
     default_settings = {
         "ui_settings": { "collector_sidebar_width": 350, "editor_sidebar_width": 320, "hide_all_tooltips": False },
         "audio_settings": { "sample_rate": 44100, "channels": 1, "recording_gain": 1.0, "input_device_index": None, "recording_format": "wav" },
         "file_settings": {"word_list_file": "", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True},
-        "app_settings": {"enable_logging": True, "startup_page": None}, # [新增] startup_page: None
-        "theme": "默认.qss"
+        "app_settings": {"enable_logging": True, "startup_page": None},
+        "theme": "默认.qss",
+        
+        # [新增] 默认的插件设置
+        "plugin_settings": {
+            "enabled": [
+                "com.phonacq.welcome_page",
+                "com.phonacq.plugin_nexus"
+            ],
+            "pinned": [
+                "com.phonacq.plugin_nexus",
+                "com.phonacq.welcome_page"
+            ]
+        }
     }
+    # [修改结束]
+
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump(default_settings, f, indent=4)
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        # 确保所有默认键都存在于配置中
+        # [核心修改] 确保 plugin_settings 键也能被正确地添加到旧的配置文件中
         updated = False
         for key, default_value_section in default_settings.items():
             if key not in config:
@@ -758,6 +775,81 @@ class MainWindow(QMainWindow):
         
         # --- [核心修改] 在末尾调用新的启动页应用函数 ---
         self._apply_startup_page()
+        self._setup_tray_icon()
+
+    # [新增]
+    def _setup_tray_icon(self):
+        """初始化系统托盘图标及其菜单，并设置为动态更新。"""
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(self.windowIcon())
+        self.tray_icon.setToolTip("PhonAcq Assistant")
+
+        # 创建菜单实例，但不立即填充
+        self.tray_menu = QMenu(self)
+        # [核心修改] 连接 aboutToShow 信号，每次显示菜单前都会调用 _update_tray_menu
+        self.tray_menu.aboutToShow.connect(self._update_tray_menu)
+
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
+
+    # [新增]
+    def _update_tray_menu(self):
+        """动态构建或更新系统托盘菜单的内容。"""
+        self.tray_menu.clear()
+
+        # --- 1. 添加固定的插件 ---
+        pinned_ids = self.config.get("plugin_settings", {}).get("pinned_to_tray", [])
+        
+        # 筛选出当前已启用的插件
+        enabled_pinned_ids = [pid for pid in pinned_ids if pid in self.plugin_manager.active_plugins]
+
+        if enabled_pinned_ids:
+            for plugin_id in enabled_pinned_ids:
+                meta = self.plugin_manager.available_plugins.get(plugin_id)
+                if not meta: continue
+
+                icon = self.plugin_manager.get_plugin_icon(plugin_id)
+                name = meta.get('name', plugin_id)
+
+                plugin_action = QAction(icon, name, self)
+                # 使用 lambda 默认参数捕获循环中的 plugin_id
+                plugin_action.triggered.connect(
+                    lambda checked, pid=plugin_id: self.plugin_manager.execute_plugin(pid)
+                )
+                self.tray_menu.addAction(plugin_action)
+            
+            self.tray_menu.addSeparator()
+
+        # --- 2. 添加标准的“显示”和“退出”选项 ---
+        if self.isVisible() and not self.isMinimized():
+            # 如果窗口可见且未最小化，则创建“最小化”操作
+            toggle_visibility_action = QAction(self.icon_manager.get_icon("minimize"), "最小化主窗口", self)
+            toggle_visibility_action.triggered.connect(self.hide) # 点击时隐藏窗口
+        else:
+            # 否则（窗口已隐藏或已最小化），创建“显示”操作
+            toggle_visibility_action = QAction(self.icon_manager.get_icon("new_window"), "显示主窗口", self)
+            toggle_visibility_action.triggered.connect(self.showNormal)
+            toggle_visibility_action.triggered.connect(self.activateWindow)
+
+        quit_action = QAction(self.icon_manager.get_icon("end_session_dark"), "退出程序", self)
+        quit_action.triggered.connect(self.force_quit)
+
+        self.tray_menu.addAction(toggle_visibility_action)
+        self.tray_menu.addSeparator()
+        self.tray_menu.addAction(quit_action)
+
+    # [新增]
+    def _shutdown_application(self):
+        """一个唯一的、权威的方法，用于安全地关闭整个应用程序。"""
+        print("[主程序] 正在关闭，卸载所有插件...")
+        self.plugin_manager.teardown_all_plugins()
+        # [核心修复] 直接调用 QApplication.quit() 来终止事件循环
+        QApplication.instance().quit()
+
+    def force_quit(self):
+        """一个专门用于从托盘菜单退出的方法，以绕过closeEvent的检查。"""
+        # [核心修改] 直接调用关闭程序的核心方法，不再通过 self.close()
+        self._shutdown_application()
 
     def _install_tab_bar_event_filters(self):
         """
@@ -1658,12 +1750,148 @@ class MainWindow(QMainWindow):
         elif target_page is None:
              QMessageBox.warning(self, "导航失败", "无法找到日志查看器标签页。")
 
-    # [新增] closeEvent 方法，用于安全退出
+    def on_tray_icon_activated(self, reason):
+        """当托盘图标被点击时调用。"""
+        if reason == QSystemTrayIcon.Trigger: # 通常是左键单击
+            self.showNormal() # [修改] 确保窗口不会以最小化状态“显示”
+            self.activateWindow()
+
+    def show(self):
+        """重写show方法，根据设置决定是否在显示窗口时隐藏托盘图标。"""
+        if hasattr(self, 'tray_icon'):
+            # 只有当“常驻托盘”选项未开启时，才隐藏托盘图标
+            if not self.config.get("app_settings", {}).get("tray_icon_always_visible", False):
+                self.tray_icon.hide()
+        super().show()
+
+    # [修改] 替换已有的 closeEvent 和 _proceed_with_close 方法
     def closeEvent(self, event):
-        """在关闭主窗口前，确保所有插件都已安全卸载。"""
-        print("[主程序] 正在关闭，卸载所有插件...")
-        self.plugin_manager.teardown_all_plugins()
-        super().closeEvent(event)
+        """
+        [v2.3 - 退出逻辑重构版]
+        在关闭主窗口前，根据任务状态和用户设置执行正确的操作。
+        """
+        # --- 1. 最高优先级：检查是否有后台任务正在运行 ---
+        busy_module_task = None
+        if hasattr(self, 'audio_analysis_page'):
+            busy_module_task = self.audio_analysis_page.is_busy()
+
+        if busy_module_task:
+            # 如果有任务在运行，则忽略所有设置，直接执行“最小化到托盘”
+            self.hide()
+            self.tray_icon.show()
+            self.tray_icon.showMessage(
+                "PhonAcq Assistant",
+                f"正在后台执行: {busy_module_task}\n程序已最小化到系统托盘。",
+                self.windowIcon(),
+                3000
+            )
+            event.ignore()
+            return
+
+        # --- 2. 如果没有任务在运行，则根据用户设置操作 ---
+        close_action = self.config.get("app_settings", {}).get("close_window_action", "prompt")
+
+        if close_action == "exit":
+            # [核心修复] 调用权威的关闭方法
+            self._shutdown_application()
+        
+        elif close_action == "tray":
+            self.hide()
+            self.tray_icon.show()
+            self.tray_icon.showMessage(
+                "PhonAcq Assistant",
+                "程序已最小化到系统托盘。",
+                self.windowIcon(),
+                2000
+            )
+            event.ignore()
+
+        else: # 默认行为 "prompt"
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("确认操作")
+            msg_box.setText("您想如何关闭程序？")
+            msg_box.setInformativeText("选择“最小化到托盘”可以在后台继续运行。")
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setStyleSheet(self.styleSheet())
+            
+            minimize_btn = msg_box.addButton("最小化到托盘", QMessageBox.AcceptRole)
+            exit_btn = msg_box.addButton("直接退出", QMessageBox.DestructiveRole)
+            cancel_btn = msg_box.addButton("取消", QMessageBox.RejectRole)
+            
+            msg_box.setDefaultButton(cancel_btn)
+            msg_box.exec_()
+            
+            clicked_button = msg_box.clickedButton()
+
+            if clicked_button == minimize_btn:
+                self.hide()
+                self.tray_icon.show()
+                event.ignore()
+            elif clicked_button == exit_btn:
+                # [核心修复] 调用权威的关闭方法
+                self._shutdown_application()
+            else: # Cancel
+                event.ignore()
+
+    # [修改] 新的辅助方法，用于封装原始的关闭逻辑
+    def _proceed_with_close(self, event):
+        """
+        [v2.1 - 退出逻辑修复版]
+        执行实际的窗口关闭逻辑。
+        """
+        # 检查是否是从托盘菜单触发的强制退出
+        if getattr(self, '_is_force_quitting', False):
+            print("[主程序] 正在强制退出...")
+            self.plugin_manager.teardown_all_plugins()
+            QApplication.instance().quit()
+            return
+        
+        # 从配置中读取关闭行为
+        close_action = self.config.get("app_settings", {}).get("close_window_action", "prompt")
+
+        if close_action == "exit":
+            self.plugin_manager.teardown_all_plugins()
+            # [核心修复] 使用 quit() 彻底退出应用，而不是仅仅关闭窗口
+            QApplication.instance().quit()
+        
+        elif close_action == "tray":
+            self.hide()
+            self.tray_icon.show()
+            self.tray_icon.showMessage(
+                "PhonAcq Assistant",
+                "程序已最小化到系统托盘。",
+                self.windowIcon(),
+                2000
+            )
+            event.ignore()
+
+        else: # 默认行为 "prompt"
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("确认操作")
+            msg_box.setText("您想如何关闭程序？")
+            msg_box.setInformativeText("选择“最小化到托盘”可以在后台继续运行。")
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setStyleSheet(self.styleSheet())
+            
+            minimize_btn = msg_box.addButton("最小化到托盘", QMessageBox.AcceptRole)
+            exit_btn = msg_box.addButton("直接退出", QMessageBox.DestructiveRole)
+            cancel_btn = msg_box.addButton("取消", QMessageBox.RejectRole)
+            
+            msg_box.setDefaultButton(cancel_btn)
+            msg_box.exec_()
+            
+            clicked_button = msg_box.clickedButton()
+
+            if clicked_button == minimize_btn:
+                self.hide()
+                self.tray_icon.show()
+                event.ignore()
+            elif clicked_button == exit_btn:
+                self.plugin_manager.teardown_all_plugins()
+                # [核心修复] 在提示框中选择退出时，同样使用 quit()
+                QApplication.instance().quit()
+            else: # Cancel
+                event.ignore()
 
     # [新增] 插件UI设置
     def setup_plugin_ui(self):
@@ -1868,6 +2096,9 @@ if __name__ == "__main__":
     window = MainWindow(app_ref=app, splash_ref=splash, tooltips_ref=tooltips_config)
     
     window.show()
+    # [新增] 根据设置决定是否在启动时就显示托盘图标
+    if window.config.get("app_settings", {}).get("tray_icon_always_visible", False):
+        window.tray_icon.show()
     
     # --- [核心修改] 创建并启动淡出动画 ---
     

@@ -12,6 +12,7 @@ import queue
 import time
 import random
 import shutil
+import html as html_converter
 import json
 import subprocess # [新增] 用于打开文件夹
 from collections import deque
@@ -600,8 +601,27 @@ class DialectVisualCollectorPage(QWidget):
         self.toggle_prompt_visibility(self.show_prompt_switch.isChecked())
 
         if not self.session_active:
-            # [修改] 调用新的方法更新按钮文本，而不是填充ComboBox
+            # [修改] 实现了与 accent_collection_module 相同的“记住词表”加载逻辑
+            self.current_wordlist_name = ""
+            default_list_to_load = ""
+
+            should_remember = module_states.get("remember_last_wordlist", True)
+            if should_remember:
+                default_list_to_load = module_states.get("last_selected_wordlist", "")
+
+            if default_list_to_load:
+                # 检查记住的词表文件是否仍然存在
+                full_path = os.path.join(WORD_LIST_DIR_FOR_DIALECT_VISUAL, default_list_to_load)
+                if os.path.exists(full_path):
+                    self.current_wordlist_name = default_list_to_load
+                else:
+                    # 如果文件不存在，则清除无效的配置项
+                    self.parent_window.update_and_save_module_state('dialect_visual_collector', 'last_selected_wordlist', None)
+
+            # 根据加载结果更新UI
             self._update_wordlist_button_display()
+            
+            # 加载默认被试者名称（此逻辑保持不变）
             default_participant = self.config.get('file_settings', {}).get('participant_base_name', 'participant')
             self.participant_input.setText(default_participant)
 
@@ -804,11 +824,19 @@ class DialectVisualCollectorPage(QWidget):
     # [新增] 打开词表选择对话框的槽函数
     def open_wordlist_selector(self):
         """打开图文词表选择对话框。"""
-        # 实例化内置的 WordlistSelectionDialog
         dialog = WordlistSelectionDialog(self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
             self.current_wordlist_name = dialog.selected_file_relpath
             self._update_wordlist_button_display() # 更新按钮显示
+
+            # [新增] 检查是否需要保存这次选择
+            module_states = self.config.get("module_states", {}).get("dialect_visual_collector", {})
+            if module_states.get("remember_last_wordlist", True):
+                self.parent_window.update_and_save_module_state(
+                    'dialect_visual_collector',
+                    'last_selected_wordlist',
+                    self.current_wordlist_name
+                )
 
     # [新增] 检查词表是否被固定的接口方法
     def is_wordlist_pinned(self, rel_path):
@@ -1337,6 +1365,42 @@ class WordlistSelectionDialog(QDialog):
         self.search_input.textChanged.connect(self._filter_list) # 搜索框文本变化时过滤列表
         self.list_widget.customContextMenuRequested.connect(self.show_context_menu) # 右键菜单
 
+    def _parse_wordlist_for_tooltip(self, file_path):
+        """解析指定的图文词表JSON文件，并生成一个用于Tooltip的HTML字符串。"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            meta = data.get('meta', {})
+            # 优先使用元数据中的描述，否则使用文件名
+            name = os.path.splitext(os.path.basename(file_path))[0]
+            description = meta.get('description', '无详细描述。')
+            author = meta.get('author', '未知')
+            item_count = len(data.get('items', []))
+
+            # 构建HTML头部
+            html = (f"<b>{name}</b><br>"
+                    f"<i>{description}</i><br>"
+                    f"作者: {author} | 条目数: {item_count}<hr>")
+
+            # 提取前三项作为预览
+            items = data.get('items', [])
+            preview_items = []
+            for i in range(min(3, item_count)):
+                preview_items.append(items[i].get('prompt_text', ''))
+
+            if preview_items:
+                html += "<b>内容预览:</b><br>"
+                for text in preview_items:
+                    # 使用HTML实体编码以防止特殊字符破坏布局
+                    safe_text = html_converter.escape(text)
+                    html += f"• {safe_text}<br>"
+            
+            return html.rstrip('<br>')
+
+        except Exception as e:
+            return f"无法解析词表: {os.path.basename(file_path)}\n错误: {e}"
+
     def on_item_selected(self, item):
         """当用户通过双击或回车选择一个文件后，存储其相对路径并关闭对话框。"""
         item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
@@ -1376,52 +1440,71 @@ class WordlistSelectionDialog(QDialog):
         icon_manager = self.parent_page.icon_manager
         menu = QMenu(self.list_widget)
 
-        if item_type == 'item': # 如果右键点击的是词表文件
-            # [核心适配] 使用本模块的全局路径变量来计算相对路径
+        if item_type == 'item':
             rel_path = os.path.relpath(full_path, WORD_LIST_DIR_FOR_DIALECT_VISUAL).replace("\\", "/")
             is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
             
-            # 固定/取消固定动作
             pin_action = menu.addAction(icon_manager.get_icon("unpin" if is_pinned else "pin"), 
                                         "取消固定" if is_pinned else "固定到顶部")
             menu.addSeparator()
-            # 打开所在目录动作
-            open_folder_action = menu.addAction(icon_manager.get_icon("open_folder"), "打开所在目录")
+
+            # [新增] “用默认程序打开” 菜单项
+            open_file_action = menu.addAction(icon_manager.get_icon("open_external"), "用默认程序打开")
             
-            action = menu.exec_(self.list_widget.mapToGlobal(position)) # 显示并等待用户选择
+            open_folder_action = menu.addAction(icon_manager.get_icon("show_in_explorer"), "打开所在目录")
+            
+            action = menu.exec_(self.list_widget.mapToGlobal(position))
             if action == pin_action:
-                self.parent_page.toggle_pin_wordlist(rel_path) # 调用父页面的方法切换固定状态
-                self.populate_list() # 刷新列表以显示固定状态变化
+                self.parent_page.toggle_pin_wordlist(rel_path)
+                self.populate_list()
+            elif action == open_file_action:
+                # [新增] 调用父页面的方法打开文件
+                self.parent_page._open_system_default(full_path)
             elif action == open_folder_action: 
-                self.parent_page._open_system_default(os.path.dirname(full_path)) # 调用父页面的方法打开目录
+                self.parent_page._open_system_default(os.path.dirname(full_path))
+        
+        # [修改] 为文件夹也添加右键菜单
+        elif item_type == 'folder':
+            first_child_path = item_data.get('children', [{}])[0].get('data', {}).get('path')
+            if not first_child_path: return
+            folder_path = os.path.dirname(first_child_path)
+            open_folder_action = menu.addAction(icon_manager.get_icon("open_folder"), "打开目录")
+            action = menu.exec_(self.list_widget.mapToGlobal(position))
+            if action == open_folder_action:
+                self.parent_page._open_system_default(folder_path)
     
     def populate_list(self):
         """扫描图文词表目录，构建一个包含固定项快捷方式和层级浏览区的列表。"""
-        # [核心适配] 使用本模块的全局路径变量
         base_dir = WORD_LIST_DIR_FOR_DIALECT_VISUAL
         icon_manager = self.parent_page.icon_manager
         
         pinned_shortcuts, regular_items = [], []
-        self._all_items_cache.clear() # 清空缓存
-        folder_map = {} # 用于构建文件夹层级结构
+        self._all_items_cache.clear()
+        folder_map = {}
 
         try:
             for root, _, files in os.walk(base_dir):
                 for filename in files:
-                    if not filename.endswith('.json'): continue # 只处理JSON文件
+                    if not filename.endswith('.json'): continue
                     
                     full_path = os.path.join(root, filename)
-                    # [核心适配] 使用本模块的全局路径变量
                     rel_path = os.path.relpath(full_path, base_dir).replace("\\", "/")
-                    display_name, _ = os.path.splitext(filename) # 移除 .json 后缀
+                    display_name, _ = os.path.splitext(filename)
                     is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
                     
-                    item_data = {'type': 'item', 'icon': icon_manager.get_icon("document"), 'data': {'path': full_path}}
+                    # [核心修改] 在这里预先生成Tooltip
+                    tooltip_html = self._parse_wordlist_for_tooltip(full_path)
+
+                    item_data = {
+                        'type': 'item',
+                        'icon': icon_manager.get_icon("document"),
+                        'data': {'path': full_path},
+                        'tooltip': tooltip_html  # 将Tooltip存入数据
+                    }
                     
                     if is_pinned:
                         shortcut = item_data.copy()
-                        shortcut['icon'] = icon_manager.get_icon("pin") # 固定项显示图钉图标
-                        # 如果不是根目录下的文件，显示 "父文件夹 / 文件名" 格式
+                        shortcut['icon'] = icon_manager.get_icon("pin")
                         shortcut['text'] = f"{os.path.basename(root)} / {display_name}" if root != base_dir else display_name
                         pinned_shortcuts.append(shortcut)
                     else:
@@ -1429,28 +1512,30 @@ class WordlistSelectionDialog(QDialog):
                         if root not in folder_map: folder_map[root] = []
                         folder_map[root].append(item_data)
                     
-                    # 构建用于搜索的文本，包含完整路径信息
                     search_item = item_data.copy()
                     search_item['search_text'] = f"{os.path.basename(root)}/{display_name}".lower() if root != base_dir else display_name.lower()
                     self._all_items_cache.append(search_item)
             
-            # 处理根目录下的文件
             if base_dir in folder_map:
                 root_files = sorted(folder_map[base_dir], key=lambda x: x['text'])
                 regular_items.extend(root_files)
-                del folder_map[base_dir] # 从文件夹映射中移除根目录
+                del folder_map[base_dir]
             
-            # 处理子文件夹
             for folder_path in sorted(folder_map.keys()):
                 children = sorted(folder_map[folder_path], key=lambda x: x['text'])
-                regular_items.append({'type': 'folder', 'text': os.path.basename(folder_path), 
-                                      'icon': icon_manager.get_icon("folder"), 'children': children})
+                # [核心修改] 为文件夹也添加简单的Tooltip
+                folder_tooltip = f"文件夹: {os.path.basename(folder_path)}"
+                regular_items.append({
+                    'type': 'folder',
+                    'text': os.path.basename(folder_path),
+                    'icon': icon_manager.get_icon("folder"),
+                    'children': children,
+                    'tooltip': folder_tooltip
+                })
             
-            # 排序：文件夹在前，然后是文件，按文本排序
             regular_items.sort(key=lambda x: (x['type'] != 'folder', x['text']))
-            pinned_shortcuts.sort(key=lambda x: x['text']) # 固定项也排序
-
-            # 将所有数据设置到 AnimatedListWidget
+            pinned_shortcuts.sort(key=lambda x: x['text'])
+            
             self.list_widget.setHierarchicalData(pinned_shortcuts + regular_items)
         except Exception as e:
             QMessageBox.critical(self, "错误", f"扫描并构建图文词表列表时发生错误: {e}")
@@ -1482,9 +1567,12 @@ class SettingsDialog(QDialog):
         
         self.cleanup_empty_folder_checkbox = QCheckBox("自动清理未录音的会话文件夹")
         self.cleanup_empty_folder_checkbox.setToolTip("勾选后，如果一个会话结束时没有录制任何音频，\n其对应的结果文件夹将被自动删除，以保持目录整洁。")
+        self.remember_wordlist_checkbox = QCheckBox("记住上次选择的图文词表")
+        self.remember_wordlist_checkbox.setToolTip("勾选后，程序将自动记住您上次使用的图文词表，\n并在下次启动时加载它。")
         
         workflow_form_layout.addRow(self.auto_advance_checkbox)
         workflow_form_layout.addRow(self.cleanup_empty_folder_checkbox)
+        workflow_form_layout.addRow(self.remember_wordlist_checkbox)
         
         layout.addWidget(workflow_group)
 
@@ -1526,6 +1614,7 @@ class SettingsDialog(QDialog):
         # 加载工作流设置
         self.auto_advance_checkbox.setChecked(module_states.get("auto_advance", True)) # 默认启用
         self.cleanup_empty_folder_checkbox.setChecked(module_states.get("cleanup_empty_folder", True)) # 默认启用
+        self.remember_wordlist_checkbox.setChecked(module_states.get("remember_last_wordlist", True)) # 默认启用
         
         # 加载界面与性能设置
         self.volume_slider.setValue(module_states.get("volume_meter_interval", 16)) # 默认 16ms
@@ -1539,6 +1628,7 @@ class SettingsDialog(QDialog):
         settings_to_save = {
             "auto_advance": self.auto_advance_checkbox.isChecked(),
             "cleanup_empty_folder": self.cleanup_empty_folder_checkbox.isChecked(),
+            "remember_last_wordlist": self.remember_wordlist_checkbox.isChecked(),
             "volume_meter_interval": self.volume_slider.value(),
         }
         
