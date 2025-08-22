@@ -16,8 +16,10 @@ import json
 # ==============================================================================
 class ToggleSwitch(QCheckBox):
     """
+    [v2.0 - 动画可禁用版]
     一个可自定义样式的切换开关控件，支持并行的、平滑的过渡动画，
     精细的QSS悬停控制，以及标准的“释放时切换”和“拖动切换”交互。
+    此版本会检查其顶层窗口的 'animations_enabled' 属性来决定是否播放动画。
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,8 +65,23 @@ class ToggleSwitch(QCheckBox):
 
         self.toggled.connect(self._start_toggle_animation)
 
+        # 初始同步视觉状态到逻辑状态
         self._knob_position_ratio = 1.0 if self.isChecked() else 0.0
         self._knob_margin_anim_value = self._knobMargin
+
+    def _are_animations_enabled(self):
+        """
+        安全地向上遍历父级，查找顶层窗口，并检查其 'animations_enabled' 属性。
+        如果找不到该属性，则安全地回退到 True（默认启用动画）。
+        """
+        widget = self
+        while widget:
+            # isWindow() 检查是否为顶层窗口 (如 QMainWindow, QDialog)
+            if widget.isWindow():
+                return getattr(widget, 'animations_enabled', True)
+            widget = widget.parent()
+        # 如果控件没有父级或找不到窗口，也默认启用动画
+        return True
 
     def sync_visual_state_to_checked_state(self):
         """
@@ -104,11 +121,26 @@ class ToggleSwitch(QCheckBox):
 
     # --- 动画与事件处理 ---
     def _start_toggle_animation(self, checked):
+        """
+        [已修改] 启动或跳过旋钮位置的动画。
+        """
+        end_value = 1.0 if checked else 0.0
+        
+        if not self._are_animations_enabled():
+            # 如果动画被禁用，直接跳到最终状态
+            self._knob_position_ratio = end_value
+            self.update()
+            return
+
+        # 否则，正常启动动画
         self.pos_animation.setStartValue(self._knob_position_ratio)
-        self.pos_animation.setEndValue(1.0 if checked else 0.0)
+        self.pos_animation.setEndValue(end_value)
         self.pos_animation.start()
 
     def _start_margin_animation(self, hover):
+        """
+        [已修改] 启动或跳过旋钮边距的动画（用于悬停效果）。
+        """
         start_value = self._knob_margin_anim_value
         if hover:
             default_offset = -1
@@ -116,7 +148,14 @@ class ToggleSwitch(QCheckBox):
             end_value = self._knobMargin + offset
         else:
             end_value = self._knobMargin
+
+        if not self._are_animations_enabled():
+            # 如果动画被禁用，直接跳到最终状态
+            self._knob_margin_anim_value = end_value
+            self.update()
+            return
         
+        # 否则，正常启动动画
         self.margin_animation.setStartValue(start_value)
         self.margin_animation.setEndValue(end_value)
         self.margin_animation.start()
@@ -173,7 +212,7 @@ class ToggleSwitch(QCheckBox):
 
     @pyqtProperty(bool)
     def hover(self): return self._is_hovering
-    # ... (所有颜色/尺寸相关的 pyqtProperty getter/setter 省略，保持不变) ...
+    # --- 颜色属性 ---
     @pyqtProperty(QColor)
     def trackColorOff(self): return self._trackColorOff
     @trackColorOff.setter
@@ -190,6 +229,23 @@ class ToggleSwitch(QCheckBox):
     def borderColor(self): return self._borderColor
     @borderColor.setter
     def borderColor(self, color): self._borderColor = color; self.update()
+    @pyqtProperty(QColor)
+    def hoverKnobColor(self): return self._hover_knobColor
+    @hoverKnobColor.setter
+    def hoverKnobColor(self, color): self._hover_knobColor = color; self.update()
+    @pyqtProperty(QColor)
+    def hoverTrackColorOff(self): return self._hover_trackColorOff
+    @hoverTrackColorOff.setter
+    def hoverTrackColorOff(self, color): self._hover_trackColorOff = color; self.update()
+    @pyqtProperty(QColor)
+    def hoverTrackColorOn(self): return self._hover_trackColorOn
+    @hoverTrackColorOn.setter
+    def hoverTrackColorOn(self, color): self._hover_trackColorOn = color; self.update()
+    @pyqtProperty(QColor)
+    def hoverBorderColor(self): return self._hover_borderColor
+    @hoverBorderColor.setter
+    def hoverBorderColor(self, color): self._hover_borderColor = color; self.update()
+    # --- 尺寸与形状属性 ---
     @pyqtProperty(int)
     def trackBorderRadius(self): return self._trackBorderRadius
     @trackBorderRadius.setter
@@ -211,30 +267,14 @@ class ToggleSwitch(QCheckBox):
     def borderWidth(self): return self._borderWidth
     @borderWidth.setter
     def borderWidth(self, width): self._borderWidth = width; self.update()
-    @pyqtProperty(QColor)
-    def hoverKnobColor(self): return self._hover_knobColor
-    @hoverKnobColor.setter
-    def hoverKnobColor(self, color): self._hover_knobColor = color; self.update()
-    @pyqtProperty(QColor)
-    def hoverTrackColorOff(self): return self._hover_trackColorOff
-    @hoverTrackColorOff.setter
-    def hoverTrackColorOff(self, color): self._hover_trackColorOff = color; self.update()
-    @pyqtProperty(QColor)
-    def hoverTrackColorOn(self): return self._hover_trackColorOn
-    @hoverTrackColorOn.setter
-    def hoverTrackColorOn(self, color): self._hover_trackColorOn = color; self.update()
-    @pyqtProperty(QColor)
-    def hoverBorderColor(self): return self._hover_borderColor
-    @hoverBorderColor.setter
-    def hoverBorderColor(self, color): self._hover_borderColor = color; self.update()
     @pyqtProperty(int)
     def hoverKnobMarginOffset(self): return self._hover_knobMarginOffset
     @hoverKnobMarginOffset.setter
     def hoverKnobMarginOffset(self, offset): self._hover_knobMarginOffset = offset; self.update()
-    # [核心新增] 新增用于QSS设置图标路径的属性
+    # --- 图标属性 ---
     @pyqtProperty(str)
     def knobIconOn(self):
-        # Getter 通常不返回对象本身，而是返回一个可识别的字符串
+        # Getter 通常不返回对象本身，而是返回一个可识别的字符串（如文件路径或名称）
         return self._knob_icon_on.name()
 
     @knobIconOn.setter
@@ -252,39 +292,53 @@ class ToggleSwitch(QCheckBox):
         self._knob_icon_off = QIcon(path)
         self.update()
 
-
     def paintEvent(self, event):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         rect = self.rect()
+        # 根据是否悬停以及QSS是否定义了悬停颜色，选择绘制颜色
         border_color = self._hover_borderColor if self._is_hovering and self._hover_borderColor.isValid() else self._borderColor
         track_on_color = self._hover_trackColorOn if self._is_hovering and self._hover_trackColorOn.isValid() else self._trackColorOn
         track_off_color = self._hover_trackColorOff if self._is_hovering and self._hover_trackColorOff.isValid() else self._trackColorOff
         knob_color = self._hover_knobColor if self._is_hovering and self._hover_knobColor.isValid() else self._knobColor
+        
+        # 1. 绘制边框（如果存在）
         if self._borderWidth > 0 and border_color.isValid() and border_color.alpha() > 0:
             pen = QPen(border_color, self._borderWidth); pen.setJoinStyle(Qt.RoundJoin); p.setPen(pen)
             border_rect = rect.adjusted(self._borderWidth//2, self._borderWidth//2, -self._borderWidth//2, -self._borderWidth//2)
             p.setBrush(Qt.NoBrush); p.drawRoundedRect(border_rect, self._trackBorderRadius, self._trackBorderRadius)
+        
+        # 2. 绘制轨道 (渐变色)
+        # 根据旋钮位置比例计算轨道的混合颜色
         track_color = QColor(track_off_color)
         track_color.setRed(int(track_off_color.red() + (track_on_color.red() - track_off_color.red()) * self._knob_position_ratio))
         track_color.setGreen(int(track_off_color.green() + (track_on_color.green() - track_off_color.green()) * self._knob_position_ratio))
         track_color.setBlue(int(track_off_color.blue() + (track_on_color.blue() - track_off_color.blue()) * self._knob_position_ratio))
+        
         p.setPen(Qt.NoPen); p.setBrush(QBrush(track_color))
         track_rect = rect.adjusted(self._borderWidth, self._borderWidth, -self._borderWidth, -self._borderWidth)
         track_inner_radius = max(0, self._trackBorderRadius - self._borderWidth)
         p.drawRoundedRect(track_rect, track_inner_radius, track_inner_radius)
+        
+        # 3. 绘制旋钮
         margin = self._knob_margin_anim_value
         knob_height = track_rect.height() - (2 * margin)
-        knob_width = knob_height 
+        knob_width = knob_height # 确保旋钮是正方形或圆形
+        
+        # 根据动画位置计算旋钮的x坐标
         start_x = track_rect.left() + margin
-        end_x = track_rect.right() - knob_width - margin + 1
+        end_x = track_rect.right() - knob_width - margin + 1 # +1 是为了解决像素舍入问题
         current_x = start_x + (end_x - start_x) * self._knob_position_ratio
+        
         knob_rect = QRect(int(current_x), track_rect.top() + margin, knob_width, knob_height)
+        
         p.setBrush(QBrush(knob_color))
-        if self.knobShape == 'rectangle': p.drawRoundedRect(knob_rect, self._knobBorderRadius, self._knobBorderRadius)
-        else: p.drawEllipse(knob_rect)
-        # --- 3. [核心新增] 图标绘制 ---
-        # 根据当前动画位置，判断应该显示哪个图标（提供平滑的淡入淡出效果）
-        # a. 绘制“关”状态图标
+        if self.knobShape == 'rectangle': 
+            p.drawRoundedRect(knob_rect, self._knobBorderRadius, self._knobBorderRadius)
+        else: 
+            p.drawEllipse(knob_rect)
+        
+        # 4. 绘制图标 (如果存在)
+        # 绘制“关”状态图标
         if not self._knob_icon_off.isNull():
             p.setOpacity(1.0 - self._knob_position_ratio) # 根据位置比例设置透明度
             # 计算图标绘制区域（通常比滑块小一点）
@@ -292,7 +346,7 @@ class ToggleSwitch(QCheckBox):
             icon_rect = knob_rect.adjusted(icon_margin, icon_margin, -icon_margin, -icon_margin)
             self._knob_icon_off.paint(p, icon_rect)
 
-        # b. 绘制“开”状态图标
+        # 绘制“开”状态图标
         if not self._knob_icon_on.isNull():
             p.setOpacity(self._knob_position_ratio) # 透明度与位置比例同步
             icon_margin = 3
@@ -300,6 +354,10 @@ class ToggleSwitch(QCheckBox):
             self._knob_icon_on.paint(p, icon_rect)
     
     def resizeEvent(self, event):
+        """
+        当控件大小变化时，重新计算旋钮的初始位置，
+        以确保在尺寸变化后开关的视觉状态依然正确。
+        """
         self._knob_position_ratio = 1.0 if self.isChecked() else 0.0
         self._knob_margin_anim_value = self._knobMargin
         super().resizeEvent(event)
@@ -2018,6 +2076,7 @@ import subprocess
 from PyQt5.QtWidgets import (QMenu, QMessageBox,QGroupBox)
 class WordlistSelectionDialog(QDialog):
     """
+    [v2.1 - 动画可禁用版]
     一个可复用的、弹出式的对话框，使用 AnimatedListWidget 来提供层级式词表选择。
     
     特性:
@@ -2026,6 +2085,7 @@ class WordlistSelectionDialog(QDialog):
     - 列表和搜索结果中不显示 '.json' 文件后缀，界面更简洁。
     - 支持右键菜单，提供“固定/取消固定”、“打开文件”、“打开目录”等功能。
     - 界面元素被包裹在 QGroupBox 中，以获得更佳的视觉分组和边距。
+    - 内部的 AnimatedListWidget 会自动响应全局的动画禁用设置。
     """
     
     def __init__(self, parent_page):
@@ -2037,6 +2097,7 @@ class WordlistSelectionDialog(QDialog):
                          父页面必须提供以下属性和方法：
                          - .WORD_LIST_DIR (str): 词表根目录路径。
                          - .icon_manager: 一个IconManager实例。
+                         - .parent_window: 对主窗口 MainWindow 的引用。
                          - .is_wordlist_pinned(rel_path): 检查词表是否固定的方法。
                          - .toggle_pin_wordlist(rel_path): 切换词表固定状态的方法。
         """
@@ -2044,6 +2105,13 @@ class WordlistSelectionDialog(QDialog):
         self.parent_page = parent_page
         self.selected_file_relpath = None 
         self._all_items_cache = []
+
+        # --- [核心修改] ---
+        # QDialog 是一个顶层窗口。为了让其内部的 AnimatedListWidget 能够感知
+        # 全局动画设置，我们必须从主窗口 (MainWindow) 获取该设置，并将其
+        # 存储为本对话框的一个属性。
+        self.animations_enabled = getattr(self.parent_page.parent_window, 'animations_enabled', True)
+        # --- [修改结束] ---
 
         self.setWindowTitle("选择单词表")
         self.setWindowIcon(self.parent_page.parent_window.windowIcon())
@@ -2210,14 +2278,13 @@ class WordlistSelectionDialog(QDialog):
                     display_name, _ = os.path.splitext(filename)
                     is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
                     
-                    # [核心修改] 在这里预先生成Tooltip
                     tooltip_html = self._parse_wordlist_for_tooltip(full_path)
 
                     item_data = {
                         'type': 'item',
                         'icon': icon_manager.get_icon("document"),
                         'data': {'path': full_path},
-                        'tooltip': tooltip_html  # 将Tooltip存入数据
+                        'tooltip': tooltip_html
                     }
                     
                     if is_pinned:
@@ -2241,7 +2308,6 @@ class WordlistSelectionDialog(QDialog):
             
             for folder_path in sorted(folder_map.keys()):
                 children = sorted(folder_map[folder_path], key=lambda x: x['text'])
-                # [核心修改] 为文件夹也添加简单的Tooltip
                 folder_tooltip = f"文件夹: {os.path.basename(folder_path)}"
                 regular_items.append({
                     'type': 'folder', 

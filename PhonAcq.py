@@ -1,5 +1,3 @@
-# --- START OF FILE Dev.py ---
-
 import os
 import sys
 import time
@@ -178,6 +176,8 @@ DEFAULT_ICON_DIR = os.path.join(BASE_PATH, "assets", "icons") # [新增] 默认�
 PLUGINS_DIR = os.path.join(BASE_PATH, "plugins") # 新增
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 TOOLTIPS_FILE = os.path.join(CONFIG_DIR, "tooltips.json")
+APP_VERSION = "v1.8.5"
+
 
 tooltips_config = {}
 MODULES = {}
@@ -194,7 +194,7 @@ def setup_and_load_config():
         "audio_settings": { "sample_rate": 44100, "channels": 1, "recording_gain": 1.0, "input_device_index": None, "recording_format": "wav" },
         "file_settings": {"word_list_file": "", "participant_base_name": "participant", "results_dir": os.path.join(BASE_PATH, "Results")},
         "gtts_settings": {"default_lang": "en-us", "auto_detect": True},
-        "app_settings": {"enable_logging": True, "startup_page": None},
+        "app_settings": {"enable_logging": True, "startup_page": None, "animations_enabled": True},
         "theme": "默认.qss",
         
         # [新增] 默认的插件设置
@@ -567,6 +567,7 @@ class MainWindow(QMainWindow):
             super().closeEvent(event)
     def __init__(self, app_ref, splash_ref=None, tooltips_ref=None):
         super().__init__()
+        self.app_version = APP_VERSION
         self.app_ref = app_ref
         self.animation_manager = AnimationManager(self)
         self.last_sub_tab_indices = {}
@@ -1557,6 +1558,14 @@ class MainWindow(QMainWindow):
                 self.help_page.update_help_content()
             
     def apply_theme(self):
+        """
+        [v3.0 - 配置优先版]
+        加载、解析并应用用户在设置中选择的主题。
+        此版本实现了“用户设置优先”的动画策略：
+        1. 首先检查用户是否在“程序设置”中启用了动画。
+        2. 然后检查当前主题的 .qss 文件是否包含 `/* @animations: disabled */` 元数据来强制禁用动画。
+        3. 最终，只有当“用户启用”且“主题未禁用”时，动画才会生效。
+        """
 
         # 1. 获取主题文件路径
         theme_file_path = self.config.get("theme", "默认.qss")
@@ -1570,12 +1579,10 @@ class MainWindow(QMainWindow):
         theme_icon_path_to_set = None
         override_color = None # 默认没有图标覆盖颜色
 
-        # 记录动画状态，以便在应用新主题后恢复
-        animations_were_enabled = self.animations_enabled 
-        self.animations_enabled = True # 默认启用动画，如果主题禁用则会覆盖
-
         # 3. 读取QSS文件并解析元数据
         stylesheet = ""
+        theme_disables_animations = False # 主题默认为不禁用动画
+        
         if os.path.exists(absolute_theme_path):
             try:
                 with open(absolute_theme_path, "r", encoding="utf-8") as f:
@@ -1598,13 +1605,12 @@ class MainWindow(QMainWindow):
                 color_match = re.search(r'/\*\s*@icon-override-color:\s*(.*?)\s*\*/', stylesheet)
                 if color_match:
                     try:
-                        # 尝试将匹配到的字符串转换为 QColor
                         override_color = QColor(color_match.group(1).strip())
                         if not override_color.isValid():
                             raise ValueError(f"无效的颜色值: {color_match.group(1).strip()}")
                     except Exception:
                         print(f"警告: 无法解析主题颜色 '{color_match.group(1).strip()}' (格式可能不正确，例如 #RRGGBB)。")
-                        override_color = None # 解析失败则设为None
+                        override_color = None
 
                 # --- 解析 @icon-theme: none ---
                 icon_theme_match = re.search(r'/\*\s*@icon-theme:\s*none\s*\*/', stylesheet)
@@ -1616,10 +1622,10 @@ class MainWindow(QMainWindow):
                 if compact_match: 
                     is_compact_theme = True
 
-                # --- 解析 @animations ---
+                # --- [核心逻辑] 解析主题是否强制禁用动画 ---
                 anim_match = re.search(r'/\*\s*@animations:\s*disabled\s*\*/', stylesheet)
                 if anim_match: 
-                    self.animations_enabled = False
+                    theme_disables_animations = True
                 
             except Exception as e:
                 print(f"读取或解析主题文件 '{absolute_theme_path}' 时出错: {e}", file=sys.stderr)
@@ -1629,16 +1635,20 @@ class MainWindow(QMainWindow):
             print(f"主题文件未找到: {absolute_theme_path}", file=sys.stderr)
             stylesheet = "" # 文件不存在时清空样式表
 
-        # 4. 应用样式表
+        # 4. [核心逻辑] 根据用户设置和主题设置，共同决定最终的动画状态
+        user_wants_animations = self.config.get("app_settings", {}).get("animations_enabled", True)
+        self.animations_enabled = user_wants_animations and not theme_disables_animations
+
+        # 5. 应用样式表
         self.setStyleSheet(stylesheet)
 
-        # 5. 通知 IconManager 更新其状态
+        # 6. 通知 IconManager 更新其状态
         # 即使主题文件不存在或解析失败，也需要调用这些方法来重置IconManager的状态
         self.icon_manager.set_theme_icon_path(theme_icon_path_to_set, icons_disabled=icons_disabled)
         self.icon_manager.set_theme_override_color(override_color)
         self.icon_manager.set_dark_mode(is_dark_theme)
 
-        # 6. 调整窗口尺寸 (保持不变)
+        # 7. 根据主题类型调整窗口尺寸
         current_size = self.size()
         target_size = None
         if is_compact_theme:
@@ -1650,18 +1660,20 @@ class MainWindow(QMainWindow):
             new_height = max(current_size.height(), self.DEFAULT_MIN_SIZE[1])
             target_size = QSize(new_width, new_height)
 
+        # 只有在尺寸需要变化时才执行调整
         if current_size != target_size:
+            # [核心逻辑] 使用我们刚刚计算出的最终动画状态
             if self.animations_enabled:
                 self.animation_manager.animate_window_resize(target_size)
             else:
                 self.resize(target_size)
         
-        # 7. 更新所有模块的图标 (保持不变)
+        # 8. 更新所有模块的图标
         self.update_all_module_icons()
         if hasattr(self, 'plugin_menu_button'):
             self.plugin_menu_button.setIcon(self.icon_manager.get_icon("plugin"))
 
-        # 8. 更新帮助内容（如果需要） (保持不变)
+        # 9. 更新帮助内容（例如，暗色主题下代码块的样式）
         if hasattr(self, 'help_page') and hasattr(self.help_page, 'update_help_content'):
             QTimer.singleShot(0, self.help_page.update_help_content)
 
@@ -1767,10 +1779,11 @@ class MainWindow(QMainWindow):
     # [修改] 替换已有的 closeEvent 和 _proceed_with_close 方法
     def closeEvent(self, event):
         """
-        [v2.3 - 退出逻辑重构版]
+        [v2.4 - UI增强版]
         在关闭主窗口前，根据任务状态和用户设置执行正确的操作。
+        此版本的确认对话框为按钮添加了图标和颜色，以提供更清晰的视觉引导。
         """
-        # --- 1. 最高优先级：检查是否有后台任务正在运行 ---
+        # --- 1. 最高优先级：检查是否有后台任务正在运行 (此部分逻辑不变) ---
         busy_module_task = None
         if hasattr(self, 'audio_analysis_page'):
             busy_module_task = self.audio_analysis_page.is_busy()
@@ -1792,7 +1805,6 @@ class MainWindow(QMainWindow):
         close_action = self.config.get("app_settings", {}).get("close_window_action", "prompt")
 
         if close_action == "exit":
-            # [核心修复] 调用权威的关闭方法
             self._shutdown_application()
         
         elif close_action == "tray":
@@ -1812,26 +1824,49 @@ class MainWindow(QMainWindow):
             msg_box.setText("您想如何关闭程序？")
             msg_box.setInformativeText("选择“最小化到托盘”可以在后台继续运行。")
             msg_box.setIcon(QMessageBox.Question)
-            msg_box.setStyleSheet(self.styleSheet())
+            msg_box.setStyleSheet(self.styleSheet()) # 继承主窗口样式
             
-            minimize_btn = msg_box.addButton("最小化到托盘", QMessageBox.AcceptRole)
-            exit_btn = msg_box.addButton("直接退出", QMessageBox.DestructiveRole)
-            cancel_btn = msg_box.addButton("取消", QMessageBox.RejectRole)
+            # --- [核心修改开始] ---
+            # a. 创建自定义按钮，而不是使用标准按钮
             
+            # “最小化到托盘”按钮 (强调色)
+            minimize_btn = QPushButton(" 最小化到托盘")
+            minimize_btn.setObjectName("AccentButton") # 应用主题中的强调色样式
+            minimize_btn.setToolTip("程序将隐藏到系统托盘区，并在后台继续运行。")
+            
+            # “直接退出”按钮 (警告色)
+            exit_btn = QPushButton(" 直接退出")
+            exit_btn.setObjectName("ActionButton_Delete") # 应用主题中的警告/删除色样式
+            exit_btn.setToolTip("彻底关闭程序，所有后台任务将终止。")
+            
+            # “取消”按钮 (标准样式)
+            cancel_btn = QPushButton(" 取消")
+            
+            # b. 使用 addButton 将自定义按钮添加到对话框中
+            # addButton(widget, buttonRole)
+            msg_box.addButton(minimize_btn, QMessageBox.AcceptRole) # AcceptRole 通常是积极操作
+            msg_box.addButton(exit_btn, QMessageBox.DestructiveRole) # DestructiveRole 提示此操作有潜在风险
+            msg_box.addButton(cancel_btn, QMessageBox.RejectRole) # RejectRole 用于取消
+            
+            # c. 设置默认焦点按钮
             msg_box.setDefaultButton(cancel_btn)
+            
+            # d. 显示对话框并等待用户选择
             msg_box.exec_()
             
+            # e. 获取被点击的按钮实例
             clicked_button = msg_box.clickedButton()
 
+            # f. 根据被点击的按钮实例执行相应操作
             if clicked_button == minimize_btn:
                 self.hide()
                 self.tray_icon.show()
                 event.ignore()
             elif clicked_button == exit_btn:
-                # [核心修复] 调用权威的关闭方法
                 self._shutdown_application()
-            else: # Cancel
+            else: # 用户点击了取消按钮或关闭了对话框
                 event.ignore()
+            # --- [核心修改结束] ---
 
     # [修改] 新的辅助方法，用于封装原始的关闭逻辑
     def _proceed_with_close(self, event):

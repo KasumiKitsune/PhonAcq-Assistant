@@ -51,7 +51,19 @@ except ImportError:
     sd = MockSoundDevice()
     sf = None
     print("WARNING: sounddevice library not found. Audio device settings will be unavailable.")
-
+LANGUAGE_MAP = {
+    'en-us': '英语 (美国)',
+    'en-uk': '英语 (英国)',
+    'en-au': '英语 (澳大利亚)',
+    'en-in': '英语 (印度)',
+    'zh-cn': '中文 (普通话)',
+    'ja': '日语',
+    'fr-fr': '法语 (法国)',
+    'de-de': '德语',
+    'es-es': '西班牙语 (西班牙)',
+    'ru': '俄语',
+    'ko': '韩语'
+}
 def get_base_path_for_module():
     """
     获取 PhonAcq Assistant 项目的根目录路径。
@@ -298,48 +310,82 @@ class SettingsPage(QWidget):
 
     def update_icons(self):
         """
-        [新增] 刷新此页面上所有控件的图标，以响应主题变化。
+        [v2.1 - 完整版] 刷新此页面上所有控件的图标，以响应主题变化。
         """
-        # 1. 刷新导航列表的图标
+        # 1. 刷新导航列表的图标 (保持不变)
         self.nav_list.item(0).setIcon(self.icon_manager.get_icon("settings"))
         self.nav_list.item(1).setIcon(self.icon_manager.get_icon("audio"))
         self.nav_list.item(2).setIcon(self.icon_manager.get_icon("modules"))
         self.nav_list.item(3).setIcon(self.icon_manager.get_icon("info"))
 
-        # 2. 刷新配置管理按钮的图标
+        # 2. 刷新配置管理按钮的图标 (保持不变)
         self.restore_defaults_btn.setIcon(self.icon_manager.get_icon("reset"))
         self.import_settings_btn.setIcon(self.icon_manager.get_icon("import"))
         self.export_settings_btn.setIcon(self.icon_manager.get_icon("export"))
         self.save_btn.setIcon(self.icon_manager.get_icon("save_all"))
 
-        # 3. 刷新“模块管理”页面的按钮
+        # --- [核心修改开始] ---
+        # 3. 刷新“关闭窗口时操作”下拉框的图标
+        #    这个下拉框在创建时已经设置了图标，但我们需要在主题切换时更新它们。
+        if hasattr(self, 'close_action_combo'):
+            # 创建一个从 userData 到图标名称的映射，使代码更清晰
+            action_to_icon_map = {
+                "prompt": "confirm",
+                "tray": "minimize",
+                "exit": "end_session_dark"
+            }
+            # 遍历下拉框中的每一项
+            for i in range(self.close_action_combo.count()):
+                # 获取该项存储的 userData (例如 "prompt", "tray")
+                action_key = self.close_action_combo.itemData(i)
+                # 从映射中找到对应的图标名称
+                icon_name = action_to_icon_map.get(action_key)
+                if icon_name:
+                    # 从 IconManager 获取最新的、适配当前主题的图标
+                    new_icon = self.icon_manager.get_icon(icon_name)
+                    # 使用 setItemIcon 方法， surgically 地只更新图标，不影响文本和数据
+                    self.close_action_combo.setItemIcon(i, new_icon)
+        # --- [核心修改结束] ---
+        # 3.5. 刷新“录音设备”下拉框的图标 (仅在简易模式下)
+        if hasattr(self, 'input_device_combo') and self.simple_mode_switch.isChecked():
+            # 创建一个从 userData 到图标名称的映射
+            device_mode_to_icon = {
+                "smart": "smart_select",
+                "default": "system",
+                "internal": "mic",
+                "external": "usb",
+                "loopback": "loopback"
+            }
+            # 遍历下拉框中的每一项并更新其图标
+            for i in range(self.input_device_combo.count()):
+                mode_key = self.input_device_combo.itemData(i)
+                icon_name = device_mode_to_icon.get(mode_key)
+                if icon_name:
+                    new_icon = self.icon_manager.get_icon(icon_name)
+                    self.input_device_combo.setItemIcon(i, new_icon)
+        
+        # 4. 刷新“模块管理”页面的按钮 (保持不变)
         self.add_module_btn.setIcon(self.icon_manager.get_icon("add_row"))
         self.module_settings_btn.setIcon(self.icon_manager.get_icon("settings"))
         self.remove_module_btn.setIcon(self.icon_manager.get_icon("delete"))
         
-        # 4. 刷新“关于”页面的按钮
-        if hasattr(self, 'github_btn'): # 检查按钮是否已创建
+        # 5. 刷新“关于”页面的按钮 (保持不变)
+        if hasattr(self, 'github_btn'):
             self.github_btn.setIcon(self.icon_manager.get_icon("github"))
             self.report_bug_btn.setIcon(self.icon_manager.get_icon("bug"))
             self.manual_btn.setIcon(self.icon_manager.get_icon("help"))
             self.check_update_btn.setIcon(self.icon_manager.get_icon("refresh"))
 
-        # 5. 重新填充模块表格以刷新其内部图标
-        self.populate_module_table()
-        # 6. 刷新音频测试按钮的图标
-        if hasattr(self, 'test_mic_btn'):
-            if self.is_testing_mic:
-                self.test_mic_btn.setIcon(self.icon_manager.get_icon("stop"))
-            else:
-                self.test_mic_btn.setIcon(self.icon_manager.get_icon("record"))
-        # 7. 刷新音频测试和回放按钮的图标
+        # 6. 刷新音频测试和回放按钮的图标 (保持不变)
         if hasattr(self, 'test_mic_btn'):
             if self.is_testing_mic:
                 self.test_mic_btn.setIcon(self.icon_manager.get_icon("stop"))
             else:
                 self.test_mic_btn.setIcon(self.icon_manager.get_icon("record"))
             self.playback_test_btn.setIcon(self.icon_manager.get_icon("play"))
-        # 8. 重新计算右侧按钮的状态（这会刷新 toggle_enabled_btn 的图标）
+
+        # 7. 重新填充模块表格和更新按钮状态以刷新其内部图标 (保持不变)
+        self.populate_module_table()
         self._update_module_buttons_state()
 
     def _create_about_page(self):
@@ -399,7 +445,7 @@ class SettingsPage(QWidget):
         title_label = QLabel("PhonAcq Assistant")
         title_label.setObjectName("AboutTitleLabel") # 用于QSS样式化
         
-        version_str = "v1.7.5" # 示例版本信息
+        version_str = getattr(self.parent_window, 'app_version', 'v?.?.?')
         version_label = QLabel(f"版本: {version_str}")
         version_label.setObjectName("SubtleStatusLabel")
         
@@ -519,9 +565,10 @@ class SettingsPage(QWidget):
 
     def _create_general_settings_page(self):
         """
-        [v2.1] 创建“常规设置”页面，包含UI布局、文件路径和TTS设置。
-        增加了左右外边距以改善布局。
+        [v2.3 - 终极紧凑版] 创建“常规设置”页面。
+        此版本将紧凑模式与主题选择放在同一行，并为关闭操作添加了图标。
         """
+        # --- 顶层容器和滚动区域的创建保持不变 ---
         page = QWidget()
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -529,98 +576,119 @@ class SettingsPage(QWidget):
         scroll_area.setObjectName("SettingsScrollArea")
         scroll_area.setStyleSheet("QScrollArea#SettingsScrollArea { border: none; }")
         
-        # 使用一个包装布局来增加左右外边距
-# --- 页面主布局 (QHBoxLayout，用于水平居中) ---
         page_layout = QHBoxLayout(page)
         page_layout.setContentsMargins(20, 10, 20, 10)
 
-        # --- 内容容器 (QWidget + QVBoxLayout) ---
-        # 创建一个垂直布局来容纳所有设置组
         content_container = QWidget()
         content_container.setMinimumWidth(700)
         content_layout = QVBoxLayout(content_container)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(15)
 
-        # --- 1. 界面与外观组 ---
+        # --- 1. 界面与外观组 (核心修改) ---
         ui_appearance_group = QGroupBox("界面与外观")
         ui_appearance_form_layout = QFormLayout(ui_appearance_group)
         
-        self.collector_width_slider = QSlider(Qt.Horizontal)
-        self.collector_width_slider.setRange(200, 600)
+        # 侧边栏宽度设置 (保持不变)
+        self.collector_width_slider = QSlider(Qt.Horizontal); self.collector_width_slider.setRange(200, 600)
         self.collector_width_slider.setToolTip("设置采集类页面右侧边栏的宽度。")
         self.collector_width_label = QLabel("350 px")
         collector_width_layout = QHBoxLayout(); collector_width_layout.addWidget(self.collector_width_slider); collector_width_layout.addWidget(self.collector_width_label)
         ui_appearance_form_layout.addRow("采集类页面侧边栏宽度:", collector_width_layout)
         
-        self.editor_width_slider = QSlider(Qt.Horizontal)
-        self.editor_width_slider.setRange(200, 600)
+        self.editor_width_slider = QSlider(Qt.Horizontal); self.editor_width_slider.setRange(200, 600)
         self.editor_width_slider.setToolTip("设置管理/编辑类页面左侧边栏的宽度。")
         self.editor_width_label = QLabel("320 px")
         editor_width_layout = QHBoxLayout(); editor_width_layout.addWidget(self.editor_width_slider); editor_width_layout.addWidget(self.editor_width_label)
         ui_appearance_form_layout.addRow("管理类页面侧边栏宽度:", editor_width_layout)
         
+        # --- [核心布局修改 1/2] ---
+        # 主题皮肤 与 紧凑模式 同一行
         self.theme_combo = QComboBox()
         self.theme_combo.setToolTip("选择应用程序的视觉主题。")
+        
         self.compact_mode_switch = self.ToggleSwitch()
         self.compact_mode_switch.setToolTip("切换当前主题的标准版与紧凑版。")
-        theme_layout = QHBoxLayout(); theme_layout.addWidget(self.theme_combo, 1); theme_layout.addWidget(QLabel("标准")); theme_layout.addWidget(self.compact_mode_switch); theme_layout.addWidget(QLabel("紧凑"))
-        ui_appearance_form_layout.addRow("主题皮肤:", theme_layout)
         
-        self.hide_tooltips_switch = self.ToggleSwitch()
-        hide_tooltips_layout = QHBoxLayout(); hide_tooltips_layout.addWidget(self.hide_tooltips_switch); hide_tooltips_layout.addStretch()
-        ui_appearance_form_layout.addRow("隐藏Tab文字提示:", hide_tooltips_layout)
-        # [新增] 关闭窗口操作
+        theme_layout = QHBoxLayout()
+        theme_layout.setContentsMargins(0, 0, 0, 0)
+        theme_layout.addWidget(self.theme_combo, 1) # 主题选择框占据主要空间
+        theme_layout.addSpacing(15)
+        theme_layout.addWidget(QLabel("标准"))
+        theme_layout.addWidget(self.compact_mode_switch)
+        theme_layout.addWidget(QLabel("紧凑"))
+        
+        ui_appearance_form_layout.addRow("主题皮肤:", theme_layout)
+        # --- [修改结束] ---
+        
+        # 将多个开关控件组合到一行 (保持上次的修改)
+        toggles_layout = QHBoxLayout()
+        toggles_layout.setContentsMargins(0, 0, 0, 0)
+        toggles_layout.setSpacing(20)
+
+        hide_tooltips_widget = QWidget()
+        hide_tooltips_layout = QHBoxLayout(hide_tooltips_widget); hide_tooltips_layout.setContentsMargins(0, 0, 0, 0)
+        self.hide_tooltips_switch = self.ToggleSwitch(); self.hide_tooltips_switch.setToolTip("隐藏所有主标签页和子标签页的文字提示。")
+        hide_tooltips_layout.addWidget(QLabel("隐藏提示:"))
+        hide_tooltips_layout.addWidget(self.hide_tooltips_switch)
+        toggles_layout.addWidget(hide_tooltips_widget)
+
+        animations_widget = QWidget()
+        animations_layout = QHBoxLayout(animations_widget); animations_layout.setContentsMargins(0, 0, 0, 0)
+        self.animations_switch = self.ToggleSwitch(); self.animations_switch.setToolTip("启用或禁用窗口切换、菜单弹出等视觉动画效果。\n关闭可以提升在低性能设备上的响应速度。")
+        animations_layout.addWidget(QLabel("启用动画:"))
+        animations_layout.addWidget(self.animations_switch)
+        toggles_layout.addWidget(animations_widget)
+
+        toggles_layout.addStretch()
+        ui_appearance_form_layout.addRow(toggles_layout)
+        
+        # --- [核心布局修改 2/2] ---
+        # 关闭窗口操作 (增加图标)
         self.close_action_combo = QComboBox()
         self.close_action_combo.setToolTip("选择点击主窗口关闭按钮时的默认行为，防止误操作。")
-        self.close_action_combo.addItem("弹出确认提示框", "prompt")
-        self.close_action_combo.addItem("最小化到系统托盘", "tray")
-        self.close_action_combo.addItem("直接退出程序", "exit")
+        self.close_action_combo.setIconSize(QSize(20, 20)) # 设置一个合适的图标尺寸
+
+        # addItem(icon, text, userData)
+        self.close_action_combo.addItem(self.icon_manager.get_icon("confirm"), "弹出确认提示框", "prompt")
+        self.close_action_combo.addItem(self.icon_manager.get_icon("minimize"), "最小化到系统托盘", "tray")
+        self.close_action_combo.addItem(self.icon_manager.get_icon("end_session_dark"), "直接退出程序", "exit")
+        
         ui_appearance_form_layout.addRow("关闭窗口时的操作:", self.close_action_combo)
-        # [新增] 启动时常驻托盘
+        # --- [修改结束] ---
+        
+        # 常驻托盘 (保持不变)
         self.tray_always_visible_switch = self.ToggleSwitch()
         self.tray_always_visible_switch.setToolTip("勾选后，程序启动时系统托盘图标将始终可见，\n即使主窗口处于显示状态。")
-        tray_always_visible_layout = QHBoxLayout()
-        tray_always_visible_layout.addWidget(self.tray_always_visible_switch)
-        tray_always_visible_layout.addStretch()
+        tray_always_visible_layout = QHBoxLayout(); tray_always_visible_layout.addWidget(self.tray_always_visible_switch); tray_always_visible_layout.addStretch()
         ui_appearance_form_layout.addRow("启动时常驻系统托盘:", tray_always_visible_layout)
         
         content_layout.addWidget(ui_appearance_group)
 
-        # --- 2. 文件与路径组 ---
+        # --- 其他组 (文件、gTTS) 保持不变 ---
         file_group = QGroupBox("文件与路径")
         file_layout = QFormLayout(file_group)
-        self.results_dir_input = QLineEdit()
-        self.results_dir_btn = QPushButton("...")
+        self.results_dir_input = QLineEdit(); self.results_dir_btn = QPushButton("...")
         results_dir_layout = QHBoxLayout(); results_dir_layout.addWidget(self.results_dir_input); results_dir_layout.addWidget(self.results_dir_btn)
         file_layout.addRow("结果文件夹:", results_dir_layout)
-        
         self.participant_name_input = QLineEdit()
         file_layout.addRow("默认被试者名称:", self.participant_name_input)
-        
         self.enable_logging_switch = self.ToggleSwitch()
         enable_logging_layout = QHBoxLayout(); enable_logging_layout.addWidget(self.enable_logging_switch); enable_logging_layout.addStretch()
         file_layout.addRow("启用详细日志记录:", enable_logging_layout)
-        
         content_layout.addWidget(file_group)
 
-        # --- 3. gTTS (在线) 设置组 (已移至此处) ---
         gtts_group = QGroupBox("gTTS (在线) 设置")
-        gtts_layout = QFormLayout(gtts_group)
+        gtts_layout = QHBoxLayout(gtts_group); gtts_layout.setSpacing(15)
         self.gtts_lang_combo = QComboBox()
-        self.gtts_lang_combo.addItems(['en-us','en-uk','en-au','en-in','zh-cn','ja','fr-fr','de-de','es-es','ru','ko'])
-        gtts_layout.addRow("默认语言 (无指定时):", self.gtts_lang_combo)
-        
+        for code, name in LANGUAGE_MAP.items(): self.gtts_lang_combo.addItem(name, code)
+        gtts_layout.addWidget(QLabel("默认语言:")); gtts_layout.addWidget(self.gtts_lang_combo, 1)
         self.gtts_auto_detect_switch = self.ToggleSwitch()
-        auto_detect_layout = QHBoxLayout(); auto_detect_layout.addWidget(self.gtts_auto_detect_switch); auto_detect_layout.addStretch()
-        gtts_layout.addRow("自动检测语言 (中/日等):", auto_detect_layout)
-        
+        gtts_layout.addWidget(QLabel("自动检测:")); gtts_layout.addWidget(self.gtts_auto_detect_switch)
+        gtts_layout.addStretch()
         content_layout.addWidget(gtts_group)
 
-        # 添加一个垂直弹簧，确保所有组都靠上对齐
         content_layout.addStretch()
-
-        # --- 将内容容器添加到居中布局中 ---
         page_layout.addStretch()
         page_layout.addWidget(content_container)
         page_layout.addStretch()
@@ -914,6 +982,7 @@ class SettingsPage(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._update_compact_switch_state)
 
         self.hide_tooltips_switch.stateChanged.connect(self._on_setting_changed)
+        self.animations_switch.stateChanged.connect(self._on_setting_changed)
         
         self.results_dir_btn.clicked.connect(self.select_results_dir) 
         self.results_dir_input.textChanged.connect(self._on_setting_changed)
@@ -1315,11 +1384,16 @@ class SettingsPage(QWidget):
 
         if is_simple_mode:
             self.input_device_combo.setToolTip("选择一个简化的录音设备类型。")
-            self.input_device_combo.addItem("智能选择 (推荐)", "smart")
-            self.input_device_combo.addItem("系统默认", "default")
-            self.input_device_combo.addItem("内置麦克风", "internal")
-            self.input_device_combo.addItem("外置设备 (USB/蓝牙等)", "external")
-            self.input_device_combo.addItem("电脑内部声音", "loopback")
+            self.input_device_combo.setIconSize(QSize(20, 20)) # 为图标设置合适的尺寸
+
+            # --- [核心修改] ---
+            # 使用 addItem(icon, text, userData) 的重载版本来添加带图标的选项
+            self.input_device_combo.addItem(self.icon_manager.get_icon("smart_select"), " 智能选择 (推荐)", "smart")
+            self.input_device_combo.addItem(self.icon_manager.get_icon("system"), " 系统默认", "default")
+            self.input_device_combo.addItem(self.icon_manager.get_icon("mic"), " 内置麦克风", "internal")
+            self.input_device_combo.addItem(self.icon_manager.get_icon("usb"), " 外置设备 (USB/蓝牙等)", "external")
+            self.input_device_combo.addItem(self.icon_manager.get_icon("loopback"), " 电脑内部声音", "loopback")
+            # --- [修改结束] ---
         else: # 专家模式
             self.input_device_combo.setToolTip("选择用于录制音频的物理麦克风设备。")
             try:
@@ -1455,6 +1529,11 @@ class SettingsPage(QWidget):
         # --- 应用设置 (日志) ---
         app_settings = config.get("app_settings", {})
         self.enable_logging_switch.setChecked(app_settings.get("enable_logging", True))
+        # --- [核心修改] ---
+        # 加载动画开关的状态，默认值为 True (启用)
+        self.animations_switch.setChecked(app_settings.get("animations_enabled", True))
+        # --- [修改结束] ---
+
         # [新增] 加载关闭窗口操作设置
         close_action = app_settings.get("close_window_action", "prompt") # 默认为弹出提示框
         index = self.close_action_combo.findData(close_action)
@@ -1464,7 +1543,17 @@ class SettingsPage(QWidget):
         
         # --- gTTS 设置 ---
         gtts_settings = config.get("gtts_settings", {})
-        self.gtts_lang_combo.setCurrentText(gtts_settings.get('default_lang', 'en-us'))
+        
+        # --- [核心修改 3/3] ---
+        # 加载时，我们不再使用 setCurrentText，因为显示的文本变了。
+        # 我们需要根据保存的语言代码 (e.g., 'en-us') 来找到对应的索引。
+        saved_lang_code = gtts_settings.get('default_lang', 'en-us')
+        index_to_set = self.gtts_lang_combo.findData(saved_lang_code)
+        
+        # findData 找不到时会返回 -1。
+        if index_to_set != -1:
+            self.gtts_lang_combo.setCurrentIndex(index_to_set)
+        
         self.gtts_auto_detect_switch.setChecked(gtts_settings.get('auto_detect', True))
         
         # --- 音频设置 ---
@@ -1541,6 +1630,7 @@ class SettingsPage(QWidget):
         # 应用设置 (日志)
         app_settings = config.setdefault("app_settings", {})
         app_settings["enable_logging"] = self.enable_logging_switch.isChecked()
+        app_settings["animations_enabled"] = self.animations_switch.isChecked()
         app_settings["close_window_action"] = self.close_action_combo.currentData()
         app_settings["tray_icon_always_visible"] = self.tray_always_visible_switch.isChecked()
 

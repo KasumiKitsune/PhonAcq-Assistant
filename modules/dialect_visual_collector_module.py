@@ -1318,8 +1318,9 @@ class DialectVisualCollectorPage(QWidget):
 # [新增] 内置的、为图文词表定制的词表选择对话框
 class WordlistSelectionDialog(QDialog):
     """
+    [v2.1 - 动画可禁用版]
     一个内置于本模块的、弹出式的对话框，使用 AnimatedListWidget 来提供层级式词表选择。
-    此版本经过适配，专门用于“看图说话采集”模块。
+    此版本经过适配，专门用于“看图说话采集”模块，并且会响应全局的动画禁用设置。
     """
     
     def __init__(self, parent_page):
@@ -1327,6 +1328,13 @@ class WordlistSelectionDialog(QDialog):
         self.parent_page = parent_page
         self.selected_file_relpath = None 
         self._all_items_cache = [] # 缓存所有词表数据，用于搜索
+
+        # --- [核心修改] ---
+        # QDialog 是一个顶层窗口。为了让其内部的 AnimatedListWidget 能够感知
+        # 全局动画设置，我们必须从主窗口 (MainWindow) 获取该设置，并将其
+        # 存储为本对话框的一个属性。
+        self.animations_enabled = getattr(self.parent_page.parent_window, 'animations_enabled', True)
+        # --- [修改结束] ---
 
         self.setWindowTitle("选择图文词表")
         self.setWindowIcon(self.parent_page.parent_window.windowIcon())
@@ -1448,7 +1456,6 @@ class WordlistSelectionDialog(QDialog):
                                         "取消固定" if is_pinned else "固定到顶部")
             menu.addSeparator()
 
-            # [新增] “用默认程序打开” 菜单项
             open_file_action = menu.addAction(icon_manager.get_icon("open_external"), "用默认程序打开")
             
             open_folder_action = menu.addAction(icon_manager.get_icon("show_in_explorer"), "打开所在目录")
@@ -1458,12 +1465,10 @@ class WordlistSelectionDialog(QDialog):
                 self.parent_page.toggle_pin_wordlist(rel_path)
                 self.populate_list()
             elif action == open_file_action:
-                # [新增] 调用父页面的方法打开文件
                 self.parent_page._open_system_default(full_path)
             elif action == open_folder_action: 
                 self.parent_page._open_system_default(os.path.dirname(full_path))
         
-        # [修改] 为文件夹也添加右键菜单
         elif item_type == 'folder':
             first_child_path = item_data.get('children', [{}])[0].get('data', {}).get('path')
             if not first_child_path: return
@@ -1492,14 +1497,13 @@ class WordlistSelectionDialog(QDialog):
                     display_name, _ = os.path.splitext(filename)
                     is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
                     
-                    # [核心修改] 在这里预先生成Tooltip
                     tooltip_html = self._parse_wordlist_for_tooltip(full_path)
 
                     item_data = {
                         'type': 'item',
                         'icon': icon_manager.get_icon("document"),
                         'data': {'path': full_path},
-                        'tooltip': tooltip_html  # 将Tooltip存入数据
+                        'tooltip': tooltip_html
                     }
                     
                     if is_pinned:
@@ -1523,7 +1527,6 @@ class WordlistSelectionDialog(QDialog):
             
             for folder_path in sorted(folder_map.keys()):
                 children = sorted(folder_map[folder_path], key=lambda x: x['text'])
-                # [核心修改] 为文件夹也添加简单的Tooltip
                 folder_tooltip = f"文件夹: {os.path.basename(folder_path)}"
                 regular_items.append({
                     'type': 'folder',

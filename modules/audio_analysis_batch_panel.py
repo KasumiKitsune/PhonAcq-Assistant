@@ -9,8 +9,8 @@ import pandas as pd
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
                              QFileDialog, QMessageBox, QMenu, QProgressDialog, QDialog,
-                             QCheckBox, QDialogButtonBox, QFormLayout, QApplication, QRadioButton, QLineEdit, QGroupBox, QComboBox, QShortcut, QSizePolicy)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QUrl, QTimer
+                             QCheckBox, QDialogButtonBox, QFormLayout, QApplication, QRadioButton, QLineEdit, QGroupBox, QComboBox, QShortcut, QSizePolicy, QProgressBar)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QUrl, QTimer, QItemSelection, QItemSelectionModel, QItemSelectionRange
 from PyQt5.QtGui import QCursor, QIntValidator, QKeySequence, QPixmap
 from PyQt5.QtMultimedia import QMediaContent
 
@@ -150,6 +150,10 @@ class BatchLoadWorker(QObject):
     def run(self):
         """工作器的入口点，执行加载操作。"""
         try:
+            # 检查用户是否在加载过程中取消了操作
+            if QThread.currentThread().isInterruptionRequested():
+                return  # 如果取消，则静默退出
+
             y, sr = librosa.load(self.filepath, sr=None, mono=True)
             self.finished.emit({"y": y, "sr": sr, "filepath": self.filepath})
         except Exception as e:
@@ -185,55 +189,47 @@ class BatchAnalysisWorker(QObject):
 
     def run(self):
         """
-        [v2.2 - 容错版] 工作器的入口点。
-        此版本将错误处理移入循环内部，允许在处理单个文件失败时继续运行，
-        并最终报告所有成功和失败的文件。
+        [v2.3 - 取消修复版] 工作器的入口点。
+        此版本为 InterruptedError 添加了专门的 except 块，以正确处理用户取消操作。
         """
         total_files = len(self.filepaths)
         for i, filepath in enumerate(self.filepaths):
             try:
-                # --- 1. 检查中断请求 ---
-                # 响应用户在UI上点击“取消”按钮
+                # --- 1. 检查中断请求 (此部分不变) ---
                 if QThread.currentThread().isInterruptionRequested():
                     # 用户取消不是一个程序错误，直接返回即可。
-                    # finished 信号不会被发射，UI会保持在取消状态。
                     return
 
-                # --- 2. 报告文件级进度 ---
-                # 发送信号以更新进度对话框的标签文本
+                # --- 2. 报告文件级进度 (此部分不变) ---
                 self.progress.emit(i, total_files, os.path.basename(filepath))
 
-                # --- 3. [核心] 单文件处理逻辑 ---
-                # a. 加载音频 (这是最容易出错的步骤之一)
+                # --- 3. [核心] 单文件处理逻辑 (此部分不变) ---
                 y, sr = librosa.load(filepath, sr=None, mono=True)
-                
-                # b. 调用辅助函数执行所有分析计算
                 results_for_file = self._analyze_file_logic(y, sr)
-                
-                # c. 将成功的结果存入缓存
                 self.analysis_cache[filepath] = results_for_file
-                
-                # d. 立即释放大数组内存，为下一个文件做准备
                 del y, sr, results_for_file
                 self.single_file_completed.emit(filepath, True, "")
 
+            # --- [核心修复] ---
+            # 1. 专门捕获 InterruptedError
+            except InterruptedError:
+                # 当捕获到这个错误时，我们知道是用户主动取消的。
+                # 打印一条信息到控制台（可选），然后直接 break 退出循环。
+                print("Batch analysis was cancelled by the user.")
+                break # 干净地跳出 for 循环
+            # 2. 捕获所有其他类型的错误
             except Exception as e:
-                # --- 4. [核心] 错误隔离与记录 ---
-                # 如果在处理单个文件的任何步骤中发生异常：
                 import traceback
                 error_str = str(e)
-                traceback.print_exc() # 在控制台打印详细错误，方便开发者调试
+                traceback.print_exc()
                 print(f"ERROR: Failed to process file '{filepath}': {error_str}")
-                
-                # a. 记录失败的文件路径和具体的错误信息
                 self.failed_files[filepath] = error_str
                 self.single_file_completed.emit(filepath, False, error_str)
-                # b. 使用 continue 关键字，跳过当前循环的剩余部分，直接开始处理下一个文件
                 continue
+            # --- [修复结束] ---
         
-        # --- 5. 任务最终完成 ---
-        # 当 for 循环正常结束（所有文件都被尝试处理过）后，
-        # 发射 finished 信号，同时传递包含成功结果的缓存和包含失败信息的字典。
+        # --- 5. 任务最终完成 (此部分不变) ---
+        # 无论循环是正常结束还是被 break，都会执行到这里
         self.finished.emit(self.analysis_cache, self.failed_files)
 
     def _analyze_file_logic(self, y, sr):
@@ -587,27 +583,22 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _init_ui(self):
         """
-        [v2.1 - UI微调版]
-        构建此面板的用户界面。
-        此版本将“全部分析”按钮移至底部，并与“保存”按钮一起拉伸以占据全部宽度，
-        形成清晰的“内容区”和“操作区”分离，提升了视觉层次感和操作便捷性。
+        [v2.3 - 进度文本优化版]
+        将进度文本标签移至进度条上方。
         """
-        # 1. 创建主垂直布局，它将整个面板分为上下两个部分
+        # 1. 创建主垂直布局
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 5, 0, 5) # 上下保留一点边距
-        main_layout.setSpacing(10) # 增加内容区和操作区之间的垂直间距
+        main_layout.setContentsMargins(0, 5, 0, 5)
+        main_layout.setSpacing(10)
 
         # --- 2. 创建内容区 ---
-        # 内容区包含“导入文件”按钮和文件列表表格
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(5) # 按钮和表格之间的间距
+        content_layout.setSpacing(5)
         
-        # 2.1. “导入文件”按钮
         self.import_btn = QPushButton(" 导入文件")
         self.import_btn.setIcon(self.icon_manager.get_icon("add_row"))
         self.import_btn.setToolTip("从您的计算机选择一个或多个音频文件添加到此列表中。")
         
-        # 2.2. 文件列表表格
         self.file_table = QTableWidget()
         self.file_table.setColumnCount(2)
         self.file_table.setHorizontalHeaderLabels(["文件名", "状态"])
@@ -619,40 +610,95 @@ class AudioAnalysisBatchPanel(QWidget):
         self.file_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_table.setToolTip("文件列表。\n- 单击/多选: 查看文件波形\n- 回车: 播放选中项\n- 右键: 更多操作")
 
-        # 将导入按钮和文件列表添加到内容区布局
         content_layout.addWidget(self.import_btn)
         content_layout.addWidget(self.file_table)
+        
+        # --- [核心修改] ---
+        # 1. 创建一个新的容器，它将包含进度文本和进度条
+        self.progress_container = QWidget()
+        progress_container_layout = QVBoxLayout(self.progress_container)
+        progress_container_layout.setContentsMargins(0, 5, 0, 0)
+        progress_container_layout.setSpacing(3) # 文本和进度条之间的微小间距
 
-        # --- 3. 创建底部操作区 ---
-        # 操作区包含所有主要的操作按钮
+        # 2. 创建进度文本标签
+        self.progress_label = QLabel("准备中...")
+        self.progress_label.setAlignment(Qt.AlignCenter) # 文本居中
+        progress_container_layout.addWidget(self.progress_label)
+        
+        # 3. 创建原来的 progress_widget (现在只包含进度条和取消按钮)
+        self.progress_widget = QWidget()
+        progress_layout = QHBoxLayout(self.progress_widget)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(True) # 进度条上的百分比不再需要了
+
+
+        self.cancel_btn = QPushButton("取消")
+        button_height = self.cancel_btn.sizeHint().height()
+        
+        # 2. 将进度条的最小和最大高度都设置为这个值，从而固定其高度
+        self.progress_bar.setMinimumHeight(button_height)
+        self.progress_bar.setMaximumHeight(button_height)
+        
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.cancel_btn)
+        
+        # 4. 将 progress_widget 添加到新的容器中
+        progress_container_layout.addWidget(self.progress_widget)
+
+        # 5. 默认隐藏整个容器
+        self.progress_container.hide()
+        # --- [修改结束] ---
+
+        # --- 3. 创建底部操作区 (此部分不变) ---
         bottom_actions_layout = QVBoxLayout()
-        bottom_actions_layout.setSpacing(5) # 按钮之间的垂直间距
-
-        # 3.1. “全部分析”按钮
+        bottom_actions_layout.setSpacing(5)
+        # ... (创建 run_all_btn 和 save_all_btn 的代码保持不变) ...
         self.run_all_btn = QPushButton(" 全部分析")
         self.run_all_btn.setIcon(self.icon_manager.get_icon("analyze"))
         self.run_all_btn.setEnabled(False)
         self.run_all_btn.setToolTip("对列表中所有“待处理”的文件执行完整的声学分析。")
-        # [核心] 设置尺寸策略，使其可以在水平方向上无限伸展，垂直方向固定
         self.run_all_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        # 3.2. “保存全部结果”按钮
         self.save_all_btn = QPushButton(" 保存全部结果...")
         self.save_all_btn.setIcon(self.icon_manager.get_icon("save_all"))
         self.save_all_btn.setEnabled(False)
         self.save_all_btn.setToolTip("将所有已分析文件的结果批量保存为图片或CSV。")
-        # [核心] 同样设置尺寸策略，确保两个按钮宽度一致
         self.save_all_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        # 将操作按钮添加到操作区布局
         bottom_actions_layout.addWidget(self.run_all_btn)
         bottom_actions_layout.addWidget(self.save_all_btn)
 
         # --- 4. 组装主布局 ---
-        # 将内容区和操作区添加到主布局中
-        # 参数 1 表示内容区将占据所有可用的垂直伸缩空间
         main_layout.addLayout(content_layout, 1) 
+        main_layout.addWidget(self.progress_container) # [修改] 添加新的总容器
         main_layout.addLayout(bottom_actions_layout)
+    def _on_header_clicked(self, logicalIndex):
+        """当表头被点击时，如果点击的是“文件名”列，则全选所有已分析的条目。"""
+        # 检查是否点击了第一列（“文件名”）
+        if logicalIndex == 0:
+            selection_model = self.file_table.selectionModel()
+            new_selection = QItemSelection()
+
+            # 遍历数据模型中的所有行
+            for i in range(len(self.file_list)):
+                _, status = self.file_list[i]
+                
+                # 如果状态是“已分析”，则将这一行添加到我们的选区集合中
+                if status == "已分析":
+                    # 获取该行第一个和最后一个单元格的模型索引
+                    start_index = self.file_table.model().index(i, 0)
+                    end_index = self.file_table.model().index(i, self.file_table.columnCount() - 1)
+                    
+                    # *** FIX START ***
+                    # 创建一个覆盖当前行的 QItemSelection 对象
+                    row_selection = QItemSelection(start_index, end_index)
+                    
+                    # 将这个代表单行的 QItemSelection 对象合并到主选择中
+                    new_selection.merge(row_selection, QItemSelectionModel.Select)
+                    # *** FIX END ***
+
+            # 一次性应用这个包含所有目标行的选区集合
+            selection_model.select(new_selection, QItemSelectionModel.ClearAndSelect)
 
     def _connect_signals(self):
         """连接所有UI控件的信号到相应的槽函数。"""
@@ -663,8 +709,15 @@ class AudioAnalysisBatchPanel(QWidget):
         # [新增] 计时器超时后，才执行真正的加载逻辑
         self.selection_timer.timeout.connect(self._perform_delayed_load)
         self.file_table.customContextMenuRequested.connect(self._open_context_menu)
+        
+        # --- [新增代码行] ---
+        # 将水平表头的 sectionClicked 信号连接到我们的新方法
+        self.file_table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        # --- [新增结束] ---
+        
         self.run_all_btn.clicked.connect(self.run_all_analysis)
         self.save_all_btn.clicked.connect(self.save_all_results)
+        self.cancel_btn.clicked.connect(self.cancel_task)
         # [新增] 添加回车键快捷方式
         self.play_shortcut = QShortcut(QKeySequence(Qt.Key_Return), self.file_table)
         self.play_shortcut_enter = QShortcut(QKeySequence(Qt.Key_Enter), self.file_table)
@@ -1001,11 +1054,10 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _start_batch_analysis(self, filepaths_to_process, dialog_title):
         """
-        一个通用的辅助方法，用于启动批量分析任务。
-        :param filepaths_to_process: 要分析的文件路径列表。
-        :param dialog_title: 进度对话框的标题。
+        [修改] 一个通用的辅助方法，用于启动批量分析任务。
+        现在它控制内嵌的进度条。
         """
-        self.is_batch_task_running = True # <-- [新增] 任务开始，设置标志
+        self.is_batch_task_running = True
         self.run_all_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
         
@@ -1017,52 +1069,43 @@ class AudioAnalysisBatchPanel(QWidget):
             QMessageBox.information(self, "无需分析", "没有需要分析的文件。")
             return
 
-        # 获取分析模式设置
+        # ... (保留获取分析参数 `params` 的所有代码)
         module_states = self.main_page.parent_window.config.get("module_states", {}).get("audio_analysis", {})
         analysis_mode = module_states.get("analysis_mode", "normal")
-
-        # 准备传递给工作器的参数字典
         params = {
-            'analyze_f0_intensity': True, 
-            'analyze_formants': True,
+            'analyze_f0_intensity': True, 'analyze_formants': True,
             'pre_emphasis': self.main_page.pre_emphasis_checkbox.isChecked(),
             'f0_min': self.main_page.f0_range_slider.lowerValue(),
             'f0_max': self.main_page.f0_range_slider.upperValue(),
             'render_density': self.main_page.render_density_slider.value(),
             'formant_density': self.main_page.formant_density_slider.value(),
             'is_wide_band': self.main_page.spectrogram_type_checkbox.isChecked(),
-            'analysis_mode': analysis_mode,  # 新增：传递分析模式
+            'analysis_mode': analysis_mode,
         }
 
-        # 设置状态变量和进度对话框
         self.file_list_for_run = filepaths_to_process
         self.total_files = len(self.file_list_for_run)
         self.current_file_index = 0
 
-        self.progress_dialog = QProgressDialog(dialog_title, "取消", 0, self.total_files * 100, self.main_page.parent_window)
-        self.progress_dialog.setStyleSheet(self.main_page.parent_window.styleSheet())
-        self.progress_dialog.setWindowIcon(self.main_page.parent_window.windowIcon())
-        self.progress_dialog.setWindowModality(Qt.NonModal)
-        self.progress_dialog.setAutoClose(False)
-        self.progress_dialog.show()
+        self.progress_bar.setRange(0, self.total_files * 100)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(dialog_title) # 设置上方的文本标签
+        self.progress_container.show() # 显示整个容器
+        # --- [修改结束] ---
 
-        # 创建并设置线程和工作器
         self.batch_worker = BatchAnalysisWorker(self.file_list_for_run, params)
         self.batch_thread = QThread()
         self.batch_worker.moveToThread(self.batch_thread)
 
-        # 连接信号
+        # [修改] 不再连接 QProgressDialog 的 canceled 信号
         self.batch_worker.progress.connect(self._on_batch_progress)
         self.batch_worker.chunk_progress.connect(self._on_chunk_progress)
         self.batch_worker.single_file_completed.connect(self._on_single_file_completed)
         self.batch_worker.finished.connect(self._on_batch_finished)
         self.batch_worker.error.connect(self._on_batch_error)
-        self.progress_dialog.canceled.connect(self.batch_thread.requestInterruption)
-
+        
         self.batch_thread.started.connect(self.batch_worker.run)
         self.batch_thread.finished.connect(self._cleanup_batch_thread)
-    
-        # 启动
         self.batch_thread.start()
 
 
@@ -1077,8 +1120,23 @@ class AudioAnalysisBatchPanel(QWidget):
         self._start_batch_analysis(filepaths, dialog_title)
 
     def _cleanup_batch_thread(self):
-        """线程结束后进行安全的清理。"""
-        self.is_batch_task_running = False # <-- [新增] 任务结束，清除标志
+        """
+        [修复] 线程结束后进行安全的清理。
+        此版本是重置UI状态的唯一入口，确保任何退出路径都能解锁UI。
+        """
+        # 如果任务已经不在运行状态（可能已被cancel_task清理），则直接返回
+        if not self.is_batch_task_running:
+            return
+
+        self.is_batch_task_running = False
+        self.progress_container.hide()
+        self.progress_bar.reset()
+
+        # 恢复UI按钮的可用状态
+        self.run_all_btn.setEnabled(True)
+        self.import_btn.setEnabled(True)
+
+        # 安排后台对象的安全删除
         if self.batch_worker:
             self.batch_worker.deleteLater()
             self.batch_worker = None
@@ -1093,33 +1151,46 @@ class AudioAnalysisBatchPanel(QWidget):
         """
         return self.is_batch_task_running
 
-    # [新增]
     def cancel_task(self):
         """
-        请求取消当前正在运行的批量分析任务。
+        [修复] 请求取消当前正在运行的批量分析任务。
+        此版本会正确地请求中断、终止线程并手动清理UI状态。
         """
         if self.is_batch_task_running and self.batch_thread and self.batch_thread.isRunning():
+            print("Batch analysis cancellation requested.")
+            
+            # 1. 请求工作循环停止（这会让worker的run方法退出循环）
             self.batch_thread.requestInterruption()
-            print("Batch analysis task cancellation requested.")
+            
+            # 2. 告诉线程的事件循环退出
+            self.batch_thread.quit()
+            
+            # 3. 等待线程完全终止（最多500毫秒），确保资源被回收
+            #    这是保证稳定性的关键一步
+            self.batch_thread.wait(500)
+            
+            # 4. 手动调用清理函数，确保UI状态被立即重置，
+            #    无需等待可能延迟的 finished 信号。
+            self._cleanup_batch_thread()
 
     def _on_batch_progress(self, current, total, filename):
-        """
-        [v2.2 - 职责分离版]
-        当后台工作器开始处理一个新的文件时，此槽函数被调用。
-        它的职责是：
-        1. 更新进度对话框的标签文本，告诉用户当前正在处理哪个文件。
-        2. 更新总进度条的基础值（例如，处理第3个文件时，基础进度为200%）。
-        3. 将UI表格中对应行的状态更新为“分析中...”。
-        """
-        # 更新当前正在处理的文件索引，供 _on_chunk_progress 计算细节进度
+        """ [修改] 更新内嵌进度文本和进度条基础值，并限制文件名长度。 """
         self.current_file_index = current
         
-        # 更新进度对话框的标签，格式为 "正在分析: audio.wav (1/5)"
-        self.progress_dialog.setLabelText(f"正在分析: {filename} ({current + 1}/{total})")
+        # --- [核心修改] ---
+        # 1. 限制文件名长度
+        max_len = 20
+        if len(filename) > max_len:
+            truncated_filename = filename[:max_len-3] + "..."
+        else:
+            truncated_filename = filename
+            
+        # 2. 更新上方的文本标签
+        self.progress_label.setText(f"正在分析: {truncated_filename} ({current + 1}/{total})")
+        # --- [修改结束] ---
         
-        # 设置进度条的基础值。每个文件占100个单位。
         base_progress = current * 100
-        self.progress_dialog.setValue(int(base_progress))
+        self.progress_bar.setValue(int(base_progress))
         
         # 找到即将被分析的文件在UI表格中的行，并更新其状态
         # self.file_list_for_run 是在 run_all_analysis 中创建的待处理文件列表
@@ -1185,62 +1256,39 @@ class AudioAnalysisBatchPanel(QWidget):
 
     # [新增] 新的槽函数，处理块进度
     def _on_chunk_progress(self, chunk_time_s, total_duration_s):
-        """根据单个文件内部的分析进度，平滑地更新总进度条。"""
+        """ [修改] 平滑地更新内嵌进度条。 """
         if self.total_files == 0: return
 
-        # 计算单个文件内的进度百分比 (0-100)
         chunk_percent = (chunk_time_s / total_duration_s) * 100 if total_duration_s > 0 else 100
         
-        # 计算总进度:
-        # 基础进度 = 已完成文件数 * 100
         base_progress = self.current_file_index * 100
-        # 当前文件的细节进度 (确保单个文件进度不超过99.9，防止提前达到最大值)
         detail_progress = min(99.9, chunk_percent)
         
-        # 总进度 = 基础进度 + 细节进度
         total_progress = base_progress + detail_progress
 
-        # 将总进度应用到进度条（其最大值为 total_files * 100）
-        self.progress_dialog.setValue(int(total_progress))
+        # [修改] 更新内嵌进度条的值
+        self.progress_bar.setValue(int(total_progress))
 
     def _on_batch_finished(self, success_cache, failure_info):
         """
-        [v2.2 - 总结报告版]
-        当整个批量分析任务（所有文件）全部处理完毕后，此槽函数被调用。
-        它的职责是：
-        1. 关闭进度对话框。
-        2. 更新核心数据缓存。
-        3. 向用户展示一个最终的、包含成功与失败统计的总结报告。
-        4. 根据是否有成功的结果，启用“保存全部”按钮。
-        5. 请求后台线程安全退出。
+        [v2.4 - 清理逻辑简化版]
+        任务正常完成时的处理。UI状态的恢复工作将由线程的 finished 信号
+        触发 _cleanup_batch_thread 来完成。
         """
-        self.run_all_btn.setEnabled(True)
-        self.import_btn.setEnabled(True)
-        # 1. 确保进度条达到最大值并关闭，提供一个完成的视觉反馈
-        if self.progress_dialog:
-            self.progress_dialog.setValue(self.progress_dialog.maximum())
-            self.progress_dialog.close()
+        # [移除] 不再需要在这里恢复按钮状态
         
-        # 2. 将后台线程成功分析的结果，更新到主UI线程的分析缓存中
         self.analysis_cache.update(success_cache)
         
-        # 注意：此处不再需要循环更新每一行的UI状态，因为这个工作
-        # 已经由 _on_single_file_completed 槽函数在处理过程中实时完成了。
-        
-        # 3. 创建并显示总结报告
+        # ... (保留显示总结报告的 QMessageBox 的所有逻辑) ...
         num_success = len(success_cache)
         num_failed = len(failure_info)
         total_processed = num_success + num_failed
 
-        # 只有在确实处理了文件的情况下才显示总结信息
         if total_processed > 0:
             if num_failed == 0:
-                # 如果全部成功
                 QMessageBox.information(self, "分析完成", f"所有 {total_processed} 个文件的批量分析已成功完成。")
             else:
-                # 如果部分失败，显示一个带有详细信息的警告框
                 error_details = "\n".join([f"- {os.path.basename(fp)}: {err}" for fp, err in failure_info.items()])
-                
                 msg_box = QMessageBox(self)
                 msg_box.setIcon(QMessageBox.Warning)
                 msg_box.setWindowTitle("分析部分完成")
@@ -1251,19 +1299,20 @@ class AudioAnalysisBatchPanel(QWidget):
                 msg_box.setDetailedText(error_details)
                 msg_box.exec_()
         
-        # 4. 如果有任何成功分析的文件，则启用保存按钮
         if num_success > 0:
             self.save_all_btn.setEnabled(True)
             
-        # 5. 请求后台线程安全退出
+        # 请求后台线程的事件循环退出。这会最终触发线程的 finished 信号，
+        # 从而调用 _cleanup_batch_thread 来完成最终的清理工作。
         if self.batch_thread:
             self.batch_thread.quit()
 
     def _on_batch_error(self, error_msg):
-        """批量分析发生错误时的处理。"""
-        self.progress_dialog.close()
+        """ [修改] 错误处理，不再需要操作弹窗。 """
+        # [移除] 不再需要操作 self.progress_dialog
+
         QMessageBox.critical(self, "批量分析错误", error_msg)
-        self._update_table() # 恢复表格状态
+        self._update_table()
         self.batch_thread.quit()
 
     def _run_single_analysis(self, filepath):
@@ -1526,14 +1575,14 @@ class AudioAnalysisBatchPanel(QWidget):
 
             # 只有当至少一个插件可用时，才创建子菜单
             if plotter_plugin or intonation_plugin:
-                send_to_menu = menu.addMenu(self.icon_manager.get_icon("chart2"), f"发送 {num_analyzed} 个已分析文件到")
+                send_to_menu = menu.addMenu(self.icon_manager.get_icon("send_to_chart"), f"发送 {num_analyzed} 个已分析文件到")
                 
                 if plotter_plugin:
                     plotter_action = send_to_menu.addAction(self.icon_manager.get_icon("chart"), "元音空间绘制器")
                     plotter_action.triggered.connect(lambda: self._send_data_to_plugin(analyzed_filepaths, 'formants'))
                 
                 if intonation_plugin:
-                    intonation_action = send_to_menu.addAction(self.icon_manager.get_icon("chart"), "语调可视化器")
+                    intonation_action = send_to_menu.addAction(self.icon_manager.get_icon("chart2"), "语调可视化器")
                     intonation_action.triggered.connect(lambda: self._send_data_to_plugin(analyzed_filepaths, 'f0'))
             
             menu.addSeparator()

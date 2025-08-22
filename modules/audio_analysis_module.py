@@ -3939,12 +3939,20 @@ class AudioAnalysisPage(QWidget):
     def _on_persistent_setting_changed(self, key, value):
         """
         当用户更改任何可记忆的设置时，调用此方法以保存状态。
-        Args:
-            key (str): 设置的键名。
-            value (any): 设置的新值。
+        [已修复] 此版本采用“读取-修改-写入”模式，将整个模块的状态字典
+        传回主窗口，以避免因传递单个键值对而引发类型错误。
         """
-        # 调用父窗口的方法来更新并保存模块状态
-        self.parent_window.update_and_save_module_state('audio_analysis', key, value)
+        # 1. 从主窗口配置中获取当前模块的完整状态字典
+        module_states = self.parent_window.config.get("module_states", {})
+        # 使用 .copy() 确保我们正在修改一个副本，而不是原始配置对象
+        audio_analysis_state = module_states.get("audio_analysis", {}).copy()
+
+        # 2. 在副本字典中更新或添加指定的键值
+        audio_analysis_state[key] = value
+
+        # 3. 将修改后的完整字典传回主窗口进行保存
+        #    现在的调用是两个参数 (module_name, full_dict)，这符合保存机制的预期。
+        self.parent_window.update_and_save_module_state('audio_analysis', audio_analysis_state)
 
     def _on_chunk_settings_changed(self):
         """
