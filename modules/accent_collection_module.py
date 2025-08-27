@@ -363,7 +363,7 @@ class AccentCollectionPage(QWidget):
 
     # [核心新增] 打开词表选择对话框的槽函数
     def open_wordlist_selector(self):
-        dialog = WordlistSelectionDialog(self)
+        dialog = WordlistSelectionDialog(self, self.WORD_LIST_DIR, self.icon_manager, pin_handler=self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
             selected_file = dialog.selected_file_relpath
             self.current_wordlist_name = selected_file

@@ -18,9 +18,10 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QFileDialog, QMessageBox, QComboBox, QFormLayout,
                              QGroupBox, QProgressBar, QLineEdit, QTableWidget,
                              QTableWidgetItem, QHeaderView, QPlainTextEdit,
-                             QSplitter, QSizePolicy) 
+                             QSplitter, QSizePolicy, QDialog) 
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize 
 from PyQt5.QtGui import QIcon 
+from modules.custom_widgets_module import WordlistSelectionDialog
 
 try:
     from gtts import gTTS
@@ -96,6 +97,7 @@ class TtsUtilityPage(QWidget):
         self.current_wordlist_path = None
         self.tts_thread = None; self.tts_worker = None 
         self.stop_tts_event = threading.Event()
+        self.last_loaded_wordlist_name = None
         
         self.base_path_module = get_base_path_for_module() 
         self.flags_path = os.path.join(self.base_path_module, 'assets', 'flags')
@@ -263,24 +265,29 @@ class TtsUtilityPage(QWidget):
                     event.acceptProposedAction()
 
     def _update_output_ui_state(self):
-        """[新增] 根据“输出到速记卡”开关的状态，更新UI。"""
+        """
+        [v1.1] 根据“输出到速记卡”开关的状态，更新UI。
+        现在可以恢复上次加载的词表名。
+        """
         is_for_flashcard = self.output_to_flashcard_switch.isChecked()
         
-        # 禁用或启用“自定义输出文件夹”输入框
         self.output_subdir_input.setEnabled(not is_for_flashcard)
         
-        # 如果是速记卡模式，清空并提供提示性文本
         if is_for_flashcard:
             self.output_subdir_input.blockSignals(True)
             self.output_subdir_input.setText("")
             self.output_subdir_input.setPlaceholderText("将自动输出到卡组缓存目录")
             self.output_subdir_input.blockSignals(False)
         else:
-            # 恢复正常状态
             self.output_subdir_input.setPlaceholderText("例如: my_project_tts")
-            # 如果输入框为空，则填充一个默认值
+            
+            # [核心修改] 如果输入框为空，优先使用上次加载的词表名
             if not self.output_subdir_input.text():
-                self.output_subdir_input.setText(f"tts_util_{datetime.now().strftime('%Y%m%d')}")
+                if self.last_loaded_wordlist_name:
+                    self.output_subdir_input.setText(self.last_loaded_wordlist_name)
+                else:
+                    # 如果从未加载过文件，则使用通用默认值
+                    self.output_subdir_input.setText(f"tts_util_{datetime.now().strftime('%Y%m%d')}")
 
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
@@ -353,16 +360,20 @@ class TtsUtilityPage(QWidget):
 
     def load_wordlist_from_file(self, filepath=None):
         """
-        [vFinal] 从 .json 或 .fdeck 文件加载词条。
-        - 自动检测文件类型并解析。
-        - 如果加载 .fdeck，则自动切换到“输出到速记卡”模式。
+        [vFinal - Optimized] 从 .json 或 .fdeck 文件加载词条。
+        - 使用自定义的 WordlistSelectionDialog。
+        - 加载成功后，自动将输出文件夹名称设置为词表名。
         """
         if not filepath:
-            # [关键修复] 更新文件对话框的过滤器以包含 .fdeck
-            filepath, _ = QFileDialog.getOpenFileName(
-                self, "选择词表文件", self.STD_WORD_LIST_DIR, 
-                "词表文件 (*.json *.fdeck)"
-            )
+            # 使用自定义的 WordlistSelectionDialog 替换 QFileDialog
+            # 因为 TTS 工具不处理固定功能，所以 pin_handler=None
+            dialog = WordlistSelectionDialog(self, self.STD_WORD_LIST_DIR, self.icon_manager, pin_handler=None)
+            if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+                # 从相对路径重构完整路径
+                filepath = os.path.join(self.STD_WORD_LIST_DIR, dialog.selected_file_relpath)
+            else:
+                return # 用户取消选择
+
         if not filepath: return
 
         self.current_wordlist_path = filepath
@@ -385,7 +396,7 @@ class TtsUtilityPage(QWidget):
                 
                 # 从 .fdeck 中，我们使用卡片ID作为待转换文本
                 for card in data.get("cards", []):
-                    words_to_add.append({'text': card.get("id", ""), 'lang': ""}) # fdeck 通常不带语言信息
+                    words_to_add.append({'text': card.get("id", ""), 'lang': ""})
                 file_format = "fdeck"
 
             elif filepath.lower().endswith('.json'):
@@ -412,20 +423,29 @@ class TtsUtilityPage(QWidget):
                 if item.get('text'):
                     self.add_table_row(item['text'], item['lang'])
             
-            # --- [核心UX改进] 智能切换输出模式 ---
+            # [核心优化 1] 自动设置输出文件夹名称
+            wordlist_name, _ = os.path.splitext(os.path.basename(filepath))
+            self.last_loaded_wordlist_name = wordlist_name # 存储名称以备后用
+            # 只有在非速记卡模式下才更新文件夹名称
+            if not self.output_to_flashcard_switch.isChecked():
+                self.output_subdir_input.setText(wordlist_name)
+
+            # [核心UX改进] 智能切换输出模式
             if file_format == "fdeck":
                 self.output_to_flashcard_switch.setChecked(True)
             else:
                 self.output_to_flashcard_switch.setChecked(False)
             
-            # 手动调用UI状态更新
+            # 手动调用UI状态更新以应用新状态
             self._update_output_ui_state()
             
             self.log_message(f"从 {os.path.basename(filepath)} 填充了 {len(words_to_add)} 个词条。")
 
         except Exception as e:
             QMessageBox.critical(self, "加载错误", f"加载文件失败: {e}")
-            self.loaded_file_label.setText("加载失败"); self.current_wordlist_path = None
+            self.loaded_file_label.setText("加载失败")
+            self.current_wordlist_path = None
+            self.last_loaded_wordlist_name = None
 
     def get_items_from_editor(self):
         items = []

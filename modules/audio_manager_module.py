@@ -12,6 +12,8 @@ import tempfile
 from datetime import datetime
 import subprocess 
 from copy import deepcopy
+import re  # <--- [新增]
+import json # <--- [新增]
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QListWidgetItem, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem,
@@ -19,7 +21,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                              QSlider, QComboBox, QApplication, QGroupBox, QSpacerItem, QSizePolicy, QShortcut, QDialog, QDialogButtonBox, QFormLayout, QStyle, QStyleOptionSlider, QCheckBox)
 from PyQt5.QtCore import Qt, QTimer, QUrl, QRect, pyqtProperty, pyqtSignal, QEvent, QSize, QEasingCurve, QPropertyAnimation
 from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QColor, QPen, QBrush, QPalette, QCursor
-from modules.custom_widgets_module import AnimatedListWidget, AnimatedSlider, AnimatedIconButton
+from modules.custom_widgets_module import AnimatedListWidget, AnimatedSlider, AnimatedIconButton, WordlistSelectionDialog
 # [新增] 导入 QMediaPlayer 和 QMediaContent
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
@@ -637,7 +639,7 @@ class AudioManagerPage(QWidget):
         self.search_input.setClearButtonEnabled(True)
         
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["按名称排序", "按大小排序", "按修改日期排序"])
+        self.sort_combo.addItems(["按名称排序", "按大小排序", "按修改日期排序", "按词表顺序排序"])
         self.sort_combo.setToolTip("选择文件列表的排序方式。")
 
         # --- [新增代码] ---
@@ -658,7 +660,7 @@ class AudioManagerPage(QWidget):
         self.audio_table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.audio_table_widget.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.audio_table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.audio_table_widget.verticalHeader().setVisible(False)
+        self.audio_table_widget.verticalHeader().setVisible(True)
         self.audio_table_widget.setAlternatingRowColors(True)
         self.audio_table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.audio_table_widget.setColumnWidth(1, 120)
@@ -780,34 +782,32 @@ class AudioManagerPage(QWidget):
         self.reset_player()
 
     def eventFilter(self, obj, event):
-        # --- [新增代码] ---
-        # 拦截项目列表的拖放事件
+        """
+        [v1.2 - Fix] 事件过滤器。
+        移除了之前为排序下拉框添加的双击清除词表关联的逻辑。
+        """
+        # --- 拖放事件处理 ---
         if obj is self.session_list_widget:
             if event.type() == QEvent.DragEnter:
-                # 检查拖入的是否为文件/文件夹
                 if event.mimeData().hasUrls():
                     event.acceptProposedAction()
                     return True
             elif event.type() == QEvent.Drop:
                 self._handle_folder_drop(event)
                 return True
-        
-        # 拦截文件列表的拖放事件
         elif obj is self.audio_table_widget:
-            if event.type() == QEvent.DragEnter:
-                if event.mimeData().hasUrls():
-                    event.acceptProposedAction()
-                    return True
-            elif event.type() == QEvent.Drop:
+            # ... (拖放逻辑不变) ...
+            if event.type() == QEvent.Drop:
                 self._handle_audio_file_drop(event)
                 return True
-        # --- [新增结束] ---
+        
+        # [核心修复] 下面这整个 'elif' 代码块已被完全移除
+        # elif obj is self.sort_combo and event.type() == QEvent.MouseButtonDblClick:
+        #    ...
 
-        # 确保事件源是我们的数据源下拉框，并且事件类型是鼠标双击
+        # --- 原有的数据源下拉框双击事件处理 ---
         if obj is self.source_combo and event.type() == QEvent.MouseButtonDblClick:
-            # 调用管理数据源的方法
             self._manage_custom_sources()
-            # 返回 True 表示我们已经处理了这个事件，它不应再被进一步传递
             return True
         
         # 对于所有其他事件，调用父类的默认实现
@@ -2062,9 +2062,19 @@ class AudioManagerPage(QWidget):
 
     # [重构] populate_session_list 现在只负责填充列表，数据源由 on_source_changed 决定
     def populate_session_list(self):
+        """
+        [v1.2 - Reselection & Association Icon] 填充项目列表。
+        - 检查每个文件夹的词表关联状态，并显示相应的图标。
+        - 在刷新前后保持用户的当前选择。
+        """
         self.status_label.setText("正在刷新项目列表...")
         QApplication.processEvents()
+
+        # 步骤1: 在清空列表前，记录当前选中的项目文本
+        current_item = self.session_list_widget.currentItem()
+        text_to_reselect = current_item.text() if current_item else None
         
+        # 获取当前数据源信息
         source_name = self.source_combo.currentText()
         source_info = self.DATA_SOURCES.get(source_name)
         is_custom = False
@@ -2082,42 +2092,70 @@ class AudioManagerPage(QWidget):
             self.table_label.setText("无效的数据源")
             return
 
+        # 重置会话状态
         self.session_active = False
         self.reset_player()
-        
-        # 记录下当前选中的项目，以便在没有“加载上次项目”的情况下恢复
-        current_text = self.session_list_widget.currentItem().text() if self.session_list_widget.currentItem() else None
-        self.session_list_widget.clear()
         
         base_path = source_info["path"]
         
         if not os.path.exists(base_path):
+            self.session_list_widget.clear()
             if is_custom:
-                self.session_list_widget.addItem(f"错误: 路径不存在\n{base_path}")
+                error_item_data = {'type': 'item', 'text': f"错误: 路径不存在\n{base_path}", 'icon': self.icon_manager.get_icon("error")}
+                self.session_list_widget.setHierarchicalData([error_item_data])
             else:
                 os.makedirs(base_path, exist_ok=True)
             return
 
         try:
-            sessions = sorted([d for d in os.listdir(base_path) if source_info["filter"](d, base_path)], 
-                              key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
-            self.session_list_widget.addItemsWithAnimation(sessions)
+            items_to_display = []
+            
+            # 扫描并构建包含图标信息的数据列表
+            all_sessions = sorted([d for d in os.listdir(base_path) if source_info["filter"](d, base_path)], 
+                                  key=lambda s: os.path.getmtime(os.path.join(base_path, s)), reverse=True)
 
-            # 根据设置决定是加载上次项目，还是恢复刷新前的项目
-            module_states = self.config.get("module_states", {}).get("audio_manager", {})
-            load_last = module_states.get("load_last_source", True)
-            last_project = module_states.get("last_project")
+            for session_name in all_sessions:
+                folder_path = os.path.join(base_path, session_name)
+                
+                # 调用辅助方法检查关联状态
+                is_associated = self._is_folder_associated(folder_path)
+                
+                # 根据状态选择图标
+                icon = self.icon_manager.get_icon("concatenate") if is_associated else self.icon_manager.get_icon("music_record")
+                
+                # 构建 AnimatedListWidget 所需的数据结构
+                item_data = {
+                    'type': 'item', # 在此列表中，每个文件夹都是一个可点击的 'item'
+                    'text': session_name,
+                    'icon': icon,
+                    'tooltip': f"项目文件夹: {session_name}" + (" (已关联词表)" if is_associated else ""),
+                    'data': {'path': folder_path}
+                }
+                items_to_display.append(item_data)
 
-            item_to_select_text = None
-            if load_last and last_project:
-                item_to_select_text = last_project
-            elif current_text: # 如果不加载上次的，就恢复刷新前的
-                item_to_select_text = current_text
+            # 使用 setHierarchicalData API 来填充列表
+            self.session_list_widget.setHierarchicalData(items_to_display)
 
-            if item_to_select_text:
-                items = self.session_list_widget.findItems(item_to_select_text, Qt.MatchFixedString)
+            # 步骤2: 在列表填充后，恢复之前的选择
+            item_to_select = None
+            if text_to_reselect:
+                # 优先恢复刷新前的选择
+                items = self.session_list_widget.findItems(text_to_reselect, Qt.MatchFixedString)
                 if items:
-                    self.session_list_widget.setCurrentItem(items[0])
+                    item_to_select = items[0]
+            
+            # 如果没有之前的选择，则回退到“加载上次项目”的逻辑
+            if not item_to_select:
+                module_states = self.config.get("module_states", {}).get("audio_manager", {})
+                load_last = module_states.get("load_last_source", True)
+                last_project = module_states.get("last_project")
+                if load_last and last_project:
+                    items = self.session_list_widget.findItems(last_project, Qt.MatchFixedString)
+                    if items:
+                        item_to_select = items[0]
+
+            if item_to_select:
+                self.session_list_widget.setCurrentItem(item_to_select)
             
             self.status_label.setText("项目列表已刷新。")
             QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))
@@ -2334,16 +2372,24 @@ class AudioManagerPage(QWidget):
         
     def populate_audio_table(self):
         """
-        [v3.0] 现在只负责加载和显示当前文件夹的内容，不再处理搜索。
+        [v3.1 - Reselection] 现在只负责加载和显示当前文件夹的内容，
+        并在刷新后恢复之前的选择。
         """
+        # [核心修改] 步骤1: 在清空前记录当前选中的文件路径
+        current_row = self.audio_table_widget.currentRow()
+        path_to_reselect = None
+        if current_row != -1:
+            item = self.audio_table_widget.item(current_row, 0)
+            if item:
+                path_to_reselect = item.data(Qt.UserRole)
+
         self.status_label.setText("正在刷新文件列表...")
-        QApplication.processEvents() # 强制UI立即更新文本
+        QApplication.processEvents()
         self.reset_player()
         self.waveform_widget.clear()
         self.audio_table_widget.setRowCount(0)
         self.all_files_data.clear()
         
-        # 恢复表头到常规状态
         self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
 
         if not self.current_session_path:
@@ -2353,7 +2399,7 @@ class AudioManagerPage(QWidget):
         self.table_label.setText(f"项目: {os.path.basename(self.current_session_path)}")
 
         try:
-            # ... (原有的加载当前文件夹文件的逻辑不变) ...
+            # ... (加载文件的逻辑保持不变) ...
             supported_exts = ('.wav', '.mp3', '.flac', '.ogg')
             for filename in os.listdir(self.current_session_path):
                 if filename.lower().endswith(supported_exts):
@@ -2368,11 +2414,18 @@ class AudioManagerPage(QWidget):
                         })
                     except OSError:
                         continue
-            # [核心新增] 报告刷新完成
+            
             self.status_label.setText("文件列表已刷新。")
             QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))            
-            # 使用新的排序和渲染分离逻辑
             self.filter_and_render_files()
+
+            # [核心修改] 步骤2: 在表格渲染后，尝试恢复选择
+            if path_to_reselect:
+                for row in range(self.audio_table_widget.rowCount()):
+                    item = self.audio_table_widget.item(row, 0)
+                    if item and item.data(Qt.UserRole) == path_to_reselect:
+                        self.audio_table_widget.setCurrentCell(row, 0)
+                        break # 找到后即停止循环
 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"加载音频文件列表失败: {e}")
@@ -2387,10 +2440,12 @@ class AudioManagerPage(QWidget):
 
     def on_sort_changed(self):
         """
-        [重构] 当排序方式（名称、大小、日期）变化时调用。
+        [v1.2 - Fix] 当排序方式变化时调用。
+        修复了切换到“按词表顺序”时未重置升/降序状态的BUG。
         """
         sort_text = self.sort_combo.currentText()
         self.sort_order_btn.blockSignals(True)
+        
         if "名称" in sort_text:
             self.current_sort_key = 'name'
             self.sort_order_btn.setChecked(False) 
@@ -2400,9 +2455,14 @@ class AudioManagerPage(QWidget):
         elif "日期" in sort_text:
             self.current_sort_key = 'mtime'
             self.sort_order_btn.setChecked(True)
+        elif "词表顺序" in sort_text:
+            self.current_sort_key = 'wordlist'
+            # [核心修复] 切换到词表排序时，总是默认设置为升序 (A->Z)。
+            self.sort_order_btn.setChecked(False)
+            
         self.sort_order_btn.blockSignals(False)
-        
-        # 在设置完所有排序参数后，手动触发一次渲染
+        self.sort_order_btn.setEnabled(True)
+
         self.filter_and_render_files()
 
     # [重构 v2.0] 智能搜索评分函数，替换旧的 _fuzzy_match
@@ -2478,39 +2538,76 @@ class AudioManagerPage(QWidget):
     # [重构 v3.2] 核心搜索与渲染方法，使用新的智能评分系统
     def filter_and_render_files(self):
         """
-        [v3.2] 基于当前搜索词，执行全局或局部搜索，并渲染结果。
+        [v3.4 - Correct Wordlist Sort]
+        修复了词表降序排序的逻辑错误。
         """
         search_term = self.search_input.text().strip()
 
         if search_term:
+            # --- 模式1: 全局搜索 (逻辑不变) ---
+            # ... (此部分代码无需改动) ...
             self.is_global_search_active = True
-            
             search_results = []
             for file_info in self.global_file_index:
-                # 1. 使用新的评分函数计算基础分
                 base_score = self._calculate_search_score(search_term, file_info)
-                
                 if base_score > 0:
                     result_item = file_info.copy()
-                    
-                    # 2. 检查是否在当前上下文中
                     is_in_context = (self.current_session_path is not None and 
                                      file_info['project_name'] == os.path.basename(self.current_session_path) and
                                      file_info['source_name'] == self.source_combo.currentText())
-
-                    # 3. [核心] 为当前上下文中的匹配项给予一个巨大的、决定性的分数加成
                     context_bonus = 500000 if is_in_context else 0
-                    
                     result_item['score'] = base_score + context_bonus
                     search_results.append(result_item)
-            
-            # 按最终得分降序排序
             sorted_results = sorted(search_results, key=lambda x: x['score'], reverse=True)
-            
             self.render_global_search_results(sorted_results)
 
+        elif self.current_sort_key == 'wordlist' and self.current_session_path:
+            # --- 模式2: 按词表顺序排序 ---
+            self.is_global_search_active = False
+            word_order = self._get_word_order()
+
+            if word_order:
+                # [核心修复] 不再手动反转词序列表。
+                # if self.sort_order_btn.isChecked():
+                #     word_order.reverse() # <--- 已移除此行
+
+                order_map = {word: i for i, word in enumerate(word_order)}
+                
+                matched_files = []
+                unmatched_files = []
+
+                for file_info in self.all_files_data:
+                    word_stem, _ = os.path.splitext(file_info['name'])
+                    if word_stem in order_map:
+                        file_info['order'] = order_map[word_stem]
+                        matched_files.append(file_info)
+                    else:
+                        unmatched_files.append(file_info)
+
+                # [核心修复] 使用 sort() 方法的 reverse 参数来处理升/降序。
+                # self.sort_order_btn.isChecked() == True 意为“降序”。
+                is_descending = self.sort_order_btn.isChecked()
+                matched_files.sort(key=lambda x: x['order'], reverse=is_descending)
+                
+                # 未匹配的文件总是按名称升序排列，放在列表末尾。
+                unmatched_files.sort(key=lambda x: x['name'])
+
+                # 如果是降序，未匹配的文件应该放在最前面。
+                if is_descending:
+                    sorted_files = unmatched_files + matched_files
+                else:
+                    sorted_files = matched_files + unmatched_files
+                
+                self.render_to_table(sorted_files)
+            else:
+                # --- (回退逻辑不变) ---
+                self.status_label.setText("操作取消，已切换回按名称排序。")
+                QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+                self.sort_combo.setCurrentIndex(0)
+
         else:
-            # ... (这部分的 else 逻辑保持不变) ...
+            # --- 模式3: 常规排序 (逻辑不变) ---
+            # ... (此部分代码无需改动) ...
             self.is_global_search_active = False
             self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
             if self.current_session_path:
@@ -2796,34 +2893,138 @@ class AudioManagerPage(QWidget):
                 QMessageBox.critical(self, "错误", f"重命名失败: {e}")
             
     def open_folder_context_menu(self, position):
-        selected_items = self.session_list_widget.selectedItems();
+        selected_items = self.session_list_widget.selectedItems()
         if not selected_items: return
+        
         menu = QMenu(self.audio_table_widget)
-        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {len(selected_items)} 个项目"); rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名"); rename_action.setEnabled(len(selected_items) == 1); menu.addSeparator()
-        open_folder_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中打开"); open_folder_action.setEnabled(len(selected_items) == 1); action = menu.exec_(self.session_list_widget.mapToGlobal(position))
+
+        # --- 原有的删除、重命名、打开文件夹等操作逻辑保持不变 ---
+        delete_action = menu.addAction(self.icon_manager.get_icon("delete"), f"删除选中的 {len(selected_items)} 个项目")
+        rename_action = menu.addAction(self.icon_manager.get_icon("rename"), "重命名")
+        rename_action.setEnabled(len(selected_items) == 1)
+        menu.addSeparator()
+        open_folder_action = menu.addAction(self.icon_manager.get_icon("open_folder"), "在文件浏览器中打开")
+        open_folder_action.setEnabled(len(selected_items) == 1)
+
+        # --- [核心重构] 动态的、单一的词表关联操作 ---
+        if len(selected_items) == 1:
+            item = selected_items[0]
+            # 获取当前选中的项目文件夹的完整路径
+            source_name = self.source_combo.currentText()
+            base_dir = self.DATA_SOURCES.get(source_name, {}).get("path")
+            if not base_dir:
+                 for custom_source in self.custom_data_sources:
+                    if custom_source['name'] == source_name:
+                        base_dir = custom_source['path']
+                        break
+            
+            if base_dir:
+                folder_path = os.path.join(base_dir, item.text())
+                
+                menu.addSeparator()
+                
+                # 1. 检查是否存在关联
+                cache_file_path = self._get_wordlist_order_path_for_folder(folder_path)
+                is_associated = os.path.exists(cache_file_path)
+
+                # 2. 根据关联状态，动态创建唯一的菜单项
+                if is_associated:
+                    # 如果已关联，则创建 "清除关联" 操作
+                    association_action = menu.addAction(self.icon_manager.get_icon("unlink"), "清除词表关联")
+                    association_action.setToolTip("清除当前项目文件夹与词表的关联，以便重新选择。")
+                    association_action.triggered.connect(lambda: self._clear_wordlist_association_for_folder(folder_path))
+                else:
+                    # 如果未关联，则创建 "关联词表" 操作
+                    association_action = menu.addAction(self.icon_manager.get_icon("link"), "关联词表...")
+                    association_action.setToolTip("为此项目文件夹指定一个词表，用于'按词表顺序'排序。")
+                    association_action.triggered.connect(lambda: self._associate_wordlist_for_folder(folder_path))
+
+        # --- 后续的菜单显示和事件处理逻辑保持不变 ---
+        action = menu.exec_(self.session_list_widget.mapToGlobal(position))
         
-        # 获取当前选中的数据源类型，判断是内置还是自定义
         source_name = self.source_combo.currentText()
-        base_dir = None
-        
-        # 优先从内置数据源查找
-        if source_name in self.DATA_SOURCES:
-            base_dir = self.DATA_SOURCES[source_name]["path"]
-        else: # 从自定义数据源查找
+        base_dir = self.DATA_SOURCES.get(source_name, {}).get("path")
+        if not base_dir:
             for custom_source in self.custom_data_sources:
-                if custom_source['name'] == source_name:
-                    base_dir = custom_source['path']
-                    break
+                if custom_source['name'] == source_name: base_dir = custom_source['path']; break
         
-        if not base_dir: # 如果没有找到对应的base_dir，则无法执行操作
-            QMessageBox.warning(self, "错误", "无法确定数据源路径。")
-            return
+        if not base_dir:
+            QMessageBox.warning(self, "错误", "无法确定数据源路径。"); return
 
         if action == delete_action: self.delete_folders(selected_items, base_dir)
-        elif action == getattr(self, 'last_praat_action', None) and action is not None:
-            self._send_to_external_launcher()
         elif action == rename_action: self.rename_folder(selected_items[0], base_dir)
         elif action == open_folder_action: self.open_in_explorer(os.path.join(base_dir, selected_items[0].text()))
+
+    # ==============================================================================
+    # [新增] 词表关联辅助方法
+    # ==============================================================================
+    def _get_wordlist_order_path_for_folder(self, folder_path):
+        """
+        获取指定项目文件夹下.wordlist_order缓存文件的路径。
+        这是一个更通用的版本，不依赖于 self.current_session_path。
+        """
+        if not folder_path:
+            return None
+        return os.path.join(folder_path, '.wordlist_order')
+
+
+    def _is_folder_associated(self, folder_path):
+        """
+        检查指定的项目文件夹是否已通过日志或缓存文件关联了词表。
+        """
+        if not folder_path or not os.path.isdir(folder_path):
+            return False
+
+        # 优先级1：检查log.txt
+        log_path = os.path.join(folder_path, 'log.txt')
+        if os.path.exists(log_path):
+            if self._parse_log_for_wordlist(log_path):
+                return True # 如果能从日志中解析出词表，则为关联状态
+
+        # 优先级2：检查.wordlist_order缓存文件
+        cache_file_path = self._get_wordlist_order_path_for_folder(folder_path)
+        if os.path.exists(cache_file_path):
+            return True # 如果存在手动关联的缓存文件，则为关联状态
+
+        return False # 两种情况都不满足，则未关联
+
+    def _associate_wordlist_for_folder(self, folder_path):
+        """
+        [v1.1 - Custom Dialog] 为指定的文件夹弹出自定义词表选择器并关联一个词表。
+        """
+        word_list_dir = os.path.join(self.BASE_PATH, "word_lists")
+        # [核心修改] 使用 WordlistSelectionDialog
+        dialog = WordlistSelectionDialog(self, word_list_dir, self.icon_manager, pin_handler=None)
+        dialog.setWindowTitle(f"为 '{os.path.basename(folder_path)}' 关联词表")
+
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+            rel_path = dialog.selected_file_relpath
+            self._save_wordlist_association(rel_path, folder_path=folder_path) # 传递folder_path
+            self.status_label.setText(f"项目 '{os.path.basename(folder_path)}' 已成功关联词表。")
+            
+            if folder_path == self.current_session_path and self.current_sort_key == 'wordlist':
+                self.filter_and_render_files()
+            
+            # 刷新项目列表以更新图标
+            self.populate_session_list()
+
+    def _clear_wordlist_association_for_folder(self, folder_path):
+        """
+        [v1.1] 清除指定文件夹的词表关联，并刷新UI。
+        """
+        cache_file_path = self._get_wordlist_order_path_for_folder(folder_path)
+        if cache_file_path and os.path.exists(cache_file_path):
+            try:
+                os.remove(cache_file_path)
+                self.status_label.setText(f"项目 '{os.path.basename(folder_path)}' 的词表关联已清除。")
+                
+                # [核心修复] 在清除关联后，立即调用列表刷新方法
+                self.populate_session_list()
+                
+                if folder_path == self.current_session_path and self.current_sort_key == 'wordlist':
+                    self.sort_combo.setCurrentIndex(0)
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"清除关联失败: {e}")
         
     def delete_folders(self, items, base_dir):
         """删除所有在项目列表中选中的文件夹。"""
@@ -2982,6 +3183,162 @@ class AudioManagerPage(QWidget):
         if cs == 100: cs = 0; s_int +=1
         if s_int == 60: s_int = 0; m += 1
         return f"{int(m):02d}:{s_int:02d}.{cs:02d}"
+    # ==============================================================================
+    # [新增] 词表排序核心逻辑
+    # ==============================================================================
+    def _get_word_order(self):
+        """
+        [v1.2 - Configurable Auto-match] 核心调度器：按优先级获取词序列表。
+        自动匹配逻辑现在受设置控制。
+        """
+        if not self.current_session_path:
+            return None
+
+        # 优先级 1 & 2: 检查log.txt和.wordlist_order缓存 (逻辑不变)
+        log_path = os.path.join(self.current_session_path, 'log.txt')
+        if os.path.exists(log_path):
+            wordlist_rel_path = self._parse_log_for_wordlist(log_path)
+            if wordlist_rel_path:
+                self.status_label.setText("状态：检测到日志，按日志中词表排序。")
+                QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+                return self._load_word_order_from_file(wordlist_rel_path)
+        
+        cache_file_path = self._get_wordlist_order_path()
+        if os.path.exists(cache_file_path):
+            with open(cache_file_path, 'r', encoding='utf-8') as f:
+                wordlist_rel_path = f.read().strip()
+            if wordlist_rel_path:
+                return self._load_word_order_from_file(wordlist_rel_path)
+        
+        # [核心修改] 优先级 3: 检查设置，如果启用，则尝试自动匹配
+        module_states = self.config.get("module_states", {}).get("audio_manager", {})
+        is_auto_associate_enabled = module_states.get("auto_associate_wordlist", True)
+
+        if is_auto_associate_enabled:
+            self.status_label.setText("状态：正在尝试自动匹配同名词表...")
+            QApplication.processEvents()
+            
+            found_rel_path = self._find_matching_wordlist_automatically()
+            if found_rel_path:
+                self.status_label.setText(f"状态：成功自动关联到词表 '{os.path.basename(found_rel_path)}'！")
+                QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+                
+                self._save_wordlist_association(found_rel_path)
+                self.populate_session_list()
+                return self._load_word_order_from_file(found_rel_path)
+
+        # 优先级 4 (回退): 提示用户手动选择
+        self.status_label.setText("状态：未找到自动匹配，请手动选择词表。")
+        return self._prompt_and_save_wordlist_order()
+
+    def _find_matching_wordlist_automatically(self):
+        """
+        [新增] 遍历 word_lists 目录及其所有子目录，
+        查找与当前项目文件夹同名的词表文件。
+        """
+        if not self.current_session_path:
+            return None
+        
+        project_name = os.path.basename(self.current_session_path)
+        word_lists_root = os.path.join(self.BASE_PATH, "word_lists")
+
+        for root, _, files in os.walk(word_lists_root):
+            for filename in files:
+                if filename.lower().endswith('.json'):
+                    file_stem, _ = os.path.splitext(filename)
+                    if file_stem == project_name:
+                        # 找到了匹配项！
+                        full_path = os.path.join(root, filename)
+                        # 返回相对于 word_lists 根目录的路径
+                        rel_path = os.path.relpath(full_path, word_lists_root)
+                        return rel_path.replace(os.path.sep, '/')
+        
+        # 遍历完成，没有找到匹配项
+        return None
+
+    def _save_wordlist_association(self, rel_path, folder_path=None):
+        """
+        [v1.1] 将一个词表关联保存到指定项目（或当前项目）的.wordlist_order文件中。
+        """
+        try:
+            # [核心修改] 如果未提供 folder_path，则使用 self.current_session_path
+            target_folder = folder_path if folder_path else self.current_session_path
+            cache_file_path = self._get_wordlist_order_path_for_folder(target_folder)
+            
+            if cache_file_path:
+                with open(cache_file_path, 'w', encoding='utf-8') as f:
+                    f.write(rel_path)
+                return True
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"保存词表关联时出错: {e}")
+        return False
+
+    def _parse_log_for_wordlist(self, log_path):
+        """解析log.txt文件，提取词表相对路径。"""
+        try:
+            with open(log_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            match = re.search(r"\[SESSION_CONFIG\] Wordlist: '(.*?)'", content)
+            if match:
+                return match.group(1)
+        except Exception as e:
+            print(f"Error parsing log file {log_path}: {e}")
+        return None
+
+    def _get_wordlist_order_path(self):
+        """获取当前项目文件夹下.wordlist_order缓存文件的路径。"""
+        if not self.current_session_path:
+            return None
+        return os.path.join(self.current_session_path, '.wordlist_order')
+
+    def _prompt_and_save_wordlist_order(self):
+        """
+        [v1.1 - Custom Dialog] 弹出自定义词表选择器，让用户选择词表，
+        并保存其相对路径。
+        """
+        word_list_dir = os.path.join(self.BASE_PATH, "word_lists")
+        # [核心修改] 使用 WordlistSelectionDialog
+        # 因为音频管理器不处理固定功能，所以 pin_handler=None
+        dialog = WordlistSelectionDialog(self, word_list_dir, self.icon_manager, pin_handler=None)
+        
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+            rel_path = dialog.selected_file_relpath
+            if self._save_wordlist_association(rel_path):
+                self.populate_session_list()
+                return self._load_word_order_from_file(rel_path)
+            else:
+                return None
+        else:
+            return None # 用户取消
+            
+    def _load_word_order_from_file(self, wordlist_rel_path):
+        """从指定的JSON词表文件中加载并“压平”词序。"""
+        word_list_dir = os.path.join(self.BASE_PATH, "word_lists")
+        full_path = os.path.join(word_list_dir, wordlist_rel_path)
+
+        if not os.path.exists(full_path):
+            QMessageBox.warning(self, "词表丢失", f"找不到指定的词表文件:\n{full_path}\n请重新指定。")
+            # 删除无效的缓存文件
+            cache_path = self._get_wordlist_order_path()
+            if os.path.exists(cache_path):
+                os.remove(cache_path)
+            return self._prompt_and_save_wordlist_order() # 引导用户重新选择
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            word_order = []
+            if "groups" in data and isinstance(data["groups"], list):
+                for group in data["groups"]:
+                    if "items" in group and isinstance(group["items"], list):
+                        for item in group["items"]:
+                            if "text" in item:
+                                word_order.append(item["text"])
+            return word_order
+        except Exception as e:
+            QMessageBox.critical(self, "词表解析失败", f"无法加载或解析词表 '{os.path.basename(full_path)}':\n{e}")
+            return None
         
     def reset_player(self):
         """[v2.3 彻底清理版] 安全地重置所有播放器和UI。"""
@@ -3134,10 +3491,18 @@ class SettingsDialog(QDialog):
                 "此选项需要 '文件管理器' 插件被启用。"
             )
         
+        # [核心新增] 控件：自动匹配同名词表
+        self.auto_associate_checkbox = QCheckBox("自动匹配同名词表")
+        self.auto_associate_checkbox.setToolTip(
+            "勾选后，在'按词表顺序'排序时，\n"
+            "如果项目未关联词表，将自动在词表库中搜索同名文件并关联。"
+        )
+
         # 将控件添加到表单布局
         file_ops_form_layout.addRow(self.auto_select_check)
         file_ops_form_layout.addRow(self.recycle_bin_checkbox)
-
+        # [核心新增] 将新控件添加到布局中
+        file_ops_form_layout.addRow(self.auto_associate_checkbox)
         layout.addWidget(file_ops_group)
 
         # --- 底部按钮栏 ---
@@ -3180,6 +3545,7 @@ class SettingsDialog(QDialog):
         # 默认为 'trash'
         deletion_behavior = module_states.get("deletion_behavior", "trash")
         self.recycle_bin_checkbox.setChecked(deletion_behavior == "trash")
+        self.auto_associate_checkbox.setChecked(module_states.get("auto_associate_wordlist", True))
 
     def save_settings(self):
         """从UI控件收集当前的设置值，并将其保存回主配置文件。"""
@@ -3200,6 +3566,7 @@ class SettingsDialog(QDialog):
             # --- 保存“文件操作”设置 ---
             "auto_select_new_file": self.auto_select_check.isChecked(),
             "deletion_behavior": "trash" if self.recycle_bin_checkbox.isChecked() else "permanent",
+            "auto_associate_wordlist": self.auto_associate_checkbox.isChecked(),
             
             # --- 保留从主页面读取的其他既有设置，避免覆盖 ---
             "shortcut_action": self.parent_page.shortcut_button_action,

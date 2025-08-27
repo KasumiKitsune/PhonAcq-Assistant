@@ -4,7 +4,7 @@ MODULE_NAME = "自定义UI组件"
 MODULE_DESCRIPTION = "提供如开关、滑块、按钮等自定义的UI控件，供其他模块复用。"
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QListWidget, QStyle, 
-                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider, QGraphicsOpacityEffect, QPushButton)
+                             QStyledItemDelegate, QVBoxLayout, QWidget, QListWidgetItem, QSlider, QGraphicsOpacityEffect, QPushButton, QFileDialog)
 from PyQt5.QtCore import (pyqtProperty, pyqtSignal, QEvent, QEasingCurve, 
                           QParallelAnimationGroup, QPoint, QPropertyAnimation, 
                           QRect, QRectF, QSequentialAnimationGroup, QSize, Qt, QObject, QTimer)
@@ -1203,6 +1203,8 @@ class AnimatedListWidget(QListWidget):
 
     # 定义新的信号，用于最终项目（非文件夹、非返回按钮）的激活
     item_activated = pyqtSignal(QListWidgetItem)
+    system_picker_activated = pyqtSignal()
+    item_activated = pyqtSignal(QListWidgetItem)
 
     def __init__(self, parent=None, icon_manager=None):
         super().__init__(parent)
@@ -1348,14 +1350,24 @@ class AnimatedListWidget(QListWidget):
             super().keyPressEvent(event)
 
     def _on_item_single_clicked(self, item):
-        """此方法现在只处理“返回”按钮的单击事件。"""
+        """
+        处理单击事件。
+        现在可以处理 'back' 和 'system_picker' 两种特殊类型的项目。
+        """
         if not item: return
         data = item.data(self.HIERARCHY_DATA_ROLE)
-        if data and data.get('type') == 'back':
+        if not data: return
+
+        item_type = data.get('type')
+
+        if item_type == 'back':
             if len(self._navigation_stack) > 1:
                 self._navigation_stack.pop()
                 parent_items = self._navigation_stack[-1]
                 self._populate_list_with_animation(parent_items)
+        elif item_type == 'system_picker':
+            # 如果点击了 "系统选择器" 项，则发射新信号
+            self.system_picker_activated.emit()
 
     def _handle_item_activation(self, item):
         """统一的激活处理函数，由双击或回车键调用。"""
@@ -1377,14 +1389,19 @@ class AnimatedListWidget(QListWidget):
             
     # --- 内部核心方法 ---
     def _populate_list_with_animation(self, items_data):
-        """内部核心方法，用给定的数据(list[dict])填充列表并启动动画。"""
+        """
+        [v1.2 - Pure Component] 内部核心方法，用给定的数据填充列表并启动动画。
+        此版本不再包含任何注入特殊项的业务逻辑，成为一个纯粹的UI组件。
+        """
         self.clear()
         
+        # 检查动画是否启用 (逻辑不变)
         self._animations_enabled = not (len(items_data) > 20)
         main_window = self.window()
         if hasattr(main_window, 'animations_enabled') and not main_window.animations_enabled:
             self._animations_enabled = False
 
+        # 后续的动画/非动画填充逻辑现在直接使用传入的 items_data
         if self._animations_enabled:
             for data in items_data:
                 item = self._create_item_from_data(data)
@@ -2088,34 +2105,37 @@ class WordlistSelectionDialog(QDialog):
     - 内部的 AnimatedListWidget 会自动响应全局的动画禁用设置。
     """
     
-    def __init__(self, parent_page):
+    # [核心重构] 修改 __init__ 签名，使其更通用
+    def __init__(self, parent, word_list_dir, icon_manager, pin_handler=None):
         """
         构造函数。
         
         Args:
-            parent_page: 对父页面（调用此对话框的模块主类实例）的引用。
-                         父页面必须提供以下属性和方法：
-                         - .WORD_LIST_DIR (str): 词表根目录路径。
-                         - .icon_manager: 一个IconManager实例。
-                         - .parent_window: 对主窗口 MainWindow 的引用。
-                         - .is_wordlist_pinned(rel_path): 检查词表是否固定的方法。
-                         - .toggle_pin_wordlist(rel_path): 切换词表固定状态的方法。
+            parent: 父QObject。
+            word_list_dir (str): 要扫描的词表根目录。
+            icon_manager: IconManager 实例。
+            pin_handler (optional): 一个可选的对象，如果提供，
+                                    必须实现 is_wordlist_pinned(rel_path) 和
+                                    toggle_pin_wordlist(rel_path) 方法。
+                                    如果为 None，则禁用固定功能。
         """
-        super().__init__(parent_page)
-        self.parent_page = parent_page
+        super().__init__(parent)
+        # [核心重构] 直接使用传入的参数
+        self.word_list_dir = word_list_dir
+        self.icon_manager = icon_manager
+        self.pin_handler = pin_handler
+        
+        # [核心重构] parent_page 不再是一个必需的、具有特定接口的复杂对象
+        self.parent_page = parent
+        
         self.selected_file_relpath = None 
         self._all_items_cache = []
 
-        # --- [核心修改] ---
-        # QDialog 是一个顶层窗口。为了让其内部的 AnimatedListWidget 能够感知
-        # 全局动画设置，我们必须从主窗口 (MainWindow) 获取该设置，并将其
-        # 存储为本对话框的一个属性。
-        self.animations_enabled = getattr(self.parent_page.parent_window, 'animations_enabled', True)
-        # --- [修改结束] ---
+        self.animations_enabled = getattr(self.window(), 'animations_enabled', True)
 
         self.setWindowTitle("选择单词表")
-        self.setWindowIcon(self.parent_page.parent_window.windowIcon())
-        self.setStyleSheet(self.parent_page.parent_window.styleSheet())
+        self.setWindowIcon(self.window().windowIcon())
+        self.setStyleSheet(self.window().styleSheet())
         self.setMinimumSize(400, 500)
         
         self._init_ui()
@@ -2149,6 +2169,9 @@ class WordlistSelectionDialog(QDialog):
         self.list_widget.item_activated.connect(self.on_item_selected)
         self.search_input.textChanged.connect(self._filter_list)
         self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # [核心新增] 连接来自 AnimatedListWidget 的新信号
+        self.list_widget.system_picker_activated.connect(self.open_system_file_dialog)
 
     def _parse_wordlist_for_tooltip(self, file_path):
         """解析指定的词表JSON文件，并生成一个用于Tooltip的HTML字符串。"""
@@ -2194,12 +2217,31 @@ class WordlistSelectionDialog(QDialog):
         except Exception as e:
             return f"无法解析词表: {os.path.basename(file_path)}\n错误: {e}"
 
+    # [核心新增] 实现打开系统文件选择器的槽函数
+    def open_system_file_dialog(self):
+        """
+        当用户点击 "从其他位置选择..." 时，打开一个标准的 QFileDialog。
+        """
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择词表文件",
+            self.word_list_dir, # 对话框默认打开词表根目录
+            "JSON 文件 (*.json)"
+        )
+        
+        if filepath:
+            # 如果用户选择了一个文件，则执行与 on_item_selected 相同的逻辑
+            rel_path = os.path.relpath(filepath, self.word_list_dir)
+            self.selected_file_relpath = rel_path.replace("\\", "/")
+            self.accept() # 以成功状态关闭对话框
+
     def on_item_selected(self, item):
         """当用户选择一个文件后，存储其相对路径并关闭对话框。"""
         item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
         full_path = item_data.get('data', {}).get('path')
         if full_path:
-            rel_path = os.path.relpath(full_path, self.parent_page.WORD_LIST_DIR)
+            # [核心重构] 使用 self.word_list_dir 计算相对路径
+            rel_path = os.path.relpath(full_path, self.word_list_dir)
             self.selected_file_relpath = rel_path.replace("\\", "/")
             self.accept()
 
@@ -2220,35 +2262,53 @@ class WordlistSelectionDialog(QDialog):
         """当用户在列表上右键单击时，显示上下文菜单。"""
         item = self.list_widget.itemAt(position)
         if not item: return
+        
         item_data = item.data(AnimatedListWidget.HIERARCHY_DATA_ROLE)
         if not item_data: return
 
         item_type = item_data.get('type')
         full_path = item_data.get('data', {}).get('path')
-        icon_manager = self.parent_page.icon_manager
+        # [核心修复] 使用 self.icon_manager
+        icon_manager = self.icon_manager
         menu = QMenu(self.list_widget)
 
         if item_type == 'item':
-            rel_path = os.path.relpath(full_path, self.parent_page.WORD_LIST_DIR).replace("\\", "/")
-            is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
-            pin_action = menu.addAction(icon_manager.get_icon("unpin" if is_pinned else "pin"), "取消固定" if is_pinned else "固定到顶部")
-            menu.addSeparator()
+            # [核心修复] 使用 self.word_list_dir 计算相对路径
+            rel_path = os.path.relpath(full_path, self.word_list_dir).replace("\\", "/")
+            
+            pin_action = None
+            if self.pin_handler:
+                is_pinned = self.pin_handler.is_wordlist_pinned(rel_path)
+                pin_action = menu.addAction(
+                    icon_manager.get_icon("unpin" if is_pinned else "pin"), 
+                    "取消固定" if is_pinned else "固定到顶部"
+                )
+                menu.addSeparator()
+
             open_file_action = menu.addAction(icon_manager.get_icon("open_external"), "用默认程序打开")
             open_folder_action = menu.addAction(icon_manager.get_icon("show_in_explorer"), "打开所在目录")
             
             action = menu.exec_(self.list_widget.mapToGlobal(position))
-            if action == pin_action:
-                self.parent_page.toggle_pin_wordlist(rel_path)
+            
+            if action == pin_action and self.pin_handler:
+                self.pin_handler.toggle_pin_wordlist(rel_path)
                 self.populate_list()
-            elif action == open_file_action: self._open_system_default(full_path)
-            elif action == open_folder_action: self._open_system_default(os.path.dirname(full_path))
+            elif action == open_file_action: 
+                self._open_system_default(full_path)
+            elif action == open_folder_action: 
+                self._open_system_default(os.path.dirname(full_path))
+
         elif item_type == 'folder':
             first_child_path = item_data.get('children', [{}])[0].get('data', {}).get('path')
             if not first_child_path: return
+            
             folder_path = os.path.dirname(first_child_path)
             open_folder_action = menu.addAction(icon_manager.get_icon("open_folder"), "打开目录")
+            
             action = menu.exec_(self.list_widget.mapToGlobal(position))
-            if action == open_folder_action: self._open_system_default(folder_path)
+            
+            if action == open_folder_action: 
+                self._open_system_default(folder_path)
 
     def _open_system_default(self, path):
         """跨平台地使用系统默认程序打开文件或文件夹。"""
@@ -2260,15 +2320,18 @@ class WordlistSelectionDialog(QDialog):
             QMessageBox.critical(self, "操作失败", f"无法打开路径: {path}\n错误: {e}")
             
     def populate_list(self):
-        """扫描词表目录，构建一个包含固定项快捷方式和层级浏览区的列表。"""
-        base_dir = self.parent_page.WORD_LIST_DIR
-        icon_manager = self.parent_page.icon_manager
+        """
+        [v1.1] 扫描词表目录，构建列表，并手动添加 "从其他位置选择" 选项。
+        """
+        base_dir = self.word_list_dir
+        icon_manager = self.icon_manager
         
         pinned_shortcuts, regular_items = [], []
         self._all_items_cache.clear()
         folder_map = {}
 
         try:
+            # --- (扫描文件和构建列表的逻辑保持不变) ---
             for root, _, files in os.walk(base_dir):
                 for filename in files:
                     if not filename.endswith('.json'): continue
@@ -2276,7 +2339,8 @@ class WordlistSelectionDialog(QDialog):
                     full_path = os.path.join(root, filename)
                     rel_path = os.path.relpath(full_path, base_dir).replace("\\", "/")
                     display_name, _ = os.path.splitext(filename)
-                    is_pinned = self.parent_page.is_wordlist_pinned(rel_path)
+                    
+                    is_pinned = self.pin_handler.is_wordlist_pinned(rel_path) if self.pin_handler else False
                     
                     tooltip_html = self._parse_wordlist_for_tooltip(full_path)
 
@@ -2317,9 +2381,23 @@ class WordlistSelectionDialog(QDialog):
                     'tooltip': folder_tooltip
                 })
             
+            # --- (排序逻辑保持不变) ---
             regular_items.sort(key=lambda x: (x['type'] != 'folder', x['text']))
             pinned_shortcuts.sort(key=lambda x: x['text'])
             
-            self.list_widget.setHierarchicalData(pinned_shortcuts + regular_items)
+            # [核心修改] 在这里构建最终的显示列表，并手动添加特殊项
+            final_display_list = pinned_shortcuts + regular_items
+            
+            icon = self.icon_manager.get_icon("open_folder") if self.icon_manager else QIcon()
+            final_display_list.append({
+                'type': 'system_picker',
+                'text': '从其他位置选择词表...',
+                'icon': icon,
+                'tooltip': '打开系统文件选择器来浏览并选择一个词表文件。'
+            })
+            
+            # 将构建完成的、包含特殊项的列表传递给 AnimatedListWidget
+            self.list_widget.setHierarchicalData(final_display_list)
+
         except Exception as e:
             QMessageBox.critical(self, "错误", f"扫描并构建词表列表时发生错误: {e}")

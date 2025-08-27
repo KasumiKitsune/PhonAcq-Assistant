@@ -186,7 +186,14 @@ class VoicebankRecorderPage(QWidget):
         self.list_widget.cellDoubleClicked.connect(self.on_cell_double_clicked) # 新增连接
 
     def open_wordlist_selector(self):
-        dialog = WordlistSelectionDialog(self)
+        """
+        [v1.1 - Fix] 打开自定义词表选择器。
+        修复了因 WordlistSelectionDialog 构造函数变更导致的 TypeError。
+        """
+        # [核心修复] 使用新的、包含所有必需参数的构造函数签名。
+        # 'self' 同时作为 parent 和 pin_handler 传入。
+        dialog = WordlistSelectionDialog(self, self.WORD_LIST_DIR, self.icon_manager, pin_handler=self)
+        
         if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
             selected_file = dialog.selected_file_relpath
             self.current_wordlist_name = selected_file
@@ -198,7 +205,7 @@ class VoicebankRecorderPage(QWidget):
             self.word_list_select_btn.setText(display_name)
             self.word_list_select_btn.setToolTip(f"当前选择: {selected_file}")
             
-            # [差异点实现] 自动填充批次名称
+            # 自动填充批次名称
             self.session_name_input.setText(display_name)
 
     def on_cell_double_clicked(self, row, column):
