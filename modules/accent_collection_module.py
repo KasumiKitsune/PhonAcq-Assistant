@@ -203,7 +203,11 @@ class AccentCollectionPage(QWidget):
         self.list_widget.setToolTip("当前会话需要录制的所有词语。\n绿色对勾表示已录制。\n双击可重听提示音。")
         self.status_label = QLabel("状态：准备就绪")
         self.progress_bar = QProgressBar(); self.progress_bar.setVisible(False)
-        left_layout.addWidget(QLabel("测试词语列表:"))
+        # [核心修改] 将 QLabel 赋值给 self.list_label
+        self.list_label = QLabel("测试词语列表:")
+        
+        # [核心修改] 使用 self.list_label 添加到布局中
+        left_layout.addWidget(self.list_label)
         left_layout.addWidget(self.list_widget)
         left_layout.addWidget(self.status_label)
         left_layout.addWidget(self.progress_bar)
@@ -221,6 +225,7 @@ class AccentCollectionPage(QWidget):
         wordlist_label = QLabel("选择单词表:")
         self.word_list_select_btn = QPushButton("请选择单词表...")
         self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
+        self.word_list_select_btn.setContextMenuPolicy(Qt.CustomContextMenu)
         
         # --- 被试者名称部分 ---
         participant_label = QLabel("被试者名称:")
@@ -309,6 +314,62 @@ class AccentCollectionPage(QWidget):
         main_layout.addLayout(left_layout, 2)
         main_layout.addWidget(self.right_panel, 1)
 
+    def _show_placeholder_message(self, text):
+        """
+        [新增] 清空表格并显示一条居中的、非交互的提示信息。
+        """
+        self.list_widget.setRowCount(0)
+        self.list_widget.setRowCount(1)
+
+        placeholder_item = QTableWidgetItem(text)
+        placeholder_item.setTextAlignment(Qt.AlignCenter)
+        placeholder_item.setForeground(self.palette().color(QPalette.Disabled, QPalette.Text))
+        # 设置为不可选中、不可编辑
+        placeholder_item.setFlags(Qt.ItemIsEnabled)
+
+        self.list_widget.setItem(0, 0, placeholder_item)
+        # 将单元格横跨所有列
+        self.list_widget.setSpan(0, 0, 1, self.list_widget.columnCount())
+        # 对于占位符，隐藏行号
+        self.list_widget.verticalHeader().setVisible(False)
+        # 自动调整行高以适应可能换行的文本
+        self.list_widget.resizeRowsToContents()
+
+    def _preview_wordlist(self, wordlist_rel_path):
+        """
+        [v1.1 - Fix] 加载指定的词表文件，并在左侧表格中显示其内容的预览。
+        现在将文件名作为参数直接传递给加载逻辑。
+        """
+        try:
+            # [核心修复] 将接收到的 wordlist_rel_path 直接传递给加载函数
+            word_groups = self.load_word_list_logic(filename=wordlist_rel_path)
+            
+            # --- (后续的预览列表填充逻辑保持不变) ---
+            preview_list = []
+            for group in word_groups:
+                for word, value in group.items():
+                    ipa_or_note = value[0] if isinstance(value, tuple) else str(value)
+                    preview_list.append({'word': word, 'ipa': ipa_or_note})
+            
+            self.list_widget.setRowCount(0)
+            self.list_widget.setRowCount(len(preview_list))
+            for i, item_data in enumerate(preview_list):
+                word_item = QTableWidgetItem(item_data['word'])
+                ipa_item = QTableWidgetItem(item_data['ipa'])
+                word_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                ipa_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                self.list_widget.setItem(i, 0, word_item)
+                self.list_widget.setItem(i, 1, ipa_item)
+                self.list_widget.setCellWidget(i, 2, None)
+
+            self.list_widget.resizeRowsToContents()
+            self.list_widget.verticalHeader().setVisible(True)
+            self.list_label.setText("测试词语列表: (预览)")
+
+        except Exception as e:
+            self._show_placeholder_message(f"加载词表预览失败:\n{e}")
+            self.list_label.setText("测试词语列表:")
+
     def resizeEvent(self, event):
         """
         在窗口大小改变时，重新计算并设置列宽以保持2:1:1的比例。
@@ -333,6 +394,7 @@ class AccentCollectionPage(QWidget):
 
     def _connect_signals(self):
         self.word_list_select_btn.clicked.connect(self.open_wordlist_selector)
+        self.word_list_select_btn.customContextMenuRequested.connect(self.show_wordlist_button_context_menu)
         self.start_session_btn.clicked.connect(self.handle_start_session_click)
         self.end_session_btn.clicked.connect(self.end_session)
         self.record_btn.clicked.connect(self.handle_record_button)
@@ -351,6 +413,69 @@ class AccentCollectionPage(QWidget):
         self.session_repetition_slider.valueChanged.connect(self._on_session_settings_changed)
         self.session_follow_up_switch.stateChanged.connect(self._on_session_settings_changed)
 
+    def show_wordlist_button_context_menu(self, position):
+        """
+        [新增] 为词表选择按钮显示一个上下文菜单。
+        """
+        # 只有在当前已选中一个词表时，才显示“清空”选项
+        if not self.current_wordlist_name:
+            return
+
+        menu = QMenu(self)
+        clear_action = menu.addAction(self.icon_manager.get_icon("clear"), "清空当前选择")
+        
+        # 将菜单显示在按钮的全局位置上
+        action = menu.exec_(self.word_list_select_btn.mapToGlobal(position))
+
+        if action == clear_action:
+            self.current_wordlist_name = ""
+            self.word_list_select_btn.setText("请选择单词表...")
+            self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。\n右键可清空当前选择。")
+            
+            # 调用新方法显示提示信息
+            self._show_placeholder_message("请从右侧选择一个单词表以加载预览...")
+            self.list_label.setText("测试词语列表:")
+            
+            # 同时清除配置文件中记住的选择
+            self.parent_window.update_and_save_module_state(
+                'accent_collection',
+                'last_selected_wordlist',
+                ""
+            )
+
+    def open_wordlist_selector(self):
+        """
+        [v1.2 - Final & Corrected] 打开词表选择对话框，并在选择后实时更新预览。
+        """
+        dialog = WordlistSelectionDialog(self, self.WORD_LIST_DIR, self.icon_manager, pin_handler=self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
+            selected_file = dialog.selected_file_relpath
+            
+            # 只有在用户选择了与当前不同的文件时，才执行更新
+            if self.current_wordlist_name != selected_file:
+                self.current_wordlist_name = selected_file
+                base_name = os.path.basename(selected_file)
+                display_name, _ = os.path.splitext(base_name)
+                
+                # 更新UI
+                self.word_list_select_btn.setText(display_name)
+                self.word_list_select_btn.setToolTip(f"当前选择: {selected_file}")
+
+                # [核心功能] 立即调用预览方法来刷新左侧表格
+                self._preview_wordlist(selected_file)
+                
+                # [UX优化] 将焦点设置到下一个合乎逻辑的控件上
+                self.start_session_btn.setFocus()
+                
+                # 保存选择以便下次启动时记住 (逻辑不变)
+                module_states = self.config.get("module_states", {}).get("accent_collection", {})
+                if module_states.get("remember_last_wordlist", True):
+                    self.parent_window.update_and_save_module_state(
+                        'accent_collection',
+                        'last_selected_wordlist',
+                        selected_file
+                    )
+
     def _on_session_settings_changed(self):
         """当会话中的临时设置（开关、滑块）改变时，更新内部状态变量。"""
         # 更新滑块旁边的标签
@@ -361,24 +486,6 @@ class AccentCollectionPage(QWidget):
         self.session_follow_up_enabled = self.session_follow_up_switch.isChecked()
         self.session_repetition_count = new_count
 
-    # [核心新增] 打开词表选择对话框的槽函数
-    def open_wordlist_selector(self):
-        dialog = WordlistSelectionDialog(self, self.WORD_LIST_DIR, self.icon_manager, pin_handler=self)
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_file_relpath:
-            selected_file = dialog.selected_file_relpath
-            self.current_wordlist_name = selected_file
-            base_name = os.path.basename(selected_file)
-            display_name, _ = os.path.splitext(base_name)
-            self.word_list_select_btn.setText(display_name)
-            self.word_list_select_btn.setToolTip(f"当前选择: {selected_file}")
-            # 检查是否需要保存这次选择
-            module_states = self.config.get("module_states", {}).get("accent_collection", {})
-            if module_states.get("remember_last_wordlist", True):
-                self.parent_window.update_and_save_module_state(
-                    'accent_collection',
-                    'last_selected_wordlist',
-                    selected_file
-                )
 
     def skip_repetitions(self):
         """用户点击“完成本词”按钮，提前结束当前词的跟读循环。"""
@@ -516,41 +623,44 @@ class AccentCollectionPage(QWidget):
 
     def populate_word_lists(self):
         """
-        [v3.0 - 优化版]
-        根据设置，优先加载上次选择的单词表，否则回退到全局默认设置。
+        [v3.2 - State Sync Fix] 管理预会话UI状态。
+        修复了程序启动时未同步内部词表状态 (self.current_wordlist_name) 的BUG。
         """
-        self.current_wordlist_name = ""
         default_list_to_load = ""
 
-        # 1. 检查是否启用了“记住”功能
+        # 1. 检查并获取默认加载的词表路径 (逻辑不变)
         module_states = self.config.get("module_states", {}).get("accent_collection", {})
         should_remember = module_states.get("remember_last_wordlist", True)
 
         if should_remember:
-            # 2. 如果启用，优先从模块状态中获取上次选择的词表
             default_list_to_load = module_states.get("last_selected_wordlist", "")
-
-        # 3. 如果没有记住的词表（或功能被禁用），则回退到全局默认设置
         if not default_list_to_load:
             default_list_to_load = self.config['file_settings'].get('word_list_file', '')
 
-        # 4. 根据最终确定的 `default_list_to_load` 更新UI
-        if default_list_to_load:
-            full_path = os.path.join(self.WORD_LIST_DIR, default_list_to_load)
-            if os.path.exists(full_path):
-                self.current_wordlist_name = default_list_to_load
-                base_name = os.path.basename(default_list_to_load)
-                display_name, _ = os.path.splitext(base_name)
-                self.word_list_select_btn.setText(display_name)
-                self.word_list_select_btn.setToolTip(f"当前选择: {default_list_to_load}")
-            else:
-                # 配置文件中的路径无效，重置UI
-                self.word_list_select_btn.setText("请选择单词表...")
-                self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
+        # 2. 根据是否存在默认词表，更新整个预会话UI
+        if default_list_to_load and os.path.exists(os.path.join(self.WORD_LIST_DIR, default_list_to_load)):
+            # --- 状态A: 找到了有效的默认词表 ---
+            
+            # [核心修复] 在更新UI之前，首先同步内部状态变量！
+            self.current_wordlist_name = default_list_to_load
+            
+            # 更新UI按钮的显示 (逻辑不变)
+            base_name = os.path.basename(default_list_to_load)
+            display_name, _ = os.path.splitext(base_name)
+            self.word_list_select_btn.setText(display_name)
+            self.word_list_select_btn.setToolTip(f"当前选择: {default_list_to_load}")
+            
+            # 调用方法加载并显示预览 (逻辑不变)
+            self._preview_wordlist(default_list_to_load)
         else:
-            # 没有任何默认设置，重置UI
+            # --- 状态B: 没有找到默认词表 ---
+            self.current_wordlist_name = "" # 确保在没有选择时，内部状态也是空的
             self.word_list_select_btn.setText("请选择单词表...")
             self.word_list_select_btn.setToolTip("点击选择一个用于本次采集任务的单词表文件。")
+
+            # 调用方法显示提示信息 (逻辑不变)
+            self._show_placeholder_message("请从右侧选择一个单词表以加载预览...")
+            self.list_label.setText("测试词语列表:")
 
     def on_session_mode_changed(self):
         # [修改] 此方法现在只在会话激活时刷新列表，不再保存任何东西
@@ -594,8 +704,19 @@ class AccentCollectionPage(QWidget):
 
 
     def reset_ui(self):
-        self.pre_session_widget.show(); self.in_session_widget.hide(); self.record_btn.setEnabled(False); self.replay_btn.setEnabled(False); self.record_btn.setText("开始录制下一个")
-        self.list_widget.setRowCount(0); self.status_label.setText("状态：准备就绪"); self.progress_bar.setVisible(False); self.progress_bar.setValue(0)
+        self.pre_session_widget.show()
+        self.in_session_widget.hide()
+        self.record_btn.setEnabled(False)
+        self.replay_btn.setEnabled(False)
+        self.record_btn.setText("开始录制下一个")
+        
+        # [核心修改] 不再手动清空表格，而是调用 load_config_and_prepare，
+        # 它会进一步调用 populate_word_lists 来恢复正确的预会话状态。
+        self.load_config_and_prepare()
+
+        self.status_label.setText("状态：准备就绪")
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setValue(0)
         
     def end_session(self, force=False):
         if not force:
@@ -1467,20 +1588,29 @@ class AccentCollectionPage(QWidget):
         elif task_func==self.save_recording_task:self.worker.finished.connect(self.on_recording_saved)
         self.thread.start()
         
-    def load_word_list_logic(self):
-        filename = self.current_wordlist_name
+    def load_word_list_logic(self, filename=None):
+        """
+        [v1.1 - Fix] 加载并解析一个标准的JSON词表文件。
+        现在接受一个可选的 filename 参数，使其行为更明确。
+        如果未提供 filename，则回退到使用 self.current_wordlist_name。
+        """
+        # [核心修复] 如果未提供文件名，则使用实例变量作为后备
+        if filename is None:
+            filename = self.current_wordlist_name
+
+        if not filename:
+            raise FileNotFoundError("没有提供或选择任何词表文件。")
+
         filepath = os.path.join(self.WORD_LIST_DIR, filename)
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"找不到单词表文件: {filename}")
 
-        # [修改] 使用 json.load() 读取并解析
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(f"词表文件 '{filename}' 不是有效的JSON格式: {e}")
 
-        # 验证文件格式并转换为内部使用的 WORD_GROUPS 格式
         if "meta" not in data or data.get("meta", {}).get("format") != "standard_wordlist" or "groups" not in data:
             raise ValueError(f"词表文件 '{filename}' 格式不正确或不受支持。")
 
@@ -1489,7 +1619,6 @@ class AccentCollectionPage(QWidget):
             group_dict = {}
             group_items = group_data.get("items", [])
             for item in group_items:
-                # 兼容新旧格式，note 和 lang 都是可选的
                 text = item.get("text")
                 if text:
                     note = item.get("note", "")
@@ -1502,8 +1631,8 @@ class AccentCollectionPage(QWidget):
         
     def _proceed_to_start_session(self):
         """
-        封装了开始录音会话的核心逻辑。
-        在所有准备工作（如TTS生成）完成后被调用。
+        [v1.1] 封装了开始录音会话的核心逻辑。
+        现在会在会话开始时更新左侧列表的标签为 "(录制中)"。
         """
         # 1. 清理并启动后台录音线程和UI更新定时器
         self.session_stop_event.clear()
@@ -1516,7 +1645,12 @@ class AccentCollectionPage(QWidget):
         self.pre_session_widget.hide()
         self.in_session_widget.show()
         
-        # 3. [核心] 根据会话的初始临时设置，决定是否显示跟读设置面板
+        # 3. [核心修改] 更新左侧列表的标签以反映“录制中”状态
+        self.list_label.setText("测试词语列表: (录制中)")
+        # 确保行号在进入会话时是可见的
+        self.list_widget.verticalHeader().setVisible(True)
+
+        # 4. 根据会话的初始临时设置，决定是否显示跟读设置面板
         if self.session_follow_up_enabled:
             self.session_follow_up_group.show()
         else:
@@ -1525,10 +1659,10 @@ class AccentCollectionPage(QWidget):
         self.record_btn.setEnabled(True)
         self.session_active = True
         
-        # 4. 准备并填充词语列表
+        # 5. 准备并填充词语列表（应用随机化等设置）
         self.prepare_word_list()
         
-        # 5. 更新录制按钮的文本，显示词条总数
+        # 6. 更新录制按钮的文本，显示词条总数
         if self.current_word_list:
             recorded_count = sum(1 for item in self.current_word_list if item.get('recorded', False))
             self.record_btn.setText(f"开始录制 ({recorded_count + 1}/{len(self.current_word_list)})")
