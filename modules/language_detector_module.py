@@ -98,4 +98,56 @@ def detect_language(text, note=None):
 
     # 对于所有其他情况，只返回基于主文本的最高分结果
     return best_lang
-# --- END OF FILE modules/language_detector_module.py ---
+# ==============================================================================
+#   2. Edge-TTS 语言检测知识库与算法 (新增)
+# ==============================================================================
+
+# 知识库: 为 Edge-TTS 优化的特征库，只包含其支持的语言，并使用最高效的特征。
+# 注意：我们只列出有强特征的语言，英文将作为默认的回退选项。
+EDGE_TTS_LANG_DATA = {
+    'zh-cn': { 'ranges': frozenset({(0x4E00, 0x9FFF)}) },
+    'ja':    { 'ranges': frozenset({(0x3040, 0x309F), (0x30A0, 0x30FF)}) },
+    'ko':    { 'ranges': frozenset({(0xAC00, 0xD7A3)}) },
+    'fr':    { 'killer': frozenset('çœ') },
+    'de':    { 'killer': frozenset('ß') },
+    'es':    { 'killer': frozenset('ñ¿¡') },
+    'ru':    { 'ranges': frozenset({(0x0400, 0x04FF)}) },
+    # en-us 和 en-uk 没有强烈的、独占的字符特征，因此不列入，它们将成为默认选项。
+}
+
+def detect_language_for_edge_tts(text):
+    """
+    [新增] 为 Edge-TTS 优化的、轻量级的语言检测函数。
+    它只依赖于高效的字符级特征，并且只检测我们为其定义了强特征的语言子集。
+    如果检测不到任何强特征，它会智能地回退到英语。
+    """
+    if not text or not isinstance(text, str):
+        return 'en-us' # 安全回退到美式英语
+
+    text_lower = text.lower().strip()
+    if not text_lower:
+        return 'en-us'
+
+    scores = {lang: 0 for lang in EDGE_TTS_LANG_DATA}
+    
+    # 高效的字符级分析
+    for char in text_lower:
+        char_ord = ord(char)
+        for lang, data in EDGE_TTS_LANG_DATA.items():
+            # 范围检测 (对中/日/韩语最高效)
+            if 'ranges' in data and any(start <= char_ord <= end for start, end in data['ranges']):
+                scores[lang] += 1
+            # 独有特征检测 (对欧洲语言高效)
+            if 'killer' in data and char in data['killer']:
+                scores[lang] += 1
+
+    # 决策逻辑
+    # 移除所有得分为0的语言
+    positive_scores = {lang: score for lang, score in scores.items() if score > 0}
+
+    if not positive_scores:
+        # 如果没有任何特征匹配，则默认为英语 (美式)
+        return 'en-us'
+    
+    # 返回得分最高的语言
+    return max(positive_scores, key=positive_scores.get)

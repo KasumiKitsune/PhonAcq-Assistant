@@ -1519,7 +1519,19 @@ class AnimatedListWidget(QListWidget):
         self._animate_item_bg(item, target_brush)
         
     def _item_from_id(self, item_id):
-        """辅助函数：通过内存ID查找 QListWidgetItem。"""
+        """
+        [v1.1 - Safe] 辅助函数：通过内存ID查找 QListWidgetItem。
+        增加了安全检查，以防止在控件已被删除后访问它。
+        """
+        # [核心修复] 导入 sip 模块并检查 C++ 对象是否存在
+        try:
+            import sip
+            if sip.isdeleted(self):
+                return None
+        except (ImportError, AttributeError):
+            # 如果 sip 不可用或有其他问题，则跳过检查
+            pass
+
         for i in range(self.count()):
             item = self.item(i)
             if item and id(item) == item_id:

@@ -528,8 +528,10 @@ def create_page(parent_window, config, base_path, results_dir, audio_record_dir,
         "看图说话采集": {"path": os.path.join(results_dir, "visual"), "filter": lambda d,p: os.path.isdir(os.path.join(p, d))},
         "语音包录制": {"path": audio_record_dir, "filter": lambda d, p: True},
     }
+    # [核心新增] 将 TTS 工具的输出目录添加为新的内置数据源
     AUDIO_TTS_DIR = os.path.join(base_path, "audio_tts")
     data_sources["TTS 工具语音"] = {"path": AUDIO_TTS_DIR, "filter": lambda d, p: True}
+    
     return AudioManagerPage(parent_window, config, base_path, data_sources, icon_manager, ToggleSwitchClass)
 
 class AudioManagerPage(QWidget):
