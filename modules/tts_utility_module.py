@@ -789,7 +789,15 @@ class TtsUtilityPage(QWidget):
                     else: lang_code = tts_settings['default_lang']
                 if not lang_code: lang_code = "en-us" 
                 
-                safe_filename_base = text_to_speak_original if is_for_flashcard else re.sub(r'[^\w\s-]', '', text_to_speak_original).strip().replace(' ', '_')
+                # [核心修复] 使用更宽容的正则表达式来保留标点符号，同时移除真正的非法字符
+                text_for_filename = text_to_speak_original if 'text_to_speak_original' in locals() else text_to_speak
+                if is_for_flashcard:
+                    safe_filename_base = text_for_filename
+                else:
+                    # 移除非法字符: \ / : * ? " < > |
+                    temp_name = re.sub(r'[\\/*?:"<>|]', '', text_for_filename)
+                    # 将空格替换为下划线
+                    safe_filename_base = temp_name.strip().replace(' ', '_')
                 if not safe_filename_base: safe_filename_base = f"item_{i+1}_ts{int(time.time())}"
                 safe_filename_base = safe_filename_base[:50] 
                 output_filepath = os.path.join(target_dir, f"{safe_filename_base}.mp3")
@@ -839,7 +847,15 @@ class TtsUtilityPage(QWidget):
                 if stop_event.is_set(): break
                 # ... (文件名处理、进度更新、语音选择等逻辑不变)
                 text_to_speak = item_data['text']
-                safe_filename_base = text_to_speak if is_for_flashcard else re.sub(r'[^\w\s-]', '', text_to_speak).strip().replace(' ', '_')
+                # [核心修复] 使用更宽容的正则表达式来保留标点符号，同时移除真正的非法字符
+                text_for_filename = text_to_speak_original if 'text_to_speak_original' in locals() else text_to_speak
+                if is_for_flashcard:
+                    safe_filename_base = text_for_filename
+                else:
+                    # 移除非法字符: \ / : * ? " < > |
+                    temp_name = re.sub(r'[\\/*?:"<>|]', '', text_for_filename)
+                    # 将空格替换为下划线
+                    safe_filename_base = temp_name.strip().replace(' ', '_')
                 if not safe_filename_base: safe_filename_base = f"item_{i+1}"
                 output_filepath = os.path.join(target_dir, f"{safe_filename_base}.mp3")
                 

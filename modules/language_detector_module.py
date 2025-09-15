@@ -151,3 +151,67 @@ def detect_language_for_edge_tts(text):
     
     # 返回得分最高的语言
     return max(positive_scores, key=positive_scores.get)
+# ==============================================================================
+#   3. XTTS 语言检测 (全新函数)
+# ==============================================================================
+
+XTTS_LANG_DATA = {
+    # 语言代码必须与 XTTS_LANGUAGES 字典中的值完全匹配
+    'en':    { 'ranges': frozenset({(0x0041, 0x007A)}) }, # a-z, A-Z 基础拉丁字母
+    'zh-cn': { 'ranges': frozenset({(0x4E00, 0x9FFF)}) },
+    'ja':    { 'ranges': frozenset({(0x3040, 0x309F), (0x30A0, 0x30FF)}) },
+    'ko':    { 'ranges': frozenset({(0xAC00, 0xD7A3)}) },
+    'fr':    { 'features': frozenset('àâæçéèêëîïôœùûü') },
+    'de':    { 'features': frozenset('äöüß') },
+    'es':    { 'features': frozenset('áéíóúüñ¿¡') },
+    'ru':    { 'ranges': frozenset({(0x0400, 0x04FF)}) },
+    'pl':    { 'features': frozenset('ąćęłńóśźż') },
+    'tr':    { 'features': frozenset('çğıöşü') },
+    'pt':    { 'features': frozenset('áàâãéêíóôõúç') },
+    'it':    { 'features': frozenset('àèéìòù') },
+    'cs':    { 'features': frozenset('áčďéěíňóřšťúůýž')},
+    'hu':    { 'features': frozenset('áéíóöőúüű')},
+    'ar':    { 'ranges': frozenset({(0x0600, 0x06FF)}) },
+    'hi':    { 'ranges': frozenset({(0x0900, 0x097F)}) },
+}
+
+def detect_language_for_xtts(text):
+    """
+    [新增] 为 Coqui XTTS v2 模型优化的语言检测函数。
+    - 使用 XTTS 支持的语言代码 (如 'en')。
+    - 为英文增加了基础拉丁字母范围，以正确识别纯英文短文本。
+    """
+    if not text or not isinstance(text, str):
+        return 'en' # 安全回退到英文
+
+    text_lower = text.lower().strip()
+    if not text_lower:
+        return 'en'
+
+    # 为每种语言设置权重，确保强特征（如汉字）优先
+    scores = {lang: 0.0 for lang in XTTS_LANG_DATA}
+    
+    for char in text_lower:
+        char_ord = ord(char)
+        is_basic_latin = 0x0061 <= char_ord <= 0x007A # a-z
+
+        # [核心逻辑] 字符级分析
+        for lang, data in XTTS_LANG_DATA.items():
+            # 1. Unicode 范围检测 (高权重)
+            if 'ranges' in data and any(start <= char_ord <= end for start, end in data['ranges']):
+                # 如果是中日韩等字符，给予高分
+                # 如果是基础拉丁字母，只给 'en' 加分
+                if lang == 'en' and not is_basic_latin:
+                    continue # 避免其他语言的拉丁扩展字符给英文加分
+                scores[lang] += 10.0
+            
+            # 2. 特征字符检测 (中等权重)
+            if 'features' in data and char in data['features']:
+                scores[lang] += 5.0
+    
+    # 如果没有任何分数，则默认为英文
+    if not any(s > 0 for s in scores.values()):
+        return 'en'
+    
+    # 决策：返回得分最高的语言
+    return max(scores, key=scores.get)
