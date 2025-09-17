@@ -176,7 +176,7 @@ DEFAULT_ICON_DIR = os.path.join(BASE_PATH, "assets", "icons") # [新增] 默认�
 PLUGINS_DIR = os.path.join(BASE_PATH, "plugins") # 新增
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 TOOLTIPS_FILE = os.path.join(CONFIG_DIR, "tooltips.json")
-APP_VERSION = "v1.8.5"
+APP_VERSION = "v1.9.0"
 
 
 tooltips_config = {}
@@ -420,23 +420,31 @@ class AnimationManager:
         self.parent = parent # parent 应该是 MainWindow 实例
         self.active_animations = {}
 
+
     def slide_and_fade_in(self, widget, direction='right', duration=300, offset=30):
-        # ... (此方法保持不变) ...
         if not widget or not self.parent.animations_enabled: return
         effect = widget.graphicsEffect()
         if not isinstance(effect, QGraphicsOpacityEffect):
             effect = QGraphicsOpacityEffect(widget); widget.setGraphicsEffect(effect)
+        
+        # 1. 准备动画组和透明度动画（这部分不变）
+        anim_group = QParallelAnimationGroup()
         opacity_anim = QPropertyAnimation(effect, b"opacity")
         opacity_anim.setDuration(duration); opacity_anim.setStartValue(0.0); opacity_anim.setEndValue(1.0)
         opacity_anim.setEasingCurve(QEasingCurve.OutCubic)
-        pos_anim = QPropertyAnimation(widget, b"pos"); pos_anim.setDuration(duration)
-        start_pos = widget.pos(); end_pos = widget.pos()
-        if direction == 'right': start_pos.setX(end_pos.x() + offset)
-        else: start_pos.setX(end_pos.x() - offset)
-        pos_anim.setStartValue(start_pos); pos_anim.setEndValue(end_pos)
-        pos_anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim_group = QParallelAnimationGroup()
-        anim_group.addAnimation(opacity_anim); anim_group.addAnimation(pos_anim)
+        anim_group.addAnimation(opacity_anim)
+
+        # 2. [核心修改] 只有在 direction 不是 'inplace' 时，才创建并添加位置动画
+        if direction != 'inplace':
+            pos_anim = QPropertyAnimation(widget, b"pos"); pos_anim.setDuration(duration)
+            start_pos = widget.pos(); end_pos = widget.pos()
+            if direction == 'right': start_pos.setX(end_pos.x() + offset)
+            else: start_pos.setX(end_pos.x() - offset)
+            pos_anim.setStartValue(start_pos); pos_anim.setEndValue(end_pos)
+            pos_anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim_group.addAnimation(pos_anim)
+
+        # 3. 启动动画组（这部分不变）
         anim_group.finished.connect(lambda: self.active_animations.pop(id(widget), None))
         self.active_animations[id(widget)] = (anim_group, effect)
         anim_group.start(QParallelAnimationGroup.DeleteWhenStopped)
@@ -1184,6 +1192,33 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"打开性能监视器时发生未知错误:\n{e}")
 
+    def _re_initialize_all_active_plugins(self):
+        """
+        一个核心的辅助函数，用于强制重新初始化所有当前活动的插件。
+        这就像“拔掉所有USB设备再重新插上”，以确保它们能识别到最新的系统状态。
+        """
+        if not hasattr(self, 'plugin_manager'):
+            return
+
+        active_plugin_ids = list(self.plugin_manager.active_plugins.keys())
+        
+        if not active_plugin_ids:
+            return
+
+        print(f"[主程序] 页面刷新，正在重新初始化 {len(active_plugin_ids)} 个活动插件...")
+
+        for plugin_id in active_plugin_ids:
+            self.plugin_manager.disable_plugin(plugin_id)
+            
+            success = self.plugin_manager.enable_plugin(plugin_id)
+            if not success:
+                print(f"[主程序警告] 插件 '{plugin_id}' 在页面刷新后重新启用失败。它将保持禁用状态。", file=sys.stderr)
+
+        # [核心修正] 调用 MainWindow 自己的 save_config 方法
+        self.save_config()
+        self.update_pinned_plugins_ui()
+        print("[主程序] 所有活动插件已重新初始化完毕。")
+
 
     def _refresh_tab(self, tab_widget, index):
         """
@@ -1202,15 +1237,12 @@ class MainWindow(QMainWindow):
             print(f"警告: 标签页 '{tab_widget.tabText(index)}' 缺少重建信息，无法刷新。")
             return
 
-        # [核心修复] 在销毁前，发射 aboutToBeDestroyed 信号
-        # 检查该信号是否存在，以防万一
         if hasattr(old_widget, 'aboutToBeDestroyed'):
             try:
                 old_widget.aboutToBeDestroyed.emit()
             except Exception as e:
                 print(f"发射 aboutToBeDestroyed 信号时出错: {e}")
 
-        # --- 后续的页面替换逻辑保持不变 ---
         tab_text = tab_widget.tabText(index)
         tab_icon = tab_widget.tabIcon(index)
         tab_tooltip = tab_widget.tabToolTip(index)
@@ -1227,7 +1259,12 @@ class MainWindow(QMainWindow):
         tab_widget.insertTab(index, new_widget, tab_icon, tab_text)
         tab_widget.setTabToolTip(index, tab_tooltip)
         
-        # 切换到新创建的标签页以触发其加载逻辑
+        # --- [核心修改] ---
+        # 在新页面完全就位后，立即触发所有活动插件的重新初始化。
+        self._re_initialize_all_active_plugins()
+        # --- [修改结束] ---
+        
+        self._is_refreshing = True 
         tab_widget.setCurrentIndex(index)
 
     def _open_tab_in_new_window(self, tab_widget, index):
@@ -1510,17 +1547,24 @@ class MainWindow(QMainWindow):
         except Exception as e: 
              print(f"Error finding active sub-tab: {e}")
 
-        # --- [核心修改] ---
         # 只有在动画被启用时，才执行动画逻辑
         if active_sub_tab_widget and self.animations_enabled:
-            last_index = self.last_sub_tab_indices.get(group_name, -1)
-            
-            if last_index != -1 and index > last_index:
-                direction = 'right'
+            # [核心修改] 检查是否是刷新操作
+            if getattr(self, '_is_refreshing', False):
+                # 如果是刷新，使用原地淡入动画
+                self.animation_manager.slide_and_fade_in(active_sub_tab_widget, direction='inplace')
+                # 使用后立即删除标志，避免影响下一次正常切换
+                del self._is_refreshing
             else:
-                direction = 'left'
-            
-            self.animation_manager.slide_and_fade_in(active_sub_tab_widget, direction=direction)
+                # 否则，执行原有的滑动淡入逻辑
+                last_index = self.last_sub_tab_indices.get(group_name, -1)
+        
+                if last_index != -1 and index > last_index:
+                    direction = 'right'
+                else:
+                    direction = 'left'
+        
+                self.animation_manager.slide_and_fade_in(active_sub_tab_widget, direction=direction)
 
         # 无论动画是否播放，都更新索引记录
         self.last_sub_tab_indices[group_name] = index

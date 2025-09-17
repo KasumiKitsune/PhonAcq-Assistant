@@ -163,6 +163,8 @@ class AccentCollectionPage(QWidget):
         self.update_timer = None 
         self.prompt_mode = 'tts' # 默认提示音模式
         self.pinned_wordlists = []
+        self.beep_sound_path = os.path.join(self.BASE_PATH, "assets", "audio", "beep_prompt.wav")
+        self.next_word_sound_path = os.path.join(self.BASE_PATH, "assets", "audio", "next_word_prompt.wav")
         self._init_ui(); self._connect_signals(); self.update_icons(); self.reset_ui(); self.apply_layout_settings()
         self.load_config_and_prepare()
 
@@ -893,6 +895,15 @@ class AccentCollectionPage(QWidget):
         menu.addSeparator()
         
         create_menu_item(
+            self.icon_manager.get_icon("beep_mode"), # 假设有一个表示声音的图标
+            "使用'哔'声提示",
+            "在智能跟读模式下，用'哔'声提示每次重复。\n单个词条完成后，用另一种声音提示进入下一词。",
+            partial(self.start_session, prompt_mode='beep') # <-- 关键
+        )
+        
+        menu.addSeparator()
+        
+        create_menu_item(
             self.icon_manager.get_icon("mute"),
             "无提示音直接开始",
             "开始一个静默录制会话，不会播放任何提示音。\n适用于跟读、复述等任务。",
@@ -1320,6 +1331,12 @@ class AccentCollectionPage(QWidget):
         
         # 2. 检查是否还有剩余次数
         if self.follow_up_repetitions_left > 0:
+            if self.prompt_mode == 'beep':
+                # 检查文件是否存在，防止因文件缺失导致崩溃
+                if os.path.exists(self.beep_sound_path):
+                    threading.Thread(target=self.play_sound_task, args=(self.beep_sound_path,), daemon=True).start()
+                else:
+                    print(f"[WARNING] Beep sound file not found at: {self.beep_sound_path}")
             # --- 如果还有次数，准备下一次跟读 ---
             module_states = self.config.get("module_states", {}).get("accent_collection", {})
             total_reps = self.session_repetition_count
@@ -1361,6 +1378,14 @@ class AccentCollectionPage(QWidget):
         :param check_all_recorded: 如果为True，则检查是否所有词都录完，并可能结束会话。
                                    如果为False，则无条件寻找下一个未录制的词。
         """
+        # [新增] 如果是哔声模式，且不是因为会话全部完成而调用，则播放下一词提示音
+        if self.prompt_mode == 'beep':
+            all_recorded_now = all(item.get('recorded', False) for item in self.current_word_list)
+            if not all_recorded_now: # 只有在还有词要录的情况下才播放
+                if os.path.exists(self.next_word_sound_path):
+                    threading.Thread(target=self.play_sound_task, args=(self.next_word_sound_path,), daemon=True).start()
+                else:
+                    print(f"[WARNING] Next word sound file not found at: {self.next_word_sound_path}")
         # 重置主录制按钮状态
         self.record_btn.setText("开始录制下一个")
         self.record_btn.setIcon(self.icon_manager.get_icon("record"))
@@ -1410,6 +1435,8 @@ class AccentCollectionPage(QWidget):
     def play_audio_logic(self, index=None):
         # [vNext 新增] 如果是静默模式，则不播放任何提示音
         if self.prompt_mode == 'silent':
+            return
+        if self.prompt_mode == 'beep':
             return
 
         if not self.session_active:

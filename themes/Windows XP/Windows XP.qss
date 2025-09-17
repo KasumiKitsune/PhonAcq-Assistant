@@ -8,6 +8,7 @@
  */
 /* @theme-property-compact: false */ /* 明确设置为非紧凑主题，程序将使用默认窗口尺寸 */
 /* @animations: enabled */ /* 提示保留动画 */
+/* @icon-path: "icons/" */
 
 /* ============================================================================
  *  调色板 (Windows XP Luna Blue - 官方色彩参考)
