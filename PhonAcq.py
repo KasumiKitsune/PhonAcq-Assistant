@@ -1820,12 +1820,11 @@ class MainWindow(QMainWindow):
                 self.tray_icon.hide()
         super().show()
 
-    # [修改] 替换已有的 closeEvent 和 _proceed_with_close 方法
     def closeEvent(self, event):
         """
-        [v2.4 - UI增强版]
+        [v2.6 - 最终版]
         在关闭主窗口前，根据任务状态和用户设置执行正确的操作。
-        此版本的确认对话框为按钮添加了图标和颜色，以提供更清晰的视觉引导。
+        此版本提供带图标的选项、“记住选择”功能，并恢复了明确的“取消”按钮。
         """
         # --- 1. 最高优先级：检查是否有后台任务正在运行 (此部分逻辑不变) ---
         busy_module_task = None
@@ -1854,12 +1853,7 @@ class MainWindow(QMainWindow):
         elif close_action == "tray":
             self.hide()
             self.tray_icon.show()
-            self.tray_icon.showMessage(
-                "PhonAcq Assistant",
-                "程序已最小化到系统托盘。",
-                self.windowIcon(),
-                2000
-            )
+            # 当设置为“最小化到托盘”时，不再显示系统消息
             event.ignore()
 
         else: # 默认行为 "prompt"
@@ -1871,106 +1865,56 @@ class MainWindow(QMainWindow):
             msg_box.setStyleSheet(self.styleSheet()) # 继承主窗口样式
             
             # --- [核心修改开始] ---
-            # a. 创建自定义按钮，而不是使用标准按钮
-            
-            # “最小化到托盘”按钮 (强调色)
+            # a. 创建带图标的自定义按钮
             minimize_btn = QPushButton(" 最小化到托盘")
-            minimize_btn.setObjectName("AccentButton") # 应用主题中的强调色样式
+            minimize_btn.setIcon(self.icon_manager.get_icon("minimize"))
             minimize_btn.setToolTip("程序将隐藏到系统托盘区，并在后台继续运行。")
             
-            # “直接退出”按钮 (警告色)
             exit_btn = QPushButton(" 直接退出")
-            exit_btn.setObjectName("ActionButton_Delete") # 应用主题中的警告/删除色样式
+            exit_btn.setIcon(self.icon_manager.get_icon("end_session_dark"))
+            exit_btn.setObjectName("ActionButton_Delete")
             exit_btn.setToolTip("彻底关闭程序，所有后台任务将终止。")
             
-            # “取消”按钮 (标准样式)
+            # [恢复] 创建标准的“取消”按钮
             cancel_btn = QPushButton(" 取消")
+
+            # b. 创建“记住选择”复选框
+            remember_choice_checkbox = QCheckBox("记住我的选择")
+            remember_choice_checkbox.setToolTip("下次关闭窗口时将直接执行此操作，不再弹出提示。")
+            msg_box.setCheckBox(remember_choice_checkbox)
+
+            # c. 将所有三个按钮添加到对话框
+            msg_box.addButton(minimize_btn, QMessageBox.AcceptRole)
+            msg_box.addButton(exit_btn, QMessageBox.DestructiveRole)
+            msg_box.addButton(cancel_btn, QMessageBox.RejectRole)
             
-            # b. 使用 addButton 将自定义按钮添加到对话框中
-            # addButton(widget, buttonRole)
-            msg_box.addButton(minimize_btn, QMessageBox.AcceptRole) # AcceptRole 通常是积极操作
-            msg_box.addButton(exit_btn, QMessageBox.DestructiveRole) # DestructiveRole 提示此操作有潜在风险
-            msg_box.addButton(cancel_btn, QMessageBox.RejectRole) # RejectRole 用于取消
-            
-            # c. 设置默认焦点按钮
+            # d. 设置默认焦点按钮为“取消”，这是最安全的选择
             msg_box.setDefaultButton(cancel_btn)
             
-            # d. 显示对话框并等待用户选择
+            # e. 显示对话框并等待用户选择
             msg_box.exec_()
             
-            # e. 获取被点击的按钮实例
+            # f. 获取被点击的按钮实例
             clicked_button = msg_box.clickedButton()
 
-            # f. 根据被点击的按钮实例执行相应操作
+            # g. 根据被点击的按钮实例执行相应操作
             if clicked_button == minimize_btn:
+                if remember_choice_checkbox.isChecked():
+                    self.config.setdefault("app_settings", {})["close_window_action"] = "tray"
+                    self.save_config()
                 self.hide()
                 self.tray_icon.show()
                 event.ignore()
             elif clicked_button == exit_btn:
+                if remember_choice_checkbox.isChecked():
+                    self.config.setdefault("app_settings", {})["close_window_action"] = "exit"
+                    self.save_config()
                 self._shutdown_application()
-            else: # 用户点击了取消按钮或关闭了对话框
+            else: # 用户点击了“取消”按钮或关闭了对话框
                 event.ignore()
             # --- [核心修改结束] ---
 
-    # [修改] 新的辅助方法，用于封装原始的关闭逻辑
-    def _proceed_with_close(self, event):
-        """
-        [v2.1 - 退出逻辑修复版]
-        执行实际的窗口关闭逻辑。
-        """
-        # 检查是否是从托盘菜单触发的强制退出
-        if getattr(self, '_is_force_quitting', False):
-            print("[主程序] 正在强制退出...")
-            self.plugin_manager.teardown_all_plugins()
-            QApplication.instance().quit()
-            return
-        
-        # 从配置中读取关闭行为
-        close_action = self.config.get("app_settings", {}).get("close_window_action", "prompt")
 
-        if close_action == "exit":
-            self.plugin_manager.teardown_all_plugins()
-            # [核心修复] 使用 quit() 彻底退出应用，而不是仅仅关闭窗口
-            QApplication.instance().quit()
-        
-        elif close_action == "tray":
-            self.hide()
-            self.tray_icon.show()
-            self.tray_icon.showMessage(
-                "PhonAcq Assistant",
-                "程序已最小化到系统托盘。",
-                self.windowIcon(),
-                2000
-            )
-            event.ignore()
-
-        else: # 默认行为 "prompt"
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("确认操作")
-            msg_box.setText("您想如何关闭程序？")
-            msg_box.setInformativeText("选择“最小化到托盘”可以在后台继续运行。")
-            msg_box.setIcon(QMessageBox.Question)
-            msg_box.setStyleSheet(self.styleSheet())
-            
-            minimize_btn = msg_box.addButton("最小化到托盘", QMessageBox.AcceptRole)
-            exit_btn = msg_box.addButton("直接退出", QMessageBox.DestructiveRole)
-            cancel_btn = msg_box.addButton("取消", QMessageBox.RejectRole)
-            
-            msg_box.setDefaultButton(cancel_btn)
-            msg_box.exec_()
-            
-            clicked_button = msg_box.clickedButton()
-
-            if clicked_button == minimize_btn:
-                self.hide()
-                self.tray_icon.show()
-                event.ignore()
-            elif clicked_button == exit_btn:
-                self.plugin_manager.teardown_all_plugins()
-                # [核心修复] 在提示框中选择退出时，同样使用 quit()
-                QApplication.instance().quit()
-            else: # Cancel
-                event.ignore()
 
     # [新增] 插件UI设置
     def setup_plugin_ui(self):
