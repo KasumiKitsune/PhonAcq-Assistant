@@ -1052,10 +1052,10 @@ class AudioAnalysisBatchPanel(QWidget):
 
         self.file_table.blockSignals(False)
 
-    def _start_batch_analysis(self, filepaths_to_process, dialog_title):
+    def _start_batch_analysis(self, filepaths_to_process, dialog_title, override_params=None):
         """
-        [修改] 一个通用的辅助方法，用于启动批量分析任务。
-        现在它控制内嵌的进度条。
+        [已重构] 一个通用的辅助方法，用于启动批量分析任务。
+        现在它接受一个 override_params 字典来覆盖默认的UI设置。
         """
         self.is_batch_task_running = True
         self.run_all_btn.setEnabled(False)
@@ -1069,7 +1069,7 @@ class AudioAnalysisBatchPanel(QWidget):
             QMessageBox.information(self, "无需分析", "没有需要分析的文件。")
             return
 
-        # ... (保留获取分析参数 `params` 的所有代码)
+        # 1. 从UI获取默认分析参数
         module_states = self.main_page.parent_window.config.get("module_states", {}).get("audio_analysis", {})
         analysis_mode = module_states.get("analysis_mode", "normal")
         params = {
@@ -1082,22 +1082,25 @@ class AudioAnalysisBatchPanel(QWidget):
             'is_wide_band': self.main_page.spectrogram_type_checkbox.isChecked(),
             'analysis_mode': analysis_mode,
         }
+        
+        # [核心修改] 如果提供了覆盖参数，则更新参数字典
+        if override_params and isinstance(override_params, dict):
+            params.update(override_params)
 
+        # --- 后续的启动逻辑保持不变 ---
         self.file_list_for_run = filepaths_to_process
         self.total_files = len(self.file_list_for_run)
         self.current_file_index = 0
 
         self.progress_bar.setRange(0, self.total_files * 100)
         self.progress_bar.setValue(0)
-        self.progress_label.setText(dialog_title) # 设置上方的文本标签
-        self.progress_container.show() # 显示整个容器
-        # --- [修改结束] ---
+        self.progress_label.setText(dialog_title)
+        self.progress_container.show()
 
         self.batch_worker = BatchAnalysisWorker(self.file_list_for_run, params)
         self.batch_thread = QThread()
         self.batch_worker.moveToThread(self.batch_thread)
 
-        # [修改] 不再连接 QProgressDialog 的 canceled 信号
         self.batch_worker.progress.connect(self._on_batch_progress)
         self.batch_worker.chunk_progress.connect(self._on_chunk_progress)
         self.batch_worker.single_file_completed.connect(self._on_single_file_completed)
@@ -1112,12 +1115,24 @@ class AudioAnalysisBatchPanel(QWidget):
     def run_all_analysis(self):
         """启动对所有待处理文件的批量分析。"""
         files_to_run = [fp for fp, status in self.file_list if status != "已分析"]
+        # [修改] 调用更新后的函数，不传递覆盖参数
         self._start_batch_analysis(files_to_run, "正在准备批量分析...")
 
     def _run_analysis_on_selected(self, filepaths):
         """对所有选中的文件启动一个独立的后台分析任务。"""
         dialog_title = f"正在分析 {len(filepaths)} 个选中文件..."
+        # [修改] 调用更新后的函数，不传递覆盖参数
         self._start_batch_analysis(filepaths, dialog_title)
+        
+    def _run_analysis_on_selected_compatibility(self, filepaths):
+        """
+        [新增] 对所有选中的文件，使用兼容模式启动分析。
+        """
+        dialog_title = f"正在用兼容模式分析 {len(filepaths)} 个文件..."
+        # [核心] 定义覆盖参数
+        override_params = {'analysis_mode': 'compatibility'}
+        # 调用核心启动函数，并传入覆盖参数
+        self._start_batch_analysis(filepaths, dialog_title, override_params=override_params)
 
     def _cleanup_batch_thread(self):
         """
@@ -1542,9 +1557,9 @@ class AudioAnalysisBatchPanel(QWidget):
 
     def _open_context_menu(self, position):
         """
-        [v2.0 - 多选与插件集成版]
+        [v2.1 - 兼容模式版]
         构建并显示文件列表的右键上下文菜单。
-        此版本支持多选，并能将选中的分析数据发送到可视化插件。
+        此版本新增了“用兼容模式分析”的选项。
         """
         selected_rows = sorted(list(set(item.row() for item in self.file_table.selectedItems())))
         if not selected_rows:
@@ -1553,9 +1568,8 @@ class AudioAnalysisBatchPanel(QWidget):
         menu = QMenu(self)
         num_selected = len(selected_rows)
         
-        # --- 1. 获取选中文件的基本信息 ---
+        # --- 1. 获取选中文件的基本信息 (保持不变) ---
         selected_filepaths = [self.file_table.item(row, 0).data(Qt.UserRole) for row in selected_rows]
-        # 检查选中的文件中，有多少已经分析过（有缓存数据）
         analyzed_filepaths = [fp for fp in selected_filepaths if fp in self.analysis_cache]
         num_analyzed = len(analyzed_filepaths)
 
@@ -1565,31 +1579,32 @@ class AudioAnalysisBatchPanel(QWidget):
         analyze_action = menu.addAction(self.icon_manager.get_icon("analyze"), f"分析选中的 {num_selected} 个文件")
         analyze_action.triggered.connect(lambda: self._run_analysis_on_selected(selected_filepaths))
         
+        # [核心新增] 添加兼容模式分析选项
+        compat_analyze_action = menu.addAction(self.icon_manager.get_icon("auto_detect"), f"用兼容模式分析 {num_selected} 个文件")
+        compat_analyze_action.setToolTip("使用兼容模式对选中文件进行F0分析。\n此模式精细度较低，但可能对某些特殊音频效果更好。\n该操作会覆盖已有的分析结果。")
+        compat_analyze_action.triggered.connect(lambda: self._run_analysis_on_selected_compatibility(selected_filepaths))
+        
         menu.addSeparator()
 
-        # 2.2. 发送到可视化插件 (只有在有已分析文件时才显示)
+        # --- 后续菜单项保持不变 ---
+        # 2.2. 发送到可视化插件
         if num_analyzed > 0:
-            # 获取插件实例
             plotter_plugin = self.main_page.parent_window.plugin_manager.get_plugin_instance("com.phonacq.vowel_space_plotter")
             intonation_plugin = self.main_page.parent_window.plugin_manager.get_plugin_instance("com.phonacq.intonation_visualizer")
 
-            # 只有当至少一个插件可用时，才创建子菜单
             if plotter_plugin or intonation_plugin:
                 send_to_menu = menu.addMenu(self.icon_manager.get_icon("send_to_chart"), f"发送 {num_analyzed} 个已分析文件到")
-                
                 if plotter_plugin:
                     plotter_action = send_to_menu.addAction(self.icon_manager.get_icon("chart"), "元音空间绘制器")
                     plotter_action.triggered.connect(lambda: self._send_data_to_plugin(analyzed_filepaths, 'formants'))
-                
                 if intonation_plugin:
                     intonation_action = send_to_menu.addAction(self.icon_manager.get_icon("chart2"), "语调可视化器")
                     intonation_action.triggered.connect(lambda: self._send_data_to_plugin(analyzed_filepaths, 'f0'))
-            
             menu.addSeparator()
 
         # 2.3. 文件操作
         play_action = menu.addAction(self.icon_manager.get_icon("play_audio"), "试听")
-        play_action.setEnabled(num_selected == 1) # 只有单选时才能试听
+        play_action.setEnabled(num_selected == 1)
         if num_selected == 1:
             play_action.triggered.connect(lambda: self._play_file(selected_filepaths[0]))
 
@@ -1597,7 +1612,7 @@ class AudioAnalysisBatchPanel(QWidget):
         delete_action.triggered.connect(lambda: self._remove_selected_files(selected_rows))
         
         details_action = menu.addAction(self.icon_manager.get_icon("info"), "音频详情")
-        details_action.setEnabled(num_selected == 1) # 只有单选时才能看详情
+        details_action.setEnabled(num_selected == 1)
         if num_selected == 1:
             details_action.triggered.connect(lambda: self._show_file_details(selected_filepaths[0]))
         

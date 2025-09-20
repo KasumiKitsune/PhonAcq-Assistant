@@ -26,16 +26,26 @@ except ImportError:
         def clip(self, data, *args): return data
     np = MockNumpy()
     print("WARNING: numpy library not found. Audio test functionality will be degraded.")
+try:
+    import requests
+except ImportError:
+    requests = None
+    print("WARNING: requests library not found. Update check functionality will be unavailable.")
 # PyQt5 GUI 库的核心组件导入
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QFileDialog, QMessageBox, QComboBox, QFormLayout, 
     QGroupBox, QLineEdit, QSlider, QSpacerItem, QSizePolicy,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
-    QAbstractItemView, QDialogButtonBox, QDialog, QMenu, QScrollArea, QStackedWidget, QListWidget, QListWidgetItem, QGridLayout # 新增QMenu, QScrollArea
+    QAbstractItemView, QDialogButtonBox, QDialog, QMenu, QScrollArea, QStackedWidget, QListWidget, QListWidgetItem, QGridLayout, QTextEdit # 新增QMenu, QScrollArea
 )
 from PyQt5.QtGui import QIntValidator, QColor, QBrush, QIcon, QPalette, QPixmap, QPainter
-from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEasingCurve, QPropertyAnimation, pyqtProperty
+from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEasingCurve, QPropertyAnimation, pyqtProperty, QObject, QThread
+try:
+    import markdown
+except ImportError:
+    markdown = None
+    print("WARNING: markdown library not found. Release notes will be displayed as plain text.")
 from modules.custom_widgets_module import AnimatedSlider
 # 尝试导入 sounddevice 库用于音频设备检测，如果失败则使用 Mock 对象以避免程序崩溃
 try:
@@ -193,6 +203,47 @@ class AnimatedLogoLabel(QLabel):
             self.scale_animation.setEndValue(target_scale)
             self.scale_animation.start()
         super().mouseReleaseEvent(event)
+class UpdateCheckWorker(QObject):
+    """
+    在后台线程中执行更新检查的专用工作器。
+    完成后通过信号将结果（成功或失败）发送回主线程。
+    """
+    finished = pyqtSignal(dict) # 使用字典来传递复杂的结果
+
+    def __init__(self, current_version):
+        super().__init__()
+        self.current_version = current_version
+        self.api_url = "https://api.github.com/repos/KasumiKitsune/PhonAcq-Assistant/releases/latest"
+
+    def run(self):
+        """执行网络请求和版本比较的核心逻辑。"""
+        if requests is None:
+            self.finished.emit({
+                'success': False,
+                'error': "缺少 'requests' 库，无法检查更新。\n请运行: pip install requests"
+            })
+            return
+
+        try:
+            response = requests.get(self.api_url, timeout=10)
+            response.raise_for_status()  # 如果HTTP状态码是4xx或5xx，则引发异常
+            data = response.json()
+            
+            latest_version_tag = data.get('tag_name')
+            if not latest_version_tag:
+                raise ValueError("API响应中未找到 'tag_name'。")
+
+            self.finished.emit({
+                'success': True,
+                'latest_version': latest_version_tag,
+                'release_notes': data.get('body', '无版本说明。'),
+                'release_url': data.get('html_url', '#')
+            })
+
+        except requests.exceptions.RequestException as e:
+            self.finished.emit({'success': False, 'error': f"网络错误: {e}"})
+        except Exception as e:
+            self.finished.emit({'success': False, 'error': f"检查更新时发生未知错误: {e}"})
 
 class SettingsPage(QWidget):
     """
@@ -468,16 +519,19 @@ class SettingsPage(QWidget):
         self.github_btn = QPushButton("  项目主页")
         self.report_bug_btn = QPushButton("  报告问题")
         self.manual_btn = QPushButton("  查看手册")
-        self.check_update_btn = QPushButton("  检查更新")
+        self.check_update_btn = QPushButton("  检查更新") # 保持不变
         
         # 连接信号
         self.github_btn.clicked.connect(lambda: self._open_link("https://github.com/KasumiKitsune/PhonAcq-Assistant"))
         self.report_bug_btn.clicked.connect(lambda: self._open_link("https://github.com/KasumiKitsune/PhonAcq-Assistant/issues"))
         self.manual_btn.clicked.connect(self._open_manual)
         
-        # 暂时禁用“检查更新”按钮
-        self.check_update_btn.setToolTip("此功能将在未来版本中实现。")
-        self.check_update_btn.setEnabled(False)
+        # --- [核心修改] ---
+        # 启用“检查更新”按钮并连接其信号
+        self.check_update_btn.setToolTip("连接到 GitHub 检查是否有新版本。")
+        self.check_update_btn.setEnabled(True)
+        self.check_update_btn.clicked.connect(self._on_check_update_clicked)
+        # --- [修改结束] ---
 
         # 将按钮添加到网格布局中
         links_layout.addWidget(self.github_btn, 0, 0)
@@ -533,7 +587,126 @@ class SettingsPage(QWidget):
         page_layout.addStretch()
 
         self.stack.addWidget(scroll_area)
+    def _on_check_update_clicked(self):
+        """当“检查更新”按钮被点击时，启动后台检查任务。"""
+        self.check_update_btn.setEnabled(False)
+        self.check_update_btn.setText("  正在检查...")
+        
+        current_version = getattr(self.parent_window, 'app_version', 'v0.0.0')
+        
+        self.update_check_thread = QThread()
+        self.update_check_worker = UpdateCheckWorker(current_version)
+        self.update_check_worker.moveToThread(self.update_check_thread)
+        
+        self.update_check_thread.started.connect(self.update_check_worker.run)
+        self.update_check_worker.finished.connect(self._on_update_check_finished)
+        
+        self.update_check_worker.finished.connect(self.update_check_thread.quit)
+        self.update_check_worker.finished.connect(self.update_check_worker.deleteLater)
+        self.update_check_thread.finished.connect(self.update_check_thread.deleteLater)
+        
+        self.update_check_thread.start()
 
+    def _on_update_check_finished(self, result):
+        """当后台更新检查任务完成后，处理结果并在UI上显示。"""
+        # 恢复按钮状态
+        self.check_update_btn.setEnabled(True)
+        self.check_update_btn.setText("  检查更新")
+        
+        if not result['success']:
+            QMessageBox.warning(self, "检查失败", f"无法完成更新检查：\n{result['error']}")
+            return
+
+        latest_version = result['latest_version']
+        current_version = getattr(self.parent_window, 'app_version', 'v0.0.0')
+        
+        comparison = self._compare_versions(current_version, latest_version)
+
+        if comparison < 0:
+            # 发现新版本
+            version_clean = latest_version.lstrip('v')
+            download_url = f"https://github.com/KasumiKitsune/PhonAcq-Assistant/releases/download/{latest_version}/PhonAcq-{version_clean}-Setup.exe"
+            
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("发现新版本")
+            msg_box.setText(f"<b>发现新版本: {latest_version}</b> (当前: {current_version})")
+            msg_box.setInformativeText("是否立即前往下载页面？")
+            
+            # --- [核心优化：处理并渲染 Release Notes] ---
+            release_notes_md = result.get('release_notes', '无版本说明。')
+
+            # 1. 使用一个空格作为占位符，强制 QMessageBox 创建详细信息区域的控件
+            msg_box.setDetailedText(" ")
+
+            # 2. 找到 QMessageBox 内部用于显示详细信息的 QTextEdit 控件
+            text_edit = msg_box.findChild(QTextEdit)
+            
+            if text_edit:
+                # 3. 如果找到了控件，根据 markdown 库是否可用，设置其内容
+                if markdown:
+                    # 将 Markdown 转换为 HTML
+                    html_content = markdown.markdown(release_notes_md, extensions=['fenced_code', 'tables'])
+                    # 组合成完整的 HTML 文档进行显示
+                    full_html = f"<h3>版本说明:</h3>{html_content}"
+                    text_edit.setHtml(full_html)
+                else:
+                    # 如果 markdown 库不可用，则回退到显示纯文本
+                    plain_text_content = f"版本说明:\n\n{release_notes_md}"
+                    text_edit.setPlainText(plain_text_content)
+                
+                text_edit.setReadOnly(True) # 确保内容不可编辑
+            else:
+                # 4. 终极回退方案：如果找不到 QTextEdit，仍然使用 setDetailedText，但显示纯文本
+                msg_box.setDetailedText(f"版本说明:\n\n{release_notes_md}")
+            # --- [优化结束] ---
+
+            download_btn = msg_box.addButton("前往下载", QMessageBox.YesRole)
+            later_btn = msg_box.addButton("以后再说", QMessageBox.NoRole)
+            
+            msg_box.exec_()
+            
+            if msg_box.clickedButton() == download_btn:
+                self._open_link(download_url)
+        
+        elif comparison == 0:
+            # 已是最新版本
+            QMessageBox.information(self, "已是最新", f"您正在使用的版本 ({current_version}) 已是最新版本。")
+            
+        else: # comparison > 0
+            # 当前版本比发布的更新
+            QMessageBox.information(self, "开发者版本", f"您当前的版本 ({current_version}) 高于最新的公开发行版 ({latest_version})。\n感谢您的测试！")
+
+    def _compare_versions(self, v1_str, v2_str):
+        """
+        比较两个 'vX.Y.Z' 格式的版本号。
+        返回:
+        -1 如果 v1 < v2
+         0 如果 v1 == v2
+         1 如果 v1 > v2
+        """
+        def parse(v_str):
+            # 移除前导 'v' 并按 '.' 分割，然后转换为整数
+            parts = v_str.lstrip('v').split('.')
+            return [int(p) for p in parts]
+
+        try:
+            v1_parts = parse(v1_str)
+            v2_parts = parse(v2_str)
+            
+            # 比较每个部分
+            for i in range(max(len(v1_parts), len(v2_parts))):
+                p1 = v1_parts[i] if i < len(v1_parts) else 0
+                p2 = v2_parts[i] if i < len(v2_parts) else 0
+                if p1 < p2:
+                    return -1
+                if p1 > p2:
+                    return 1
+            
+            return 0 # 所有部分都相等
+        except (ValueError, IndexError):
+            # 如果版本号格式不正确，则认为它们相等
+            return 0
 
     def _open_manual(self):
         """

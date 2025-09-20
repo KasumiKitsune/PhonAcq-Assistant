@@ -8,6 +8,7 @@ MODULE_DESCRIPTION = "浏览、试听、管理已录制的音频文件，并支�
 import os
 import sys
 import shutil
+import html
 import tempfile
 from datetime import datetime
 import subprocess 
@@ -561,11 +562,14 @@ class AudioManagerPage(QWidget):
         self.global_file_index = []
         self.is_global_search_active = False
         self._is_slider_resetting = False
+        self.current_wordlist_map = None
+        self.show_notes_column_setting = True 
 
         # --- 核心修复点 ---
         # 1. 在调用 _init_ui() 之前，提前加载所有UI控件创建时需要依赖的配置值。
         module_states = self.config.get("module_states", {}).get("audio_manager", {})
         self.shortcut_button_action = module_states.get('shortcut_action', 'delete')
+        self.show_notes_column_setting = module_states.get("show_notes_column", True)
         self.adaptive_volume_default_state = module_states.get('adaptive_volume', True)
         
         # 2. 现在可以安全地初始化UI了，因为它依赖的值已经存在。
@@ -1767,6 +1771,9 @@ class AudioManagerPage(QWidget):
 
     # [新增] 更新暂存区列表UI
     def _update_staging_list_widget(self):
+        # [核心修复] 在添加新项目前，先清空列表
+        self.staging_list_widget.clear()
+        
         items_text = [self.staged_files[path] for path in sorted(self.staged_files.keys())]
         self.staging_list_widget.addItemsWithAnimation(items_text)
 
@@ -2325,6 +2332,7 @@ class AudioManagerPage(QWidget):
     def _setup_shortcut_button(self, row, filepath):
         """
         为指定行创建、设置并连接快捷操作按钮。
+        此版本会根据词表关联状态，动态地将按钮放置在正确的列中。
         
         Args:
             row (int): 要放置按钮的行号。
@@ -2340,19 +2348,20 @@ class AudioManagerPage(QWidget):
         if action == 'delete':
             shortcut_btn.setIcon(self.icon_manager.get_icon("delete"))
             shortcut_btn.setToolTip("快捷操作：删除此文件")
-            # 使用 lambda 确保传递的是当前的 filepath
+            # 使用 lambda 确保传递的是正确的行号
             shortcut_btn.clicked.connect(lambda _, r=row: self._delete_single_item_from_shortcut(r))
 
         elif action == 'play':
             shortcut_btn.setIcon(self.icon_manager.get_icon("play_audio"))
             shortcut_btn.setToolTip("快捷操作：试听/暂停此文件")
-            # 使用 lambda 确保传递的是当前的 row
+            # 连接到智能播放处理函数
             shortcut_btn.clicked.connect(lambda _, r=row: self._on_shortcut_play_button_clicked(r))
 
         elif action == 'analyze':
             shortcut_btn.setIcon(self.icon_manager.get_icon("analyze"))
             shortcut_btn.setToolTip("快捷操作：在音频分析中打开")
-            shortcut_btn.clicked.connect(lambda _, f=filepath: self.parent_window.go_to_audio_analysis(f))
+            # 使用 lambda 确保传递的是正确的文件路径
+            shortcut_btn.clicked.connect(lambda _, f=filepath: self.send_to_audio_analysis(f))
         
         elif action == 'stage':
             shortcut_btn.setIcon(self.icon_manager.get_icon("add_row"))
@@ -2369,15 +2378,17 @@ class AudioManagerPage(QWidget):
             shortcut_btn.setToolTip("快捷操作：在文件浏览器中显示")
             shortcut_btn.clicked.connect(lambda _, f=filepath: self.open_in_explorer(os.path.dirname(f), select_file=os.path.basename(f)))
         
+        should_show_notes = self.current_wordlist_map is not None and self.show_notes_column_setting
+        
+        shortcut_col_index = 4 if should_show_notes else 3
+        
         # 将配置好的按钮设置到表格的指定单元格中
-        self.audio_table_widget.setCellWidget(row, 3, shortcut_btn)
+        self.audio_table_widget.setCellWidget(row, shortcut_col_index, shortcut_btn)
         
     def populate_audio_table(self):
         """
-        [v3.1 - Reselection] 现在只负责加载和显示当前文件夹的内容，
-        并在刷新后恢复之前的选择。
+        [v3.2 - 更新表头] 根据词表关联状态动态设置列，并加载文件数据。
         """
-        # [核心修改] 步骤1: 在清空前记录当前选中的文件路径
         current_row = self.audio_table_widget.currentRow()
         path_to_reselect = None
         if current_row != -1:
@@ -2392,7 +2403,20 @@ class AudioManagerPage(QWidget):
         self.audio_table_widget.setRowCount(0)
         self.all_files_data.clear()
         
-        self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
+        self.current_wordlist_map = self._get_word_order() if self.current_session_path else None
+        should_show_notes = self.current_wordlist_map is not None and self.show_notes_column_setting
+
+        if should_show_notes:
+            self.audio_table_widget.setColumnCount(5)
+            self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", "备注", ""])
+            self.audio_table_widget.setColumnWidth(3, 150) 
+            self.audio_table_widget.setColumnWidth(4, 80)
+        else:
+            self.audio_table_widget.setColumnCount(4)
+            self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
+            self.audio_table_widget.setColumnWidth(3, 80)
+        
+
 
         if not self.current_session_path:
             self.table_label.setText("请从左侧选择一个项目以查看文件")
@@ -2401,7 +2425,6 @@ class AudioManagerPage(QWidget):
         self.table_label.setText(f"项目: {os.path.basename(self.current_session_path)}")
 
         try:
-            # ... (加载文件的逻辑保持不变) ...
             supported_exts = ('.wav', '.mp3', '.flac', '.ogg')
             for filename in os.listdir(self.current_session_path):
                 if filename.lower().endswith(supported_exts):
@@ -2421,13 +2444,12 @@ class AudioManagerPage(QWidget):
             QTimer.singleShot(2000, lambda: self.status_label.setText("准备就绪"))            
             self.filter_and_render_files()
 
-            # [核心修改] 步骤2: 在表格渲染后，尝试恢复选择
             if path_to_reselect:
                 for row in range(self.audio_table_widget.rowCount()):
                     item = self.audio_table_widget.item(row, 0)
                     if item and item.data(Qt.UserRole) == path_to_reselect:
                         self.audio_table_widget.setCurrentCell(row, 0)
-                        break # 找到后即停止循环
+                        break
 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"加载音频文件列表失败: {e}")
@@ -2540,14 +2562,14 @@ class AudioManagerPage(QWidget):
     # [重构 v3.2] 核心搜索与渲染方法，使用新的智能评分系统
     def filter_and_render_files(self):
         """
-        [v3.4 - Correct Wordlist Sort]
-        修复了词表降序排序的逻辑错误。
+        [v3.5 - 修复表头重置BUG]
+        根据搜索词和排序选项，过滤并渲染文件列表。
+        此版本修复了在常规排序模式下表头被错误重置的问题。
         """
         search_term = self.search_input.text().strip()
 
         if search_term:
-            # --- 模式1: 全局搜索 (逻辑不变) ---
-            # ... (此部分代码无需改动) ...
+            # --- 模式1: 全局搜索 ---
             self.is_global_search_active = True
             search_results = []
             for file_info in self.global_file_index:
@@ -2566,18 +2588,13 @@ class AudioManagerPage(QWidget):
         elif self.current_sort_key == 'wordlist' and self.current_session_path:
             # --- 模式2: 按词表顺序排序 ---
             self.is_global_search_active = False
-            word_order = self._get_word_order()
+            word_order_map = self.current_wordlist_map # 使用已加载的映射
 
-            if word_order:
-                # [核心修复] 不再手动反转词序列表。
-                # if self.sort_order_btn.isChecked():
-                #     word_order.reverse() # <--- 已移除此行
-
+            if word_order_map:
+                word_order = list(word_order_map.keys())
                 order_map = {word: i for i, word in enumerate(word_order)}
                 
-                matched_files = []
-                unmatched_files = []
-
+                matched_files, unmatched_files = [], []
                 for file_info in self.all_files_data:
                     word_stem, _ = os.path.splitext(file_info['name'])
                     if word_stem in order_map:
@@ -2586,36 +2603,35 @@ class AudioManagerPage(QWidget):
                     else:
                         unmatched_files.append(file_info)
 
-                # [核心修复] 使用 sort() 方法的 reverse 参数来处理升/降序。
-                # self.sort_order_btn.isChecked() == True 意为“降序”。
                 is_descending = self.sort_order_btn.isChecked()
                 matched_files.sort(key=lambda x: x['order'], reverse=is_descending)
-                
-                # 未匹配的文件总是按名称升序排列，放在列表末尾。
                 unmatched_files.sort(key=lambda x: x['name'])
 
-                # 如果是降序，未匹配的文件应该放在最前面。
-                if is_descending:
-                    sorted_files = unmatched_files + matched_files
-                else:
-                    sorted_files = matched_files + unmatched_files
-                
+                sorted_files = (unmatched_files + matched_files) if is_descending else (matched_files + unmatched_files)
                 self.render_to_table(sorted_files)
             else:
-                # --- (回退逻辑不变) ---
                 self.status_label.setText("操作取消，已切换回按名称排序。")
                 QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
                 self.sort_combo.setCurrentIndex(0)
 
         else:
-            # --- 模式3: 常规排序 (逻辑不变) ---
-            # ... (此部分代码无需改动) ...
+            # --- 模式3: 常规排序 ---
             self.is_global_search_active = False
-            self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
+            
+            # --- [核心修改] 使用与 populate_audio_table 一致的联合判断逻辑 ---
+            should_show_notes = self.current_wordlist_map is not None and self.show_notes_column_setting
+
+            if should_show_notes:
+                self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", "备注", ""])
+            else:
+                self.audio_table_widget.setHorizontalHeaderLabels(["文件名", "文件大小", "修改日期", ""])
+            # --- 修复结束 ---
+            
             if self.current_session_path:
                 self.table_label.setText(f"项目: {os.path.basename(self.current_session_path)}")
             else:
                  self.table_label.setText("请从左侧选择一个项目以查看文件")
+            
             is_reverse = self.sort_order_btn.isChecked()
             sorted_files = sorted(self.all_files_data, key=lambda x: x.get(self.current_sort_key, 0), reverse=is_reverse)
             self.render_to_table(sorted_files)
@@ -2716,13 +2732,18 @@ class AudioManagerPage(QWidget):
 
     def render_to_table(self, files_data):
         """
-        [v3.0] 将处理好的局部文件数据模型渲染到 QTableWidget 中。
+        [v3.5 - 最终版] 渲染文件列表。
+        - 根据词表关联状态和用户设置，动态显示/隐藏备注列。
+        - 为备注列提供支持自动换行和手动换行的悬停提示。
         """
         self.audio_table_widget.setRowCount(0)
         self.audio_table_widget.setRowCount(len(files_data))
         
+        # 预先计算出备注列是否应该显示，避免在循环中重复判断
+        should_show_notes = self.current_wordlist_map is not None and self.show_notes_column_setting
+
         for row, file_info in enumerate(files_data):
-            # 1. 填充前三列的数据
+            # 1. 提取并填充基本文件信息 (文件名, 大小, 修改日期)
             filepath = file_info['path']
             filename = file_info['name']
             file_size_str = f"{file_info['size'] / 1024:.1f} KB"
@@ -2735,10 +2756,35 @@ class AudioManagerPage(QWidget):
             self.audio_table_widget.setItem(row, 1, QTableWidgetItem(file_size_str))
             self.audio_table_widget.setItem(row, 2, QTableWidgetItem(mod_time_str))
             
-            # 2. 调用新方法来创建第四列的按钮
+            # 2. 如果需要，填充“备注”列
+            if should_show_notes:
+                # 从文件名中提取词干（不含扩展名），用于在词表映射中查找
+                word_stem, _ = os.path.splitext(filename)
+                
+                # 安全地获取备注，如果找不到则默认为空字符串
+                note = self.current_wordlist_map.get(word_stem, "")
+                note_item = QTableWidgetItem(note)
+                
+                # 仅当备注非空时，为其设置一个支持自动换行的悬停提示
+                if note:
+                    # a. 使用 html.escape() 对文本进行安全的HTML转义，防止内容破坏格式
+                    safe_text = html.escape(note)
+                    
+                    # b. 将文本中的手动换行符 (\n) 替换为HTML的换行标签 (<br>)
+                    text_with_breaks = safe_text.replace('\n', '<br>')
+                    
+                    # c. 将处理后的文本包裹在 <p> 标签中，并用CSS限制最大宽度以实现自动换行
+                    formatted_tooltip = f'<p style="max-width: 350px;">{text_with_breaks}</p>'
+                    
+                    note_item.setToolTip(formatted_tooltip)
+
+                # 将创建好的备注单元格放入表格的第4列 (索引为3)
+                self.audio_table_widget.setItem(row, 3, note_item)
+            
+            # 3. 为每一行设置快捷操作按钮
             self._setup_shortcut_button(row, filepath)
             
-        # 预加载第一个项目
+        # 4. 如果表格中有内容，预加载第一个文件的播放器
         if len(files_data) > 0:
             self._update_player_cache(0)
             
@@ -2868,26 +2914,27 @@ class AudioManagerPage(QWidget):
                 self.audio_table_widget.scrollToItem(item, QAbstractItemView.PositionAtCenter)
                 break
         
+# 在 AudioManagerPage 类中
+
     def rename_folder(self, item, base_dir):
         old_name = item.text()
         old_path = os.path.join(base_dir, old_name)
         new_name, ok = QInputDialog.getText(self, "重命名文件夹", "请输入新的文件夹名称:", QLineEdit.Normal, old_name)
-        
+    
         if ok and new_name and new_name.strip() and new_name != old_name:
             new_path = os.path.join(base_dir, new_name.strip())
             if os.path.exists(new_path):
                 QMessageBox.warning(self, "错误", "该名称的文件夹已存在。")
                 return
-            
+        
             try:
-                # [修复] 在重命名文件夹之前，彻底释放所有可能的文件句柄
+                # --- [核心修改] 将这两行移动到 os.rename 之前 ---
                 self.reset_player()
                 QApplication.processEvents() # 允许事件循环处理播放器停止
 
                 os.rename(old_path, new_path)
                 item.setText(new_name)
-                
-                # [可选但推荐] 更新 current_session_path，如果重命名的是当前选中的文件夹
+            
                 if self.current_session_path == old_path:
                     self.current_session_path = new_path
 
@@ -3190,8 +3237,8 @@ class AudioManagerPage(QWidget):
     # ==============================================================================
     def _get_word_order(self):
         """
-        [v1.2 - Configurable Auto-match] 核心调度器：按优先级获取词序列表。
-        自动匹配逻辑现在受设置控制。
+        [v1.3 - 优化后] 核心调度器：按优先级获取词序列表。
+        如果所有自动方式都失败，则不再弹出选择器，而是直接返回None。
         """
         if not self.current_session_path:
             return None
@@ -3212,7 +3259,7 @@ class AudioManagerPage(QWidget):
             if wordlist_rel_path:
                 return self._load_word_order_from_file(wordlist_rel_path)
         
-        # [核心修改] 优先级 3: 检查设置，如果启用，则尝试自动匹配
+        # 优先级 3: 检查设置，如果启用，则尝试自动匹配
         module_states = self.config.get("module_states", {}).get("audio_manager", {})
         is_auto_associate_enabled = module_states.get("auto_associate_wordlist", True)
 
@@ -3229,9 +3276,12 @@ class AudioManagerPage(QWidget):
                 self.populate_session_list()
                 return self._load_word_order_from_file(found_rel_path)
 
-        # 优先级 4 (回退): 提示用户手动选择
-        self.status_label.setText("状态：未找到自动匹配，请手动选择词表。")
-        return self._prompt_and_save_wordlist_order()
+        # --- 核心修改 ---
+        # 优先级 4 (回退): 不再弹出选择器，直接返回 None
+        # 更新状态标签，告知用户当前状态
+        self.status_label.setText("状态：未找到关联词表。")
+        QTimer.singleShot(3000, lambda: self.status_label.setText("准备就绪"))
+        return None
 
     def _find_matching_wordlist_automatically(self):
         """
@@ -3314,30 +3364,35 @@ class AudioManagerPage(QWidget):
             return None # 用户取消
             
     def _load_word_order_from_file(self, wordlist_rel_path):
-        """从指定的JSON词表文件中加载并“压平”词序。"""
+        """
+        [修改后] 从指定的JSON词表文件中加载并“压平”词序，返回一个单词到备注的映射字典。
+        """
         word_list_dir = os.path.join(self.BASE_PATH, "word_lists")
         full_path = os.path.join(word_list_dir, wordlist_rel_path)
 
         if not os.path.exists(full_path):
             QMessageBox.warning(self, "词表丢失", f"找不到指定的词表文件:\n{full_path}\n请重新指定。")
-            # 删除无效的缓存文件
             cache_path = self._get_wordlist_order_path()
             if os.path.exists(cache_path):
                 os.remove(cache_path)
-            return self._prompt_and_save_wordlist_order() # 引导用户重新选择
+            # 返回 None 表示加载失败
+            return None
 
         try:
             with open(full_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            word_order = []
+            # 创建一个字典来存储 text -> note 的映射
+            word_map = {}
             if "groups" in data and isinstance(data["groups"], list):
                 for group in data["groups"]:
                     if "items" in group and isinstance(group["items"], list):
                         for item in group["items"]:
                             if "text" in item:
-                                word_order.append(item["text"])
-            return word_order
+                                # 使用 .get() 获取备注，如果不存在则默认为空字符串
+                                note = item.get("note", "")
+                                word_map[item["text"]] = note
+            return word_map
         except Exception as e:
             QMessageBox.critical(self, "词表解析失败", f"无法加载或解析词表 '{os.path.basename(full_path)}':\n{e}")
             return None
@@ -3437,15 +3492,21 @@ class SettingsDialog(QDialog):
     # ==============================================================================
     def _init_ui(self, file_manager_available):
         """构建对话框的用户界面。"""
-        # 主布局，采用垂直布局
         layout = QVBoxLayout(self)
 
         # --- 组1: 界面与交互 ---
         ui_group = QGroupBox("界面与交互")
         ui_form_layout = QFormLayout(ui_group)
-        ui_form_layout.setRowWrapPolicy(QFormLayout.WrapAllRows) # 确保长文本能换行
+        ui_form_layout.setRowWrapPolicy(QFormLayout.WrapAllRows)
 
-        # 控件：文件双击行为
+        # --- [核心修改] 新增控件 ---
+        self.show_notes_check = QCheckBox("有关联词表时，显示“备注”列")
+        self.show_notes_check.setToolTip(
+            "启用后，如果当前项目文件夹已关联词表，\n"
+            "文件列表中会额外显示一列，内容为词表中的备注信息。"
+        )
+        # --- 修改结束 ---
+
         self.double_click_combo = QComboBox()
         self.double_click_combo.addItems([
             "播放/暂停", 
@@ -3457,30 +3518,26 @@ class SettingsDialog(QDialog):
             "自定义在文件列表中双击一个文件时执行的操作。"
         )
 
-        # 控件：启动时自动加载上次的数据源
         self.load_last_source_check = QCheckBox("启动时自动加载上次的数据源")
         self.load_last_source_check.setToolTip(
             "下次进入此模块时，自动恢复到您上次查看的项目。"
         )
         
-        # 将控件添加到表单布局
+        # --- [核心修改] 将新控件添加到布局中 ---
+        ui_form_layout.addRow(self.show_notes_check) 
         ui_form_layout.addRow("文件双击行为:", self.double_click_combo)
         ui_form_layout.addRow(self.load_last_source_check)
         
         layout.addWidget(ui_group)
 
-        # --- 组2: 文件操作 ---
+        # ... (文件操作组和按钮栏的代码保持不变) ...
         file_ops_group = QGroupBox("文件操作")
         file_ops_form_layout = QFormLayout(file_ops_group)
         file_ops_form_layout.setRowWrapPolicy(QFormLayout.WrapAllRows)
-
-        # 控件：重命名或裁切后自动选中
         self.auto_select_check = QCheckBox("重命名或裁切后自动选中新文件")
         self.auto_select_check.setToolTip(
             "启用后，程序会自动在列表中找到并高亮新创建的文件。"
         )
-
-        # 控件：删除时移至回收站
         self.recycle_bin_checkbox = QCheckBox("删除时移至回收站")
         self.recycle_bin_checkbox.setEnabled(file_manager_available)
         if file_manager_available:
@@ -3492,22 +3549,16 @@ class SettingsDialog(QDialog):
             self.recycle_bin_checkbox.setToolTip(
                 "此选项需要 '文件管理器' 插件被启用。"
             )
-        
-        # [核心新增] 控件：自动匹配同名词表
         self.auto_associate_checkbox = QCheckBox("自动匹配同名词表")
         self.auto_associate_checkbox.setToolTip(
             "勾选后，在'按词表顺序'排序时，\n"
             "如果项目未关联词表，将自动在词表库中搜索同名文件并关联。"
         )
-
-        # 将控件添加到表单布局
         file_ops_form_layout.addRow(self.auto_select_check)
         file_ops_form_layout.addRow(self.recycle_bin_checkbox)
-        # [核心新增] 将新控件添加到布局中
         file_ops_form_layout.addRow(self.auto_associate_checkbox)
         layout.addWidget(file_ops_group)
 
-        # --- 底部按钮栏 ---
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(self.button_box)
 
@@ -3521,10 +3572,8 @@ class SettingsDialog(QDialog):
     # ==============================================================================
     def load_settings(self):
         """从主配置文件中加载设置，并更新UI控件的当前状态。"""
-        # 安全地获取本模块的设置字典
         module_states = self.parent_page.config.get("module_states", {}).get("audio_manager", {})
         
-        # 定义内部存储值与UI显示文本的映射关系，方便双向转换
         action_map = {
             "play": "播放/暂停", 
             "analyze": "在音频分析中打开", 
@@ -3532,26 +3581,24 @@ class SettingsDialog(QDialog):
             "rename": "重命名"
         }
         
-        # --- 加载“界面与交互”设置 ---
-        # 默认为 'play'
+        # --- [核心修改] 加载新设置 ---
+        # 默认为 True (显示备注列)
+        self.show_notes_check.setChecked(module_states.get("show_notes_column", True))
+        # --- 修改结束 ---
+
         double_click_action = module_states.get("double_click_action", "play")
         self.double_click_combo.setCurrentText(action_map.get(double_click_action, "播放/暂停"))
         
-        # 默认为 True
         self.load_last_source_check.setChecked(module_states.get("load_last_source", True))
         
-        # --- 加载“文件操作”设置 ---
-        # 默认为 True
         self.auto_select_check.setChecked(module_states.get("auto_select_new_file", True))
         
-        # 默认为 'trash'
         deletion_behavior = module_states.get("deletion_behavior", "trash")
         self.recycle_bin_checkbox.setChecked(deletion_behavior == "trash")
         self.auto_associate_checkbox.setChecked(module_states.get("auto_associate_wordlist", True))
 
     def save_settings(self):
         """从UI控件收集当前的设置值，并将其保存回主配置文件。"""
-        # 定义UI显示文本与内部存储值的反向映射
         reverse_action_map = {
             "播放/暂停": "play", 
             "在音频分析中打开": "analyze", 
@@ -3559,29 +3606,27 @@ class SettingsDialog(QDialog):
             "重命名": "rename"
         }
 
-        # 构建要保存的设置字典
         settings_to_save = {
-            # --- 保存“界面与交互”设置 ---
+            # --- [核心修改] 保存新设置 ---
+            "show_notes_column": self.show_notes_check.isChecked(),
+            # --- 修改结束 ---
+            
             "double_click_action": reverse_action_map.get(self.double_click_combo.currentText(), "play"),
             "load_last_source": self.load_last_source_check.isChecked(),
             
-            # --- 保存“文件操作”设置 ---
             "auto_select_new_file": self.auto_select_check.isChecked(),
             "deletion_behavior": "trash" if self.recycle_bin_checkbox.isChecked() else "permanent",
             "auto_associate_wordlist": self.auto_associate_checkbox.isChecked(),
             
-            # --- 保留从主页面读取的其他既有设置，避免覆盖 ---
             "shortcut_action": self.parent_page.shortcut_button_action,
             "adaptive_volume": self.parent_page.adaptive_volume_switch.isChecked(),
         }
         
-        # 如果启用了“加载上次源”，则额外保存当前的位置信息
         if self.load_last_source_check.isChecked():
             settings_to_save['last_source'] = self.parent_page.source_combo.currentText()
             current_project_item = self.parent_page.session_list_widget.currentItem()
             settings_to_save['last_project'] = current_project_item.text() if current_project_item else None
         
-        # 通过主窗口的公共API来更新并保存配置
         main_window = self.parent_page.parent_window
         main_window.update_and_save_module_state('audio_manager', settings_to_save)
 

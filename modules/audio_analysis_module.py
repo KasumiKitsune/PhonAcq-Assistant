@@ -1342,7 +1342,8 @@ class SpectrogramWidget(QWidget):
     
     def create_context_menu(self):
         """
-        [已修复] 创建一个包含所有内置动作和潜在插件动作的右键菜单。
+        [已优化] 创建一个包含所有内置动作和潜在插件动作的右键菜单。
+        此版本新增了“播放选区”功能。
         """
         menu = QMenu(self)
         has_selection = self._selection_start_sample is not None and self._selection_end_sample is not None
@@ -1368,15 +1369,23 @@ class SpectrogramWidget(QWidget):
         analysis_menu.addAction(slice_action)
         
         menu.addMenu(analysis_menu)
-        menu.addSeparator()
 
         # 2. 选区相关操作
         if has_selection:
+            menu.addSeparator() # 将选区操作与分析操作分开
+            
+            # [新增] 播放选区功能
+            play_action = QAction(self.icon_manager.get_icon("play_audio"), "播放选区", self)
+            play_action.triggered.connect(self.parent().parent().toggle_playback)
+            menu.addAction(play_action)
+
             zoom_icon = self.icon_manager.get_icon("zoom_selection") 
             if zoom_icon.isNull(): zoom_icon = self.icon_manager.get_icon("zoom")
             zoom_to_selection_action = QAction(zoom_icon, "伸展选区到视图", self)
             zoom_to_selection_action.triggered.connect(lambda: self.zoomToSelectionRequested.emit(self._selection_start_sample, self._selection_end_sample))
             menu.addAction(zoom_to_selection_action)
+
+        menu.addSeparator()
 
         # 3. 复制信息
         copy_action = QAction(self.icon_manager.get_icon("copy"), "复制光标处信息", self)
@@ -1384,7 +1393,7 @@ class SpectrogramWidget(QWidget):
         copy_action.triggered.connect(lambda checked, text=info_to_copy: QApplication.clipboard().setText(text))
         menu.addAction(copy_action)
         
-        # 4. "导出" 子菜单
+        # 4. "导出" 子菜单 (保持不变)
         export_menu = QMenu("导出", self)
         export_menu.setIcon(self.icon_manager.get_icon("export"))
         
@@ -1395,7 +1404,7 @@ class SpectrogramWidget(QWidget):
         csv_icon = self.icon_manager.get_icon("csv")
         if csv_icon.isNull(): csv_icon = self.icon_manager.get_icon("document")
         export_csv_action = QAction(csv_icon, "将选区内分析数据导出为CSV...", self)
-        export_csv_action.setEnabled(has_selection and has_analysis) # 现在 has_analysis 保证是布尔值
+        export_csv_action.setEnabled(has_selection and has_analysis)
         export_csv_action.setToolTip("需要存在选区和已运行的分析数据。")
         export_csv_action.triggered.connect(self.exportAnalysisToCsvRequested.emit)
         export_menu.addAction(export_csv_action)
@@ -1411,7 +1420,7 @@ class SpectrogramWidget(QWidget):
         menu.addMenu(export_menu)
         
         # ==========================================================
-        # 第二部分：插件注入的菜单项
+        # 第二部分：插件注入的菜单项 (保持不变)
         # ==========================================================
         
         plotter_plugin = getattr(self, 'vowel_plotter_plugin_active', None)

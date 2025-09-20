@@ -526,9 +526,12 @@ class TtsUtilityPage(QWidget):
         # 3. 在项目列表中找到并选中目标项目
         items = target_page.session_list_widget.findItems(project_name, Qt.MatchFixedString)
         if items:
-            target_page.session_list_widget.setCurrentItem(items[0])
+            # [核心修复] 将 item 赋值给一个变量，然后立即使用它
+            # 这样可以减少对象在两次调用之间失效的风险。
+            target_item = items[0]
+            target_page.session_list_widget.setCurrentItem(target_item)
             # 确保选中项可见
-            target_page.session_list_widget.scrollToItem(items[0], QAbstractItemView.PositionAtCenter)
+            target_page.session_list_widget.scrollToItem(target_item, QAbstractItemView.PositionAtCenter)
         else:
             QMessageBox.information(self, "提示", f"在音频管理器中未找到项目 '{project_name}'，可能需要手动刷新。")
 
